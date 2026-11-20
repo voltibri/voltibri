@@ -1,0 +1,72 @@
+# Example: Fronius GEN24 + BYD HVM, Hoymiles via OpenDTU, go-e, Shelly.
+#   voltibri serve -config voltibri.yaml
+#
+# Start with dryRun: true and watch the log: voltibri logs every write it
+# WOULD do. Only switch to false after checking the decisions for a few days.
+site:
+  timezone: Europe/Berlin
+  listen: 127.0.0.1:7070 # no authentication yet – do not expose
+  history: /var/lib/voltibri/history.csv
+  dryRun: true
+  holidays: [] # regional holidays, e.g. "2026-06-04" (Fronleichnam)
+
+battery:
+  capacityWh: 13800 # BYD HVM 13.8
+  maxChargeW: 5000
+  maxDischargeW: 5000
+  minSoC: 0.05
+
+planner:
+  morningBufferSoC: 0.25    # SoC left when PV takes over in the morning
+  safetyMarginSoC: 0.05
+  pvPessimism: 0.8          # plan with 80 % of the PV forecast
+  robustness: 1.3           # delay only if surplus >= 1.3 x needed energy
+  fillOnNegativePrice: false # true = fill battery completely at negative prices
+
+roles:
+  grid: fronius
+  pv: [fronius, opendtu]
+  battery: fronius
+  pvForecast: pvforecast
+  tariff: spot
+
+devices:
+  - id: fronius
+    type: fronius
+    mode: owned # voltibri may limit battery charging
+    params:
+      host: 192.168.1.50
+      capacityWh: 13800
+      modbusPort: 502
+      unitID: 1
+      revert: 5m # inverter falls back to normal operation after 5 min without voltibri
+
+  - id: opendtu
+    type: opendtu
+    mode: observed
+    params:
+      host: 192.168.1.60
+
+  - id: wallbox
+    type: go-e
+    mode: delegated # e.g. controlled by Ostrom NeoGrid – voltibri only observes
+    params:
+      host: 192.168.1.70
+
+  - id: heatpump-plug
+    type: shelly
+    mode: observed
+    params:
+      host: 192.168.1.80
+
+  - id: pvforecast
+    type: forecast.solar
+    params:
+      lat: 51.0
+      lon: 10.0
+      planes:
+        - { dec: 30, az: -90, kwp: 5.0 } # east
+        - { dec: 30, az: 90, kwp: 5.0 }  # west
+
+  - id: spot
+    type: awattar

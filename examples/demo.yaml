@@ -1,0 +1,28 @@
+# Demo: a simulated site, no hardware required.
+#   voltibri serve -config examples/demo.yaml
+site:
+  timezone: Europe/Berlin
+  listen: 127.0.0.1:7070
+  history: demo-history.csv
+  dryRun: false # the demo device is simulated, writing is harmless
+
+battery:
+  capacityWh: 13800
+  maxChargeW: 6000
+  maxDischargeW: 6000
+
+roles:
+  grid: demo
+  pv: [demo]
+  battery: demo
+  pvForecast: demo
+  tariff: demo
+
+devices:
+  - id: demo
+    type: demo
+    mode: owned
+    params:
+      capacityWh: 13800
+      kwp: 10
+      shiftDays: 0 # e.g. 200 to see summer behaviour in November

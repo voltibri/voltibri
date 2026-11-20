@@ -1,0 +1,113 @@
+// Copyright 2026 The voltibri Authors
+// SPDX-License-Identifier: Apache-2.0
+
+// Package sdk defines the contract between the voltibri core and device
+// plugins. A device is any value implementing Device; its capabilities are
+// discovered through Go interface assertions (e.g. dev.(sdk.Battery)).
+//
+// Sign conventions used throughout voltibri:
+//   - power values are in watts (W), energy values in watt-hours (Wh)
+//   - grid power is positive for import and negative for export
+//   - battery power is positive for discharge and negative for charge
+//   - state of charge (SoC) is a fraction between 0 and 1
+package sdk
+
+import (
+	"context"
+	"time"
+)
+
+// Device is the minimal interface every plugin device implements.
+type Device interface {
+	// ID returns the unique device identifier from the configuration.
+	ID() string
+}
+
+// GridMeter measures the power at the grid connection point.
+type GridMeter interface {
+	// GridPower returns the current grid power in W (+import, -export).
+	GridPower(ctx context.Context) (float64, error)
+}
+
+// PVProducer measures photovoltaic production.
+type PVProducer interface {
+	// PVPower returns the current PV production in W (always >= 0).
+	PVPower(ctx context.Context) (float64, error)
+}
+
+// Battery reports the state of a stationary battery.
+type Battery interface {
+	// SoC returns the state of charge as fraction 0..1.
+	SoC(ctx context.Context) (float64, error)
+	// BatteryPower returns the battery power in W (+discharge, -charge).
+	BatteryPower(ctx context.Context) (float64, error)
+	// CapacityWh returns the usable capacity in Wh.
+	CapacityWh() float64
+}
+
+// BatteryController can limit the charge power of a battery.
+//
+// Implementations MUST make limits revert automatically on the device side
+// after a timeout, so that a crashed voltibri never leaves the battery in a
+// restricted state.
+type BatteryController interface {
+	// SetChargeLimit restricts charging to at most w watts (0 = no charging).
+	SetChargeLimit(ctx context.Context, w float64) error
+	// ResetLimits returns the battery to its autonomous default behaviour.
+	ResetLimits(ctx context.Context) error
+}
+
+// ChargerStatus describes the state of an EV charger.
+type ChargerStatus struct {
+	Connected bool    // a vehicle is plugged in
+	Charging  bool    // energy is flowing
+	PowerW    float64 // current charging power
+	CurrentA  float64 // configured current per phase
+	Phases    int     // active phases
+}
+
+// Charger is an EV charging station.
+type Charger interface {
+	ChargerStatus(ctx context.Context) (ChargerStatus, error)
+}
+
+// ChargerController can control an EV charging station.
+type ChargerController interface {
+	// EnableCharging allows or forbids charging.
+	EnableCharging(ctx context.Context, enable bool) error
+	// SetCurrent sets the charging current per phase in ampere.
+	SetCurrent(ctx context.Context, ampere float64) error
+}
+
+// Switch is a relay that can be read and switched (e.g. a smart plug).
+type Switch interface {
+	SwitchState(ctx context.Context) (bool, error)
+	SetSwitch(ctx context.Context, on bool) error
+}
+
+// PowerConsumer reports the power drawn by a single consumer.
+type PowerConsumer interface {
+	ConsumerPower(ctx context.Context) (float64, error)
+}
+
+// Slot is a forecast or price value for a time interval [Start, Start+Duration).
+type Slot struct {
+	Start    time.Time
+	Duration time.Duration
+	Value    float64
+}
+
+// PVForecaster delivers a PV production forecast (Value in W, mean power).
+type PVForecaster interface {
+	PVForecast(ctx context.Context, from, to time.Time) ([]Slot, error)
+}
+
+// TariffSource delivers energy prices (Value in currency per kWh).
+type TariffSource interface {
+	Prices(ctx context.Context, from, to time.Time) ([]Slot, error)
+}
+
+// TemperatureForecaster delivers outdoor temperature forecasts (Value in °C).
+type TemperatureForecaster interface {
+	TemperatureForecast(ctx context.Context, from, to time.Time) ([]Slot, error)
+}

@@ -1,0 +1,6 @@
+/bin/
+*.csv
+!testdata/*.csv
+/voltibri.yaml
+.idea/
+.DS_Store
