@@ -54,6 +54,8 @@ type Roles struct {
 // Device is one configured device.
 type Device struct {
 	ID     string         `yaml:"id"`
+	Name   string         `yaml:"name"` // display name, e.g. "Dach Süd"
+	Icon   string         `yaml:"icon"` // solar, balcony, car, heatpump, plug, water, house
 	Type   string         `yaml:"type"`
 	Mode   string         `yaml:"mode"`
 	Params map[string]any `yaml:"params"`

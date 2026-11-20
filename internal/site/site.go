@@ -38,10 +38,34 @@ type State struct {
 	BatteryW   float64   `json:"batteryW"`
 	LoadW      float64   `json:"loadW"`
 	SoC        float64   `json:"soc"`
+	HasBattery bool      `json:"hasBattery"`
 	LimitW     float64   `json:"chargeLimitW"`
 	Controlled bool      `json:"controlled"` // voltibri actively controls the battery
 	DryRun     bool      `json:"dryRun"`
+	Producers  []Reading `json:"producers"`
+	Consumers  []Reading `json:"consumers"`
+	RestW      float64   `json:"restW"` // house load not covered by a measured consumer
 	Errors     []string  `json:"errors,omitempty"`
+}
+
+// Reading is the power of a single producer or consumer.
+type Reading struct {
+	ID     string  `json:"id"`
+	Name   string  `json:"name"`
+	Icon   string  `json:"icon"`
+	PowerW float64 `json:"powerW"`
+	Mode   string  `json:"mode"`
+}
+
+type producer struct {
+	meta Reading
+	dev  sdk.PVProducer
+}
+
+type consumer struct {
+	meta    Reading
+	power   sdk.PowerConsumer // either power ...
+	charger sdk.Charger       // ... or a charger
 }
 
 // Site wires devices, forecaster and planner together.
@@ -49,13 +73,14 @@ type Site struct {
 	cfg *config.Config
 	loc *time.Location
 
-	devices map[string]sdk.Device
-	grid    sdk.GridMeter
-	pvs     []sdk.PVProducer
-	bat     sdk.Battery
-	batCtl  sdk.BatteryController
-	pvf     sdk.PVForecaster
-	tariff  sdk.TariffSource
+	devices   map[string]sdk.Device
+	grid      sdk.GridMeter
+	pvs       []producer
+	consumers []consumer
+	bat       sdk.Battery
+	batCtl    sdk.BatteryController
+	pvf       sdk.PVForecaster
+	tariff    sdk.TariffSource
 
 	model *forecast.LoadModel
 	hist  *os.File
@@ -92,12 +117,26 @@ func New(cfg *config.Config) (*Site, error) {
 	if s.grid, ok = s.devices[cfg.Roles.Grid].(sdk.GridMeter); !ok {
 		return nil, fmt.Errorf("roles.grid: device %q cannot measure grid power", cfg.Roles.Grid)
 	}
+	isPV := map[string]bool{}
 	for _, id := range cfg.Roles.PV {
 		pv, ok := s.devices[id].(sdk.PVProducer)
 		if !ok {
 			return nil, fmt.Errorf("roles.pv: device %q cannot measure PV power", id)
 		}
-		s.pvs = append(s.pvs, pv)
+		s.pvs = append(s.pvs, producer{meta: meta(cfg, id, "solar"), dev: pv})
+		isPV[id] = true
+	}
+	// every other device that measures its own consumption is a consumer
+	for _, dc := range cfg.Devices {
+		if dc.ID == cfg.Roles.Grid || dc.ID == cfg.Roles.Battery || isPV[dc.ID] {
+			continue
+		}
+		dev := s.devices[dc.ID]
+		if ch, ok := dev.(sdk.Charger); ok {
+			s.consumers = append(s.consumers, consumer{meta: meta(cfg, dc.ID, "car"), charger: ch})
+		} else if pc, ok := dev.(sdk.PowerConsumer); ok {
+			s.consumers = append(s.consumers, consumer{meta: meta(cfg, dc.ID, "plug"), power: pc})
+		}
 	}
 	if id := cfg.Roles.Battery; id != "" {
 		if s.bat, ok = s.devices[id].(sdk.Battery); !ok {
@@ -118,6 +157,23 @@ func New(cfg *config.Config) (*Site, error) {
 		}
 	}
 	return s, nil
+}
+
+// meta returns display information for a device.
+func meta(cfg *config.Config, id, defIcon string) Reading {
+	r := Reading{ID: id, Name: id, Icon: defIcon}
+	for _, d := range cfg.Devices {
+		if d.ID == id {
+			if d.Name != "" {
+				r.Name = d.Name
+			}
+			if d.Icon != "" {
+				r.Icon = d.Icon
+			}
+			r.Mode = d.Mode
+		}
+	}
+	return r
 }
 
 func modeOf(cfg *config.Config, id string) sdk.ControlMode {
@@ -186,6 +242,7 @@ func (s *Site) Run(ctx context.Context) error {
 	s.measure(ctx)
 	s.replan(ctx)
 	s.apply(ctx)
+	s.measure(ctx) // show the effect of the first limit right away
 	for {
 		select {
 		case <-ctx.Done():
@@ -214,7 +271,8 @@ func (s *Site) Run(ctx context.Context) error {
 func (s *Site) measure(ctx context.Context) bool {
 	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
-	st := State{Time: time.Now(), DryRun: s.cfg.Site.DryRun, Controlled: s.batCtl != nil}
+	st := State{Time: time.Now(), DryRun: s.cfg.Site.DryRun, Controlled: s.batCtl != nil, HasBattery: s.bat != nil,
+		Producers: []Reading{}, Consumers: []Reading{}}
 	var errs []string
 	note := func(err error) {
 		if err != nil {
@@ -225,9 +283,12 @@ func (s *Site) measure(ctx context.Context) bool {
 	st.GridW, err = s.grid.GridPower(ctx)
 	note(err)
 	for _, pv := range s.pvs {
-		w, err := pv.PVPower(ctx)
+		w, err := pv.dev.PVPower(ctx)
 		note(err)
 		st.PVW += w
+		r := pv.meta
+		r.PowerW = w
+		st.Producers = append(st.Producers, r)
 	}
 	if s.bat != nil {
 		st.SoC, err = s.bat.SoC(ctx)
@@ -236,6 +297,23 @@ func (s *Site) measure(ctx context.Context) bool {
 		note(err)
 	}
 	st.LoadW = math.Max(0, st.GridW+st.PVW+st.BatteryW)
+	known := 0.0
+	for _, c := range s.consumers {
+		var w float64
+		if c.charger != nil {
+			cs, err := c.charger.ChargerStatus(ctx)
+			note(err)
+			w = cs.PowerW
+		} else {
+			w, err = c.power.ConsumerPower(ctx)
+			note(err)
+		}
+		r := c.meta
+		r.PowerW = math.Max(0, w)
+		known += r.PowerW
+		st.Consumers = append(st.Consumers, r)
+	}
+	st.RestW = math.Max(0, st.LoadW-known)
 	st.Errors = errs
 	for _, e := range errs {
 		slog.Warn("measurement error", "err", e)

@@ -4,7 +4,7 @@ site:
   timezone: Europe/Berlin
   listen: 127.0.0.1:7070
   history: demo-history.csv
-  dryRun: false # the demo device is simulated, writing is harmless
+  dryRun: false # the demo devices are simulated, writing is harmless
 
 battery:
   capacityWh: 13800
@@ -13,16 +13,38 @@ battery:
 
 roles:
   grid: demo
-  pv: [demo]
+  pv: [demo, balkon]
   battery: demo
   pvForecast: demo
   tariff: demo
 
 devices:
   - id: demo
+    name: Dach
+    icon: solar
     type: demo
     mode: owned
     params:
       capacityWh: 13800
       kwp: 10
-      shiftDays: 0 # e.g. 200 to see summer behaviour in November
+      pvShare: 0.92 # the balcony plant reports the rest
+      shiftDays: 0  # e.g. 200 to see summer behaviour in November
+
+  - id: balkon
+    name: Balkonkraftwerk
+    icon: balcony
+    type: demo-producer
+    params: { site: demo, share: 0.08 }
+
+  - id: waermepumpe
+    name: Wärmepumpe
+    icon: heatpump
+    type: demo-consumer
+    params: { site: demo, kind: share, share: 0.3 }
+
+  - id: wallbox
+    name: Wallbox
+    icon: car
+    type: demo-consumer
+    mode: delegated
+    params: { site: demo, kind: wallbox, maxW: 11000 }

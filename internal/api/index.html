@@ -5,83 +5,246 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>voltibri</title>
 <style>
-  :root { --bg:#f7f8f6; --card:#fff; --fg:#1d2420; --muted:#66706a; --line:#e3e6e2;
-          --pv:#e0a100; --load:#4a6fa5; --soc:#2e9e6a; --limit:rgba(46,158,106,.14); --warn:#b54a2a; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#141816; --card:#1d2220; --fg:#e7ebe8; --muted:#97a19b; --line:#2c3330;
-          --pv:#f0b92c; --load:#7c9fd4; --soc:#4cc68d; --limit:rgba(76,198,141,.16); --warn:#e07a5a; } }
+  :root {
+    --bg:#f4f6f3; --card:#ffffff; --fg:#18201b; --muted:#68736c; --line:#e1e5e0; --track:#e6eae5;
+    --solar:#d99a00; --grid:#6b7a8f; --battery:#1f9d6b; --home:#3d6fb6; --consumer:#3d6fb6; --export:#1f9d6b;
+    --node:#ffffff; --limit:rgba(31,157,107,.13); --warn:#b54a2a; --shadow:0 1px 2px rgba(20,30,25,.06);
+  }
+  @media (prefers-color-scheme: dark) { :root {
+    --bg:#111513; --card:#191e1b; --fg:#e6ebe7; --muted:#97a29b; --line:#2a312d; --track:#2a312d;
+    --solar:#f2b62a; --grid:#93a3b8; --battery:#3cc58c; --home:#7aa4e3; --consumer:#7aa4e3; --export:#3cc58c;
+    --node:#1f2521; --limit:rgba(60,197,140,.15); --warn:#e5805f; --shadow:none; } }
   * { box-sizing:border-box; }
-  body { margin:0; font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--bg); color:var(--fg); }
-  main { max-width:1000px; margin:0 auto; padding:20px 16px 40px; }
-  header { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
-  h1 { font-size:22px; margin:0; letter-spacing:-.01em; }
+  body { margin:0; font:15px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--bg); color:var(--fg); }
+  main { max-width:1080px; margin:0 auto; padding:18px 16px 48px; }
+  header { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
+  .logo { display:flex; align-items:center; gap:8px; }
+  h1 { font-size:21px; margin:0; letter-spacing:-.02em; }
   .sub { color:var(--muted); font-size:13px; }
-  .badge { font-size:12px; padding:2px 8px; border-radius:99px; border:1px solid var(--line); color:var(--muted); }
-  .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; margin:18px 0; }
-  .tile { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
-  .tile .k { color:var(--muted); font-size:12px; }
-  .tile .v { font-size:22px; font-variant-numeric:tabular-nums; }
-  section { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin-top:12px; }
-  h2 { font-size:15px; margin:0 0 8px; }
+  .spacer { flex:1; }
+  .badge { font-size:12px; padding:3px 9px; border-radius:99px; border:1px solid var(--line); color:var(--muted); background:var(--card); white-space:nowrap; }
+  .badge.warn { color:var(--warn); border-color:currentColor; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; box-shadow:var(--shadow); }
+  .card + .card, .grid2 { margin-top:14px; }
+  h2 { font-size:14px; margin:0 0 10px; font-weight:600; }
+  .flowhead { display:flex; align-items:baseline; justify-content:space-between; gap:8px; flex-wrap:wrap; }
+  .kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-top:12px; }
+  .kpi { border-top:1px solid var(--line); padding-top:10px; }
+  .kpi .k { color:var(--muted); font-size:12px; }
+  .kpi .v { font-size:20px; font-variant-numeric:tabular-nums; letter-spacing:-.01em; }
+  @media (max-width:640px) { .kpis { grid-template-columns:repeat(2,1fr); } }
+  #flow { width:100%; height:auto; display:block; overflow:visible; }
+  #flow text { font-variant-numeric:tabular-nums; paint-order:stroke; stroke:var(--card); stroke-width:4px; stroke-linejoin:round; }
+  .track { fill:none; stroke:var(--track); stroke-width:2; }
+  .flowline { fill:none; stroke-linecap:round; stroke-dasharray:1 12; animation:dash linear infinite; }
+  @keyframes dash { to { stroke-dashoffset:-26; } }
+  @media (prefers-reduced-motion: reduce) { .flowline { animation:none; stroke-dasharray:none; opacity:.8; } }
   ul { margin:0; padding-left:18px; }
-  svg { width:100%; height:auto; display:block; }
-  .legend { display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--muted); margin-top:6px; }
-  .legend i { display:inline-block; width:12px; height:3px; vertical-align:middle; margin-right:5px; }
-  .err { color:var(--warn); font-size:13px; }
+  li + li { margin-top:4px; }
+  svg.chart { width:100%; height:auto; display:block; }
+  .legend { display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--muted); margin-top:8px; }
+  .legend i { display:inline-block; width:12px; height:3px; vertical-align:middle; margin-right:5px; border-radius:2px; }
+  .err { color:var(--warn); font-size:13px; margin-top:8px; }
 </style>
 </head>
 <body>
 <main>
   <header>
-    <h1>voltibri</h1><span class="sub">smart self-consumption optimizer</span>
-    <span class="badge" id="mode">…</span><span class="badge" id="dry" hidden>Testmodus (dry-run)</span>
+    <div class="logo">
+      <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 5 13h6l-1 9 8-11h-6z" fill="var(--solar)"/></svg>
+      <h1>voltibri</h1>
+    </div>
+    <span class="sub">smart self-consumption optimizer</span>
+    <span class="spacer"></span>
+    <span class="badge" id="mode">…</span>
+    <span class="badge warn" id="dry" hidden>Testmodus</span>
+    <span class="badge" id="time">–</span>
   </header>
-  <div class="tiles">
-    <div class="tile"><div class="k">PV</div><div class="v" id="pv">–</div></div>
-    <div class="tile"><div class="k">Hausverbrauch</div><div class="v" id="load">–</div></div>
-    <div class="tile"><div class="k">Netz</div><div class="v" id="grid">–</div></div>
-    <div class="tile"><div class="k">Batterie</div><div class="v" id="soc">–</div></div>
-    <div class="tile"><div class="k">Ladegrenze</div><div class="v" id="limit">–</div></div>
-    <div class="tile"><div class="k">Ziel am Abend</div><div class="v" id="target">–</div></div>
-  </div>
-  <div class="err" id="errors"></div>
-  <section><h2>Warum?</h2><ul id="reasons"></ul></section>
-  <section>
-    <h2>Plan (48 h)</h2>
-    <svg id="chart" viewBox="0 0 960 300" role="img" aria-label="Plan"></svg>
+
+  <section class="card">
+    <div class="flowhead"><h2>Energiefluss</h2><span class="sub" id="summary"></span></div>
+    <svg id="flow" role="img" aria-label="Energiefluss zwischen Erzeugern, Netz, Batterie und Verbrauchern"></svg>
+    <div class="kpis">
+      <div class="kpi"><div class="k">Autarkie jetzt</div><div class="v" id="autarky">–</div></div>
+      <div class="kpi"><div class="k">Batterie</div><div class="v" id="soc">–</div></div>
+      <div class="kpi"><div class="k">Ladegrenze</div><div class="v" id="limit">–</div></div>
+      <div class="kpi"><div class="k">Ziel am Abend</div><div class="v" id="target">–</div></div>
+    </div>
+    <div class="err" id="errors"></div>
+  </section>
+
+  <section class="card">
+    <h2>Batterieplan: warum?</h2>
+    <ul id="reasons"></ul>
+  </section>
+
+  <section class="card">
+    <h2>Plan für die nächsten 48 Stunden</h2>
+    <svg class="chart" id="chart" viewBox="0 0 960 300" role="img" aria-label="Plan"></svg>
     <div class="legend">
-      <span><i style="background:var(--pv)"></i>PV-Prognose</span>
-      <span><i style="background:var(--load)"></i>Lastprognose</span>
-      <span><i style="background:var(--soc)"></i>erwarteter Ladestand</span>
+      <span><i style="background:var(--solar)"></i>PV-Prognose (kW)</span>
+      <span><i style="background:var(--home)"></i>Lastprognose (kW)</span>
+      <span><i style="background:var(--battery)"></i>erwarteter Ladestand (%)</span>
       <span><i style="background:var(--limit);height:10px"></i>Laden erlaubt</span>
     </div>
   </section>
 </main>
 <script>
-const kw = w => (Math.abs(w) >= 1000 ? (w/1000).toFixed(1) + ' kW' : Math.round(w) + ' W');
-const pct = v => Math.round(v*100) + ' %';
 const $ = id => document.getElementById(id);
+const kw = w => (Math.abs(w) >= 1000 ? (w/1000).toFixed(1).replace('.', ',') + ' kW' : Math.round(w) + ' W');
+const pct = v => Math.round(v*100) + ' %';
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const modes = {delay:'spät laden', immediate:'sofort laden', night:'Nacht', 'no-data':'zu wenig Daten'};
+
+// 24x24 line icons
+const ICONS = {
+  solar:   '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  balcony: '<path d="M4 14h16M6 14v6M18 14v6M4 20h16"/><path d="M7 4h10l2 7H5z"/><path d="M12 4v7M6 7.5h12"/>',
+  car:     '<path d="M5 16V11l2-5h10l2 5v5"/><path d="M3 16h18v2H3z"/><circle cx="7.5" cy="13" r="1"/><circle cx="16.5" cy="13" r="1"/>',
+  heatpump:'<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="10" cy="12" r="4"/><path d="M10 8v8M6 12h8"/><path d="M17 9v6"/>',
+  plug:    '<path d="M9 3v5M15 3v5"/><path d="M7 8h10v3a5 5 0 0 1-10 0z"/><path d="M12 16v5"/>',
+  water:   '<path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z"/>',
+  house:   '<path d="M3 11 12 4l9 7"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-5h4v5"/>',
+  grid:    '<path d="M12 2 7 22M12 2l5 20M8.5 9h7M7 14h10M4 22h16M5 6h14"/>',
+  battery: '<rect x="3" y="7" width="16" height="10" rx="2"/><path d="M21 10.5v3"/>',
+};
+
+const COLORS = {producer:'var(--solar)', grid:'var(--grid)', battery:'var(--battery)', consumer:'var(--consumer)', home:'var(--home)'};
+
+function icon(name, x, y, color, size = 24) {
+  const s = size / 24;
+  return `<g transform="translate(${x - size/2} ${y - size/2}) scale(${s})" fill="none" stroke="${color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[name] || ICONS.plug}</g>`;
+}
+
+// layout computes node positions for the available width.
+function layout(st, wide) {
+  const P = st.producers, C = st.consumers.concat([{id:'_rest', name:'Übriges Haus', icon:'house', powerW: st.restW, rest:true}]);
+  const nodes = {}, links = [];
+  let W, H;
+  if (wide) {
+    const rows = Math.max(P.length, C.length, 3);
+    W = 960; H = Math.max(450, rows * 116 + 40);
+    const col = (items, x) => items.forEach((it, i) => { nodes[it.id] = {x, y: H/2 - 10 + (i - (items.length-1)/2) * 116}; });
+    col(P, 110); col(C, 850);
+    nodes._home = {x: 480, y: H/2 - 10};
+    nodes._grid = {x: 480, y: 44};
+    nodes._battery = {x: 480, y: H - 116};
+  } else {
+    const per = 3, rowH = 128, w = 400;
+    const rowsOf = items => Math.ceil(items.length / per);
+    const pr = Math.max(1, rowsOf(P)), cr = rowsOf(C);
+    W = w; H = 40 + pr*rowH + 150 + cr*rowH;
+    const place = (items, y0) => items.forEach((it, i) => {
+      const r = Math.floor(i / per), inRow = Math.min(per, items.length - r*per), k = i % per;
+      nodes[it.id] = {x: w/2 + (k - (inRow-1)/2) * 128, y: y0 + r*rowH};
+    });
+    place(P, 50);
+    const hy = 50 + pr*rowH + 40;
+    nodes._home = {x: w/2, y: hy}; nodes._grid = {x: 60, y: hy}; nodes._battery = {x: w-60, y: hy};
+    place(C, hy + 150);
+  }
+  P.forEach(p => links.push({a: p.id, b: '_home', w: p.powerW, color: COLORS.producer}));
+  C.forEach(c => links.push({a: '_home', b: c.id, w: c.powerW, color: COLORS.consumer}));
+  links.push(st.gridW >= 0 ? {a:'_grid', b:'_home', w: st.gridW, color: COLORS.grid}
+                           : {a:'_home', b:'_grid', w: -st.gridW, color: 'var(--export)'});
+  if (st.hasBattery)
+    links.push(st.batteryW >= 0 ? {a:'_battery', b:'_home', w: st.batteryW, color: COLORS.battery}
+                                : {a:'_home', b:'_battery', w: -st.batteryW, color: COLORS.battery});
+  return {W, H, nodes, links, P, C};
+}
+
+function curve(a, b, wide) {
+  if (wide) { const mx = (a.x + b.x) / 2; return `M${a.x},${a.y} C${mx},${a.y} ${mx},${b.y} ${b.x},${b.y}`; }
+  const my = (a.y + b.y) / 2; return `M${a.x},${a.y} C${a.x},${my} ${b.x},${my} ${b.x},${b.y}`;
+}
+
+function node(n, {r, ic, color, value, name, sub, ring}) {
+  let g = `<circle cx="${n.x}" cy="${n.y}" r="${r}" fill="var(--node)" stroke="${color}" stroke-width="2"/>`;
+  if (ring !== undefined) { // SoC ring
+    const c = 2*Math.PI*(r+5);
+    g += `<circle cx="${n.x}" cy="${n.y}" r="${r+5}" fill="none" stroke="var(--track)" stroke-width="4"/>` +
+         `<circle cx="${n.x}" cy="${n.y}" r="${r+5}" fill="none" stroke="${color}" stroke-width="4" stroke-linecap="round"
+            stroke-dasharray="${(c*ring).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 ${n.x} ${n.y})"/>`;
+  }
+  g += icon(ic, n.x, n.y - (r > 34 ? 7 : 0), color, r > 34 ? 26 : 24);
+  if (r > 34) g += `<text x="${n.x}" y="${n.y + 19}" text-anchor="middle" font-size="13" font-weight="600" fill="var(--fg)">${value}</text>`;
+  const ty = n.y + r + (ring !== undefined ? 24 : 19);
+  if (r <= 34) g += `<text x="${n.x}" y="${ty}" text-anchor="middle" font-size="14" font-weight="600" fill="var(--fg)">${value}</text>`;
+  g += `<text x="${n.x}" y="${ty + (r <= 34 ? 17 : 0)}" text-anchor="middle" font-size="12" fill="var(--muted)">${esc(name)}</text>`;
+  if (sub) g += `<text x="${n.x}" y="${ty + (r <= 34 ? 32 : 15)}" text-anchor="middle" font-size="11" fill="var(--muted)">${esc(sub)}</text>`;
+  return g;
+}
+
+function drawFlow(st) {
+  const svg = $('flow');
+  const wide = svg.getBoundingClientRect().width >= 640;
+  const {W, H, nodes, links, P, C} = layout(st, wide);
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  const maxW = Math.max(1500, ...links.map(l => l.w));
+  let g = '';
+  // dock lines next to the labels instead of crossing them
+  const home = nodes._home;
+  const port = (id, other) => {
+    const n = nodes[id];
+    if (id === '_home') {
+      const o = nodes[other];
+      if (other === '_grid' && wide) return {x: n.x, y: n.y - 44};
+      if (other === '_battery' && wide) return {x: n.x, y: n.y + 70};
+      if (!wide && o.y < n.y - 50) return {x: n.x, y: n.y - 44};
+      if (!wide && o.y > n.y + 50) return {x: n.x, y: n.y + 68};
+      return n;
+    }
+    if (wide && id === '_grid') return {x: n.x, y: n.y + 80};
+    if (wide && id === '_battery') return {x: n.x, y: n.y - 36};
+    if (!wide && n.y < home.y - 50) return {x: n.x, y: n.y + 72};
+    if (!wide && n.y > home.y + 50) return {x: n.x, y: n.y - 31};
+    return n;
+  };
+  for (const l of links) {
+    const a = port(l.a, l.b), b = port(l.b, l.a);
+    const d = curve(a, b, wide);
+    g += `<path class="track" d="${d}"/>`;
+    if (l.w > 15) {
+      const sw = 2.5 + 6 * Math.min(1, l.w / maxW);
+      const dur = Math.max(0.6, 3.2 - 2.6 * Math.min(1, l.w / maxW));
+      g += `<path class="flowline" d="${d}" stroke="${l.color}" stroke-width="${sw.toFixed(1)}" style="animation-duration:${dur.toFixed(2)}s"/>`;
+    }
+  }
+  P.forEach(p => g += node(nodes[p.id], {r: 30, ic: p.icon || 'solar', color: COLORS.producer, value: kw(p.powerW), name: p.name,
+    sub: p.mode === 'delegated' ? 'extern gesteuert' : ''}));
+  C.forEach(c => g += node(nodes[c.id], {r: 30, ic: c.icon || 'plug', color: c.rest ? 'var(--muted)' : COLORS.consumer, value: kw(c.powerW), name: c.name,
+    sub: c.rest ? 'ohne eigene Messung' : (c.mode === 'delegated' ? 'extern gesteuert' : '')}));
+  g += node(nodes._grid, {r: 30, ic: 'grid', color: st.gridW >= 0 ? COLORS.grid : 'var(--export)', value: kw(Math.abs(st.gridW)),
+    name: 'Netz', sub: Math.abs(st.gridW) < 15 ? 'ausgeglichen' : (st.gridW > 0 ? 'Bezug' : 'Einspeisung')});
+  if (st.hasBattery)
+    g += node(nodes._battery, {r: 30, ic: 'battery', color: COLORS.battery, value: kw(Math.abs(st.batteryW)), ring: st.soc,
+      name: 'Batterie ' + pct(st.soc), sub: Math.abs(st.batteryW) < 15 ? 'Ruhe' : (st.batteryW < 0 ? 'lädt' : 'entlädt')});
+  g += node(nodes._home, {r: 44, ic: 'house', color: COLORS.home, value: kw(st.loadW), name: 'Hausverbrauch'});
+  svg.innerHTML = g;
+}
 
 async function refresh() {
   try {
-    const [st, plan] = await Promise.all([fetch('api/state').then(r=>r.json()), fetch('api/plan').then(r=>r.json())]);
-    $('pv').textContent = kw(st.pvW);
-    $('load').textContent = kw(st.loadW);
-    $('grid').textContent = (st.gridW >= 0 ? '↓ ' : '↑ ') + kw(Math.abs(st.gridW));
-    $('soc').textContent = pct(st.soc) + ' · ' + (st.batteryW < 0 ? '+' : '−') + kw(Math.abs(st.batteryW));
-    $('limit').textContent = st.controlled ? (st.chargeLimitW < 0 ? 'keine' : kw(st.chargeLimitW)) : 'nur Empfehlung';
+    const [st, plan] = await Promise.all([fetch('api/state').then(r => r.json()), fetch('api/plan').then(r => r.json())]);
+    drawFlow(st);
+    const self = st.loadW > 0 ? Math.max(0, Math.min(1, 1 - Math.max(0, st.gridW) / st.loadW)) : 1;
+    $('autarky').textContent = pct(self);
+    $('soc').textContent = st.hasBattery ? pct(st.soc) : '–';
+    $('limit').textContent = !st.controlled ? 'nur Empfehlung' : (st.chargeLimitW < 0 ? 'keine' : kw(st.chargeLimitW));
     $('target').textContent = plan.targetSoC ? pct(plan.targetSoC) : '–';
+    $('summary').textContent = `Erzeugung ${kw(st.pvW)} · Verbrauch ${kw(st.loadW)}`;
     $('dry').hidden = !st.dryRun;
-    $('mode').textContent = modes[plan.mode] || plan.mode;
+    $('mode').textContent = 'Batterie: ' + (modes[plan.mode] || plan.mode);
+    $('time').textContent = new Date(st.time).toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit', second: '2-digit'});
     $('errors').textContent = (st.errors || []).join(' · ');
-    $('reasons').innerHTML = '';
-    for (const r of plan.reasons || []) { const li = document.createElement('li'); li.textContent = r; $('reasons').appendChild(li); }
-    draw(plan.slots || []);
-  } catch (e) { $('errors').textContent = 'Keine Verbindung: ' + e; }
+    $('reasons').innerHTML = (plan.reasons || []).map(r => `<li>${esc(r)}</li>`).join('');
+    drawChart(plan.slots || []);
+    window._last = st;
+  } catch (e) { $('errors').textContent = 'Keine Verbindung zu voltibri: ' + e; }
 }
 
-function draw(slots) {
-  const svg = $('chart'), W = 960, H = 300, L = 44, R = 40, T = 10, B = 26;
+function drawChart(slots) {
+  const svg = $('chart'), W = 960, H = 300, L = 44, R = 44, T = 10, B = 26;
   if (!slots.length) { svg.innerHTML = ''; return; }
   const n = slots.length, x = i => L + (W-L-R) * i / n;
   const maxW = Math.max(1000, ...slots.map(s => Math.max(s.pvW, s.loadW)));
@@ -91,19 +254,21 @@ function draw(slots) {
     g += `<rect x="${x(i)}" y="${T}" width="${x(i+1)-x(i)+.5}" height="${H-T-B}" fill="var(--limit)"/>`; });
   for (let k = 0; k <= 4; k++) { const v = maxW*k/4;
     g += `<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/>` +
-         `<text x="${L-6}" y="${y(v)+4}" text-anchor="end" font-size="11" fill="var(--muted)">${(v/1000).toFixed(1)}</text>` +
-         `<text x="${W-R+6}" y="${ys(k/4)+4}" font-size="11" fill="var(--muted)">${k*25}%</text>`; }
+         `<text x="${L-6}" y="${y(v)+4}" text-anchor="end" font-size="11" fill="var(--muted)">${(v/1000).toFixed(1).replace('.', ',')}</text>` +
+         `<text x="${W-R+6}" y="${ys(k/4)+4}" font-size="11" fill="var(--muted)">${k*25} %</text>`; }
   slots.forEach((s, i) => { const d = new Date(s.start);
     if (d.getMinutes() === 0 && d.getHours() % 6 === 0)
       g += `<text x="${x(i)}" y="${H-8}" text-anchor="middle" font-size="11" fill="var(--muted)">${d.getHours()}:00</text>`; });
   const path = (f, sc) => slots.map((s, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ',' + sc(f(s)).toFixed(1)).join('');
-  g += `<path d="${path(s=>s.pvW, y)}" fill="none" stroke="var(--pv)" stroke-width="2"/>`;
-  g += `<path d="${path(s=>s.loadW, y)}" fill="none" stroke="var(--load)" stroke-width="2"/>`;
-  if (slots.some(s => s.expectedSoC > 0))
-    g += `<path d="${path(s=>s.expectedSoC, ys)}" fill="none" stroke="var(--soc)" stroke-width="2.5"/>`;
+  g += `<path d="${path(s => s.pvW, y)}" fill="none" stroke="var(--solar)" stroke-width="2"/>`;
+  if (slots.some(s => s.loadW > 0)) g += `<path d="${path(s => s.loadW, y)}" fill="none" stroke="var(--home)" stroke-width="2"/>`;
+  if (slots.some(s => s.expectedSoC > 0)) g += `<path d="${path(s => s.expectedSoC, ys)}" fill="none" stroke="var(--battery)" stroke-width="2.5"/>`;
   svg.innerHTML = g;
 }
-refresh(); setInterval(refresh, 10000);
+
+let resizeTimer;
+addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => window._last && drawFlow(window._last), 150); });
+refresh(); setInterval(refresh, 5000);
 </script>
 </body>
 </html>
