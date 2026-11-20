@@ -54,28 +54,63 @@ bin/voltibri import-ha -in history.csv -out mydata.csv \
 bin/voltibri simulate -input mydata.csv
 
 # live demo without hardware, web UI on http://127.0.0.1:7070
-bin/voltibri serve -config examples/demo.yaml
+bin/voltibri config import -data ./data examples/demo.yaml
+bin/voltibri serve -data ./data
 ```
 
 For a real setup start from [`examples/voltibri.yaml`](examples/voltibri.yaml).
+
+## Configuration
+
+The configuration lives in a SQLite database in the data directory (`-data`, env `VOLTIBRI_DATA`)
+together with the measurement history. Every change creates a new version (author, comment) and
+takes effect immediately, without restart.
+
+| Task | Command / API |
+|---|---|
+| Import a YAML file as new version | `voltibri config import FILE.yaml` · `POST /api/config/import` |
+| Export (secrets redacted) | `voltibri config export` · `GET /api/config/export` |
+| List versions | `voltibri config versions` · `GET /api/config/versions` |
+| Roll back | `voltibri config rollback ID` · `POST /api/config/versions/{id}/rollback` |
+| Edit (JSON) | `GET` / `PUT /api/config` |
+| Driver schemas for forms | `GET /api/drivers` |
+
+**Read-only mode** for GitOps / Kubernetes ConfigMaps: `voltibri serve -config voltibri.yaml` –
+the file wins, is reloaded when it changes, and the UI cannot edit the configuration.
+
+**Secrets** (passwords, tokens) are encrypted with AES-256-GCM. The key is `data/secret.key`
+(created on first start) or `VOLTIBRI_SECRET_KEY` – back it up together with the database.
+
+**Measurement corrections** per device, e.g. a go-e charger reporting 200 W too little while charging:
+
+```yaml
+correction: { factor: 1.0, offsetW: 200, activeAboveW: 50 }
+```
+
+> Until users and roles exist, configuration changes via the API are only accepted from the
+> local machine.
 
 ## Drivers
 
 | Type | Capabilities | Notes |
 |---|---|---|
-| `fronius` | grid, PV, battery, battery control | Solar API (read) + Modbus SunSpec model 124 (charge limit with revert timeout) |
+| `fronius` | grid, PV, battery, battery control, phase currents | Solar API (read) + Modbus SunSpec model 124 (charge limit with revert timeout) |
 | `opendtu` | PV | REST API |
-| `go-e` | charger, charger control | local HTTP API v2 |
-| `shelly` | switch, consumer power | Gen2+ RPC |
+| `go-e` | charger, charger control, phase currents, phase switching, energy | local HTTP API v2 |
+| `shelly` | switch, consumer power, current, energy | Gen2+ RPC |
 | `forecast.solar` | PV forecast | free API, multiple planes |
 | `awattar` | spot prices (DE-LU) | public API |
-| `demo` | everything | simulated site |
+| `demo`, `demo-producer`, `demo-consumer` | everything | simulated site |
+
+Every driver describes its parameters (type, unit, default, required, secret) so the UI can
+generate its settings form – including plugins.
 
 ## Roadmap
 
+- Users, roles, OIDC – then configuration UI (Vue 3) with setup wizard and device discovery
+- Circuits (sub-distributions) with per-phase load management, shown in the energy flow
 - MQTT (in/out, Home Assistant discovery)
 - EV charging with PV surplus, charging sessions and reports
-- Users, roles, OIDC
 - Price rules per user (e.g. neighbour pays generation cost, own use at lost feed-in tariff)
 - Heat pump control (SG-Ready / Modbus)
 - External plugins via gRPC

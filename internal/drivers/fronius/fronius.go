@@ -25,7 +25,24 @@ import (
 	"github.com/voltibri/voltibri/sdk"
 )
 
-func init() { sdk.Register("fronius", New) }
+func init() {
+	sdk.RegisterDriver(sdk.Driver{
+		Type:         "fronius",
+		Name:         "Fronius GEN24 / Symo",
+		Description:  "Wechselrichter mit Smart Meter und optionaler Batterie. Lesen über die Solar API, Batteriesteuerung über Modbus TCP (SunSpec, int+SF).",
+		Category:     sdk.CatInverter,
+		Capabilities: []sdk.Capability{sdk.CapGrid, sdk.CapPV, sdk.CapBattery, sdk.CapBatteryControl, sdk.CapPhases},
+		Params: []sdk.Param{
+			{Name: "host", Label: "IP-Adresse / Hostname", Type: sdk.TypeHost, Required: true},
+			{Name: "capacityWh", Label: "Nutzbare Batteriekapazität", Type: sdk.TypeFloat, Unit: "Wh", Min: sdk.Ptr(0), Description: "Leer lassen, wenn keine Batterie angeschlossen ist."},
+			{Name: "modbusPort", Label: "Modbus-Port", Type: sdk.TypeInt, Default: 502.0, Min: sdk.Ptr(0), Max: sdk.Ptr(65535), Advanced: true, Description: "0 deaktiviert die Batteriesteuerung."},
+			{Name: "unitID", Label: "Modbus Unit-ID", Type: sdk.TypeInt, Default: 1.0, Min: sdk.Ptr(0), Max: sdk.Ptr(247), Advanced: true},
+			{Name: "revert", Label: "Rückfallzeit", Type: sdk.TypeDuration, Default: "5m", Advanced: true, Description: "Nach dieser Zeit ohne voltibri kehrt der Wechselrichter zum Normalbetrieb zurück."},
+			{Name: "url", Label: "Solar-API-URL", Type: sdk.TypeURL, Advanced: true, Description: "Nur nötig, wenn die Solar API nicht unter http://<host> erreichbar ist."},
+		},
+		Factory: New,
+	})
+}
 
 // Device is a Fronius inverter with optional battery and smart meter.
 type Device struct {
@@ -139,6 +156,32 @@ func (d *Device) BatteryPower(ctx context.Context) (float64, error) {
 
 // CapacityWh implements sdk.Battery.
 func (d *Device) CapacityWh() float64 { return d.capacityWh }
+
+type meterData struct {
+	Body struct {
+		Data map[string]struct {
+			I1       *float64 `json:"Current_AC_Phase_1"`
+			I2       *float64 `json:"Current_AC_Phase_2"`
+			I3       *float64 `json:"Current_AC_Phase_3"`
+			Location *float64 `json:"Meter_Location_Current"` // 0 = grid connection point
+		} `json:"Data"`
+	} `json:"Body"`
+}
+
+// Currents implements sdk.PhaseCurrents with the currents measured by the
+// smart meter at the grid connection point (magnitudes).
+func (d *Device) Currents(ctx context.Context) (sdk.Phases, error) {
+	var md meterData
+	if err := httpx.GetJSON(ctx, d.baseURL+"/solar_api/v1/GetMeterRealtimeData.cgi?Scope=System", &md); err != nil {
+		return sdk.Phases{}, err
+	}
+	for _, m := range md.Body.Data {
+		if m.Location == nil || *m.Location == 0 {
+			return sdk.Phases{math.Abs(val(m.I1)), math.Abs(val(m.I2)), math.Abs(val(m.I3))}, nil
+		}
+	}
+	return sdk.Phases{}, fmt.Errorf("%s: no grid meter found", d.cfg.ID)
+}
 
 // SetChargeLimit implements sdk.BatteryController.
 func (d *Device) SetChargeLimit(ctx context.Context, w float64) error {

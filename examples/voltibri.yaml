@@ -1,12 +1,14 @@
-# Example: Fronius GEN24 + BYD HVM, Hoymiles via OpenDTU, go-e, Shelly.
-#   voltibri serve -config voltibri.yaml
+# Example: Fronius GEN24 + BYD HVM, Hoymiles via OpenDTU, two go-e, Shelly.
+#
+# Normally the configuration lives in the database and is edited in the UI.
+# Import this file once:     voltibri config import examples/voltibri.yaml
+# or let the file manage it: voltibri serve -config voltibri.yaml   (read-only mode)
 #
 # Start with dryRun: true and watch the log: voltibri logs every write it
 # WOULD do. Only switch to false after checking the decisions for a few days.
 site:
   timezone: Europe/Berlin
   listen: 127.0.0.1:7070 # no authentication yet – do not expose
-  history: /var/lib/voltibri/history.csv
   dryRun: true
   holidays: [] # regional holidays, e.g. "2026-06-04" (Fronleichnam)
 
@@ -32,6 +34,8 @@ roles:
 
 devices:
   - id: fronius
+    name: Dach
+    icon: solar
     type: fronius
     mode: owned # voltibri may limit battery charging
     params:
@@ -42,18 +46,38 @@ devices:
       revert: 5m # inverter falls back to normal operation after 5 min without voltibri
 
   - id: opendtu
+    name: Hoymiles
+    icon: balcony
     type: opendtu
     mode: observed
     params:
       host: 192.168.1.60
 
-  - id: wallbox
+  - id: wallbox1
+    name: Wallbox Carport
+    icon: car
     type: go-e
     mode: delegated # e.g. controlled by Ostrom NeoGrid – voltibri only observes
+    correction:      # go-e reports ~200 W less than it draws while charging
+      offsetW: 200
+      activeAboveW: 50
     params:
       host: 192.168.1.70
 
+  - id: wallbox2
+    name: Wallbox Garage
+    icon: car
+    type: go-e
+    mode: observed
+    correction:
+      offsetW: 200
+      activeAboveW: 50
+    params:
+      host: 192.168.1.71
+
   - id: heatpump-plug
+    name: Wärmepumpe
+    icon: heatpump
     type: shelly
     mode: observed
     params:

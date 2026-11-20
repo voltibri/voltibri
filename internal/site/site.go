@@ -19,10 +19,17 @@ import (
 	"github.com/voltibri/voltibri/internal/calendar"
 	"github.com/voltibri/voltibri/internal/config"
 	"github.com/voltibri/voltibri/internal/forecast"
+	"github.com/voltibri/voltibri/internal/meter"
 	"github.com/voltibri/voltibri/internal/planner"
 	"github.com/voltibri/voltibri/internal/series"
 	"github.com/voltibri/voltibri/sdk"
 )
+
+// History persists the 15-minute measurements (implemented by store.Store).
+type History interface {
+	LoadHistory(ctx context.Context, since time.Time, loc *time.Location) (series.Series, error)
+	AppendHistory(ctx context.Context, r series.Record) error
+}
 
 // HistoryProvider is an optional device capability that supplies past data
 // to pre-train the forecaster (used by the demo driver).
@@ -83,7 +90,8 @@ type Site struct {
 	tariff    sdk.TariffSource
 
 	model *forecast.LoadModel
-	hist  *os.File
+	hist  History
+	corr  map[string]meter.Correction // per device id
 
 	mu    sync.RWMutex
 	state State
@@ -96,7 +104,10 @@ type Site struct {
 }
 
 // New creates the site from configuration.
-func New(cfg *config.Config) (*Site, error) {
+func New(cfg *config.Config, hist History) (*Site, error) {
+	if err := cfg.Ready(); err != nil {
+		return nil, err
+	}
 	loc, err := time.LoadLocation(cfg.Site.Timezone)
 	if err != nil {
 		return nil, err
@@ -105,8 +116,10 @@ func New(cfg *config.Config) (*Site, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Site{cfg: cfg, loc: loc, devices: map[string]sdk.Device{}, model: forecast.NewLoadModel(forecast.DefaultConfig(), cal, loc)}
+	s := &Site{cfg: cfg, loc: loc, hist: hist, devices: map[string]sdk.Device{}, corr: map[string]meter.Correction{},
+		model: forecast.NewLoadModel(forecast.DefaultConfig(), cal, loc)}
 	for _, dc := range cfg.Devices {
+		s.corr[dc.ID] = dc.Correction
 		dev, err := sdk.New(sdk.DeviceConfig{ID: dc.ID, Type: dc.Type, Mode: sdk.ControlMode(dc.Mode), DryRun: cfg.Site.DryRun, Params: dc.Params})
 		if err != nil {
 			return nil, fmt.Errorf("device %s: %w", dc.ID, err)
@@ -185,54 +198,64 @@ func modeOf(cfg *config.Config, id string) sdk.ControlMode {
 	return sdk.ModeObserved
 }
 
-// loadHistory trains the model from the history file (or a history
-// provider) and opens the file for appending.
-func (s *Site) loadHistory() error {
-	path := s.cfg.Site.History
-	if f, err := os.Open(path); err == nil {
-		hist, err := series.ReadCSV(bufio.NewReader(f), s.loc)
-		f.Close()
-		if err != nil {
-			return fmt.Errorf("history %s: %w", path, err)
-		}
-		s.model.Train(hist)
-		slog.Info("history loaded", "file", path, "slots", len(hist), "days", s.model.Days())
-	} else if !errors.Is(err, os.ErrNotExist) {
+// loadHistory trains the model from the stored history. On first start a
+// legacy CSV history (site.history) is imported once; without any history
+// a device may supply synthetic data (demo).
+func (s *Site) loadHistory(ctx context.Context) error {
+	since := time.Now().AddDate(0, 0, -100)
+	hist, err := s.hist.LoadHistory(ctx, since, s.loc)
+	if err != nil {
 		return err
 	}
+	if len(hist) == 0 && s.cfg.Site.History != "" {
+		if hist, err = s.importCSV(ctx, s.cfg.Site.History); err != nil {
+			return err
+		}
+	}
+	s.model.Train(hist)
+	slog.Info("history loaded", "slots", len(hist), "days", s.model.Days())
 	if s.model.Days() == 0 {
 		for _, d := range s.devices {
 			if hp, ok := d.(HistoryProvider); ok {
-				h := hp.History(time.Now())
-				s.model.Train(h)
+				s.model.Train(hp.History(time.Now()))
 				slog.Info("forecaster pre-trained from device history", "device", d.ID(), "days", s.model.Days())
 				break
 			}
 		}
 	}
-	newFile := false
-	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-		newFile = true
-	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		return err
-	}
-	if newFile {
-		if err := series.WriteHeader(f); err != nil {
-			return err
-		}
-	}
-	s.hist = f
 	return nil
 }
 
+func (s *Site) importCSV(ctx context.Context, path string) (series.Series, error) {
+	f, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	hist, err := series.ReadCSV(bufio.NewReader(f), s.loc)
+	if err != nil {
+		return nil, fmt.Errorf("history %s: %w", path, err)
+	}
+	for _, r := range hist {
+		if err := s.hist.AppendHistory(ctx, r); err != nil {
+			return nil, err
+		}
+	}
+	slog.Info("legacy CSV history imported into the database", "file", path, "slots", len(hist))
+	return hist, nil
+}
+
+// power applies the device's correction to a power reading.
+func (s *Site) power(id string, raw float64) float64 { return s.corr[id].Power(raw) }
+
 // Run executes the control loop until ctx is cancelled.
 func (s *Site) Run(ctx context.Context) error {
-	if err := s.loadHistory(); err != nil {
+	if err := s.loadHistory(ctx); err != nil {
 		return err
 	}
-	defer s.hist.Close()
 
 	measure := time.NewTicker(10 * time.Second)
 	defer measure.Stop()
@@ -282,9 +305,11 @@ func (s *Site) measure(ctx context.Context) bool {
 	var err error
 	st.GridW, err = s.grid.GridPower(ctx)
 	note(err)
+	st.GridW = s.power(s.cfg.Roles.Grid, st.GridW)
 	for _, pv := range s.pvs {
 		w, err := pv.dev.PVPower(ctx)
 		note(err)
+		w = s.power(pv.meta.ID, w)
 		st.PVW += w
 		r := pv.meta
 		r.PowerW = w
@@ -295,6 +320,7 @@ func (s *Site) measure(ctx context.Context) bool {
 		note(err)
 		st.BatteryW, err = s.bat.BatteryPower(ctx)
 		note(err)
+		st.BatteryW = s.power(s.cfg.Roles.Battery, st.BatteryW)
 	}
 	st.LoadW = math.Max(0, st.GridW+st.PVW+st.BatteryW)
 	known := 0.0
@@ -309,7 +335,7 @@ func (s *Site) measure(ctx context.Context) bool {
 			note(err)
 		}
 		r := c.meta
-		r.PowerW = math.Max(0, w)
+		r.PowerW = math.Max(0, s.power(c.meta.ID, w))
 		known += r.PowerW
 		st.Consumers = append(st.Consumers, r)
 	}
@@ -329,7 +355,7 @@ func (s *Site) measure(ctx context.Context) bool {
 	if newSlot && s.nSamples > 0 {
 		r := series.Record{Time: s.slot, PVW: s.sumPV / float64(s.nSamples), LoadW: s.sumLoad / float64(s.nSamples), SpotCt: math.NaN(), TempC: math.NaN()}
 		s.model.Add(r)
-		if err := series.WriteRecord(s.hist, r); err != nil {
+		if err := s.hist.AppendHistory(ctx, r); err != nil {
 			slog.Error("writing history failed", "err", err)
 		}
 		s.sumPV, s.sumLoad, s.nSamples = 0, 0, 0

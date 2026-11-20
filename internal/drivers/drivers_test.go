@@ -55,6 +55,27 @@ func TestGoE(t *testing.T) {
 	if calls[len(calls)-1] != "/api/set?amp=16" {
 		t.Errorf("unexpected call %s", calls[len(calls)-1])
 	}
+	ph, err := d.(sdk.PhaseCurrents).Currents(context.Background())
+	if err != nil || ph != (sdk.Phases{10, 10, 10}) {
+		t.Errorf("currents %v %v", ph, err)
+	}
+	if err := d.(sdk.PhaseSwitcher).SetPhases(context.Background(), 1); err != nil || calls[len(calls)-1] != "/api/set?psm=1" {
+		t.Errorf("phase switch: %v %s", err, calls[len(calls)-1])
+	}
+}
+
+// Every built-in driver must describe itself for the configuration UI.
+func TestDriversHaveSchemas(t *testing.T) {
+	for _, d := range sdk.Drivers() {
+		if d.Name == d.Type && d.Description == "" || d.Category == "" || len(d.Capabilities) == 0 || d.Params == nil {
+			t.Errorf("driver %s lacks metadata: %+v", d.Type, d)
+		}
+		for _, p := range d.Params {
+			if p.Label == "" {
+				t.Errorf("driver %s: parameter %s has no label", d.Type, p.Name)
+			}
+		}
+	}
 }
 
 func TestShellyObservedRefusesWrites(t *testing.T) {

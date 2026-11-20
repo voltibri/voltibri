@@ -46,12 +46,12 @@ type Battery struct {
 
 // Config tunes the strategy.
 type Config struct {
-	MorningBufferSoC    float64 `yaml:"morningBufferSoC"`    // SoC to keep when PV takes over again (e.g. 0.25)
-	SafetyMarginSoC     float64 `yaml:"safetyMarginSoC"`     // extra reserve (e.g. 0.05)
-	PVPessimism         float64 `yaml:"pvPessimism"`         // multiply PV forecast for safe planning (e.g. 0.8)
-	Robustness          float64 `yaml:"robustness"`          // delay only if surplus >= need * robustness (e.g. 1.3)
-	FillOnNegativePrice bool    `yaml:"fillOnNegativePrice"` // charge without limit while spot < 0
-	MinNightHours       float64 `yaml:"minNightHours"`       // deficit length that counts as night (default 3)
+	MorningBufferSoC    float64 `yaml:"morningBufferSoC" json:"morningBufferSoC"`       // SoC to keep when PV takes over again (e.g. 0.25)
+	SafetyMarginSoC     float64 `yaml:"safetyMarginSoC" json:"safetyMarginSoC"`         // extra reserve (e.g. 0.05)
+	PVPessimism         float64 `yaml:"pvPessimism" json:"pvPessimism"`                 // multiply PV forecast for safe planning (e.g. 0.8)
+	Robustness          float64 `yaml:"robustness" json:"robustness"`                   // delay only if surplus >= need * robustness (e.g. 1.3)
+	FillOnNegativePrice bool    `yaml:"fillOnNegativePrice" json:"fillOnNegativePrice"` // charge without limit while spot < 0
+	MinNightHours       float64 `yaml:"minNightHours" json:"minNightHours"`             // deficit length that counts as night (default 3)
 }
 
 // DefaultConfig returns the defaults discussed for a summer self-consumption setup.

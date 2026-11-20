@@ -14,7 +14,20 @@ import (
 	"github.com/voltibri/voltibri/sdk"
 )
 
-func init() { sdk.Register("opendtu", New) }
+func init() {
+	sdk.RegisterDriver(sdk.Driver{
+		Type:         "opendtu",
+		Name:         "OpenDTU (Hoymiles)",
+		Description:  "Summenleistung aller Mikrowechselrichter über die OpenDTU-REST-API.",
+		Category:     sdk.CatInverter,
+		Capabilities: []sdk.Capability{sdk.CapPV},
+		Params: []sdk.Param{
+			{Name: "host", Label: "IP-Adresse / Hostname", Type: sdk.TypeHost},
+			{Name: "url", Label: "URL", Type: sdk.TypeURL, Advanced: true, Description: "Alternativ zur IP-Adresse, z. B. hinter einem Reverse Proxy."},
+		},
+		Factory: New,
+	})
+}
 
 // Device is an OpenDTU instance.
 type Device struct {

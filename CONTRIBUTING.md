@@ -25,6 +25,9 @@ go vet ./...
 
 - Keep the core free of device specifics: devices are drivers implementing capabilities
   from `sdk/`.
+- Drivers register with `sdk.RegisterDriver` and describe name, category, capabilities and
+  every parameter (label, type, unit, default, secret) – the configuration UI is generated
+  from it.
 - Every driver that writes to hardware must honour `DryRun` and the control mode, and must
   make limits revert on the device side after a timeout.
 - New planner behaviour needs a test and a simulation run (`voltibri simulate`) showing its

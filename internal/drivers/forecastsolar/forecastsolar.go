@@ -19,7 +19,27 @@ import (
 	"github.com/voltibri/voltibri/sdk"
 )
 
-func init() { sdk.Register("forecast.solar", New) }
+func init() {
+	sdk.RegisterDriver(sdk.Driver{
+		Type:         "forecast.solar",
+		Name:         "forecast.solar",
+		Description:  "Kostenlose PV-Prognose (max. 12 Abfragen pro Stunde), mehrere Dachflächen möglich.",
+		Category:     sdk.CatForecast,
+		Capabilities: []sdk.Capability{sdk.CapPVForecast},
+		Params: []sdk.Param{
+			{Name: "lat", Label: "Breitengrad", Type: sdk.TypeFloat, Required: true, Min: sdk.Ptr(-90), Max: sdk.Ptr(90)},
+			{Name: "lon", Label: "Längengrad", Type: sdk.TypeFloat, Required: true, Min: sdk.Ptr(-180), Max: sdk.Ptr(180)},
+			{Name: "planes", Label: "Dachflächen", Type: sdk.TypeList, Required: true, Items: []sdk.Param{
+				{Name: "kwp", Label: "Leistung", Type: sdk.TypeFloat, Unit: "kWp", Required: true, Min: sdk.Ptr(0)},
+				{Name: "dec", Label: "Neigung", Type: sdk.TypeFloat, Unit: "°", Default: 30.0, Min: sdk.Ptr(0), Max: sdk.Ptr(90)},
+				{Name: "az", Label: "Ausrichtung", Type: sdk.TypeFloat, Unit: "°", Default: 0.0, Min: sdk.Ptr(-180), Max: sdk.Ptr(180), Description: "0 = Süd, -90 = Ost, 90 = West"},
+			}},
+			{Name: "timezone", Label: "Zeitzone", Type: sdk.TypeString, Default: "Europe/Berlin", Advanced: true},
+			{Name: "url", Label: "API-URL", Type: sdk.TypeURL, Advanced: true},
+		},
+		Factory: New,
+	})
+}
 
 type plane struct {
 	dec, az, kwp float64

@@ -15,7 +15,20 @@ import (
 	"github.com/voltibri/voltibri/sdk"
 )
 
-func init() { sdk.Register("go-e", New) }
+func init() {
+	sdk.RegisterDriver(sdk.Driver{
+		Type:         "go-e",
+		Name:         "go-e Charger",
+		Description:  "Wallbox über die lokale HTTP API v2 (in der go-e App aktivieren).",
+		Category:     sdk.CatCharger,
+		Capabilities: []sdk.Capability{sdk.CapCharger, sdk.CapChargerControl, sdk.CapPhases, sdk.CapPhaseSwitch, sdk.CapEnergy},
+		Params: []sdk.Param{
+			{Name: "host", Label: "IP-Adresse / Hostname", Type: sdk.TypeHost},
+			{Name: "url", Label: "URL", Type: sdk.TypeURL, Advanced: true},
+		},
+		Factory: New,
+	})
+}
 
 // Device is a go-e Charger.
 type Device struct {
@@ -42,7 +55,38 @@ type status struct {
 	Car int       `json:"car"` // 1 idle, 2 charging, 3 wait for car, 4 complete, 5 error
 	Amp float64   `json:"amp"`
 	Pnp int       `json:"pnp"` // active phases
-	Nrg []float64 `json:"nrg"` // index 11 = total power W
+	Nrg []float64 `json:"nrg"` // 4..6 = current L1..L3 A, 11 = total power W
+	Eto float64   `json:"eto"` // total energy Wh
+}
+
+// Currents implements sdk.PhaseCurrents.
+func (d *Device) Currents(ctx context.Context) (sdk.Phases, error) {
+	var s status
+	if err := httpx.GetJSON(ctx, d.url+"/api/status?filter=nrg", &s); err != nil {
+		return sdk.Phases{}, err
+	}
+	if len(s.Nrg) < 7 {
+		return sdk.Phases{}, fmt.Errorf("%s: unexpected nrg array", d.cfg.ID)
+	}
+	return sdk.Phases{s.Nrg[4], s.Nrg[5], s.Nrg[6]}, nil
+}
+
+// EnergyWh implements sdk.EnergyMeter.
+func (d *Device) EnergyWh(ctx context.Context) (float64, error) {
+	var s status
+	err := httpx.GetJSON(ctx, d.url+"/api/status?filter=eto", &s)
+	return s.Eto, err
+}
+
+// SetPhases implements sdk.PhaseSwitcher (psm: 1 = single, 2 = three phase).
+func (d *Device) SetPhases(ctx context.Context, phases int) error {
+	switch phases {
+	case 1:
+		return d.set(ctx, "psm", "1")
+	case 3:
+		return d.set(ctx, "psm", "2")
+	}
+	return fmt.Errorf("%s: phases must be 1 or 3", d.cfg.ID)
 }
 
 // ChargerStatus implements sdk.Charger.

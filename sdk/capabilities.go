@@ -90,6 +90,25 @@ type PowerConsumer interface {
 	ConsumerPower(ctx context.Context) (float64, error)
 }
 
+// Phases holds a value per phase (L1, L2, L3).
+type Phases [3]float64
+
+// PhaseCurrents reports the current per phase in ampere (as measured by
+// the device on its own terminals; the site maps them to grid phases).
+type PhaseCurrents interface {
+	Currents(ctx context.Context) (Phases, error)
+}
+
+// PhaseSwitcher can switch between single and three phase operation.
+type PhaseSwitcher interface {
+	SetPhases(ctx context.Context, phases int) error
+}
+
+// EnergyMeter reports a cumulative energy counter in Wh.
+type EnergyMeter interface {
+	EnergyWh(ctx context.Context) (float64, error)
+}
+
 // Slot is a forecast or price value for a time interval [Start, Start+Duration).
 type Slot struct {
 	Start    time.Time

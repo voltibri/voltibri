@@ -16,7 +16,19 @@ import (
 	"github.com/voltibri/voltibri/sdk"
 )
 
-func init() { sdk.Register("awattar", New) }
+func init() {
+	sdk.RegisterDriver(sdk.Driver{
+		Type:         "awattar",
+		Name:         "Börsenstrompreis (aWATTar)",
+		Description:  "Day-Ahead-Preise EPEX Spot DE-LU ohne Steuern und Umlagen, zur Erkennung negativer Preise.",
+		Category:     sdk.CatTariff,
+		Capabilities: []sdk.Capability{sdk.CapTariff},
+		Params: []sdk.Param{
+			{Name: "url", Label: "API-URL", Type: sdk.TypeURL, Advanced: true},
+		},
+		Factory: New,
+	})
+}
 
 // Device is the aWATTar price source.
 type Device struct {

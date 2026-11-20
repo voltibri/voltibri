@@ -14,7 +14,21 @@ import (
 	"github.com/voltibri/voltibri/sdk"
 )
 
-func init() { sdk.Register("shelly", New) }
+func init() {
+	sdk.RegisterDriver(sdk.Driver{
+		Type:         "shelly",
+		Name:         "Shelly Plus / Pro / Gen3 (Schalter)",
+		Description:  "Ein Schaltkanal eines Shelly Gen2+ mit Leistungsmessung (lokale RPC-API).",
+		Category:     sdk.CatSwitch,
+		Capabilities: []sdk.Capability{sdk.CapSwitch, sdk.CapConsumer, sdk.CapPhases, sdk.CapEnergy},
+		Params: []sdk.Param{
+			{Name: "host", Label: "IP-Adresse / Hostname", Type: sdk.TypeHost},
+			{Name: "channel", Label: "Kanal", Type: sdk.TypeInt, Default: 0.0, Min: sdk.Ptr(0), Max: sdk.Ptr(3)},
+			{Name: "url", Label: "URL", Type: sdk.TypeURL, Advanced: true},
+		},
+		Factory: New,
+	})
+}
 
 // Device is one switch channel of a Shelly device.
 type Device struct {
@@ -39,8 +53,25 @@ func New(cfg sdk.DeviceConfig) (sdk.Device, error) {
 func (d *Device) ID() string { return d.cfg.ID }
 
 type switchStatus struct {
-	Output bool    `json:"output"`
-	APower float64 `json:"apower"`
+	Output  bool    `json:"output"`
+	APower  float64 `json:"apower"`
+	Current float64 `json:"current"`
+	AEnergy struct {
+		Total float64 `json:"total"` // Wh
+	} `json:"aenergy"`
+}
+
+// Currents implements sdk.PhaseCurrents (single phase device: L1 only;
+// the site maps it to the grid phase it is connected to).
+func (d *Device) Currents(ctx context.Context) (sdk.Phases, error) {
+	s, err := d.status(ctx)
+	return sdk.Phases{s.Current, 0, 0}, err
+}
+
+// EnergyWh implements sdk.EnergyMeter.
+func (d *Device) EnergyWh(ctx context.Context) (float64, error) {
+	s, err := d.status(ctx)
+	return s.AEnergy.Total, err
 }
 
 func (d *Device) status(ctx context.Context) (switchStatus, error) {

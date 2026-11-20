@@ -28,9 +28,39 @@ import (
 )
 
 func init() {
-	sdk.Register("demo", New)
-	sdk.Register("demo-producer", NewProducer)
-	sdk.Register("demo-consumer", NewConsumer)
+	site := sdk.Param{Name: "site", Label: "Demo-Anlage", Type: sdk.TypeString, Default: "demo", Description: "ID des demo-Geräts"}
+	sdk.RegisterDriver(sdk.Driver{
+		Type: "demo", Name: "Demo-Anlage", Category: sdk.CatDemo,
+		Description:  "Simulierte Anlage mit PV, Hausverbrauch, Batterie, Netz, PV-Prognose und Börsenpreisen.",
+		Capabilities: []sdk.Capability{sdk.CapGrid, sdk.CapPV, sdk.CapBattery, sdk.CapBatteryControl, sdk.CapPVForecast, sdk.CapTariff},
+		Params: []sdk.Param{
+			{Name: "capacityWh", Label: "Batteriekapazität", Type: sdk.TypeFloat, Unit: "Wh", Default: 13800.0},
+			{Name: "kwp", Label: "PV-Leistung", Type: sdk.TypeFloat, Unit: "kWp", Default: 10.0},
+			{Name: "maxChargeW", Label: "Max. Ladeleistung", Type: sdk.TypeFloat, Unit: "W", Default: 6000.0},
+			{Name: "pvShare", Label: "Eigener PV-Anteil", Type: sdk.TypeFloat, Default: 1.0, Min: sdk.Ptr(0), Max: sdk.Ptr(1)},
+			{Name: "shiftDays", Label: "Jahreszeit verschieben", Type: sdk.TypeInt, Unit: "Tage", Default: 0.0},
+			{Name: "timezone", Label: "Zeitzone", Type: sdk.TypeString, Default: "Europe/Berlin", Advanced: true},
+		},
+		Factory: New,
+	})
+	sdk.RegisterDriver(sdk.Driver{
+		Type: "demo-producer", Name: "Demo-Erzeuger", Category: sdk.CatDemo,
+		Description:  "Anteil der PV-Leistung einer Demo-Anlage, z. B. ein Balkonkraftwerk.",
+		Capabilities: []sdk.Capability{sdk.CapPV},
+		Params:       []sdk.Param{site, {Name: "share", Label: "Anteil", Type: sdk.TypeFloat, Default: 0.1, Min: sdk.Ptr(0), Max: sdk.Ptr(1)}},
+		Factory:      NewProducer,
+	})
+	sdk.RegisterDriver(sdk.Driver{
+		Type: "demo-consumer", Name: "Demo-Verbraucher", Category: sdk.CatDemo,
+		Description:  "Anteil am Hausverbrauch oder eine Wallbox, die mit PV-Überschuss lädt.",
+		Capabilities: []sdk.Capability{sdk.CapConsumer},
+		Params: []sdk.Param{site,
+			{Name: "kind", Label: "Art", Type: sdk.TypeEnum, Enum: []string{"share", "wallbox"}, Default: "share"},
+			{Name: "share", Label: "Anteil am Hausverbrauch", Type: sdk.TypeFloat, Default: 0.2, Min: sdk.Ptr(0), Max: sdk.Ptr(1)},
+			{Name: "maxW", Label: "Max. Ladeleistung", Type: sdk.TypeFloat, Unit: "W", Default: 11000.0},
+		},
+		Factory: NewConsumer,
+	})
 }
 
 var (

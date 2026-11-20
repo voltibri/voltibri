@@ -3,7 +3,6 @@
 site:
   timezone: Europe/Berlin
   listen: 127.0.0.1:7070
-  history: demo-history.csv
   dryRun: false # the demo devices are simulated, writing is harmless
 
 battery:

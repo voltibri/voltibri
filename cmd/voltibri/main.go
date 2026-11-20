@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"text/tabwriter"
@@ -28,8 +29,9 @@ import (
 	"github.com/voltibri/voltibri/internal/importer"
 	"github.com/voltibri/voltibri/internal/planner"
 	"github.com/voltibri/voltibri/internal/series"
+	"github.com/voltibri/voltibri/internal/server"
 	"github.com/voltibri/voltibri/internal/sim"
-	"github.com/voltibri/voltibri/internal/site"
+	"github.com/voltibri/voltibri/internal/store"
 	"github.com/voltibri/voltibri/sdk"
 )
 
@@ -38,7 +40,8 @@ var version = "dev"
 const usage = `voltibri – smart self-consumption optimizer
 
 Usage:
-  voltibri serve     -config voltibri.yaml       run the control loop and web UI
+  voltibri serve     [-data DIR] [-config FILE]  run the control loop and web UI
+  voltibri config    import|export|versions|rollback|validate ...
   voltibri simulate  [-input data.csv]           compare charging strategies on history
   voltibri synth     -out data.csv               generate synthetic demo data
   voltibri import-ha -in history.csv -out data.csv -pv ... -grid ...
@@ -57,6 +60,8 @@ func main() {
 	switch os.Args[1] {
 	case "serve":
 		err = serve(os.Args[2:])
+	case "config":
+		err = configCmd(os.Args[2:])
 	case "simulate":
 		err = simulate(os.Args[2:], os.Stdout)
 	case "synth":
@@ -79,38 +84,152 @@ func main() {
 	}
 }
 
+func defaultDataDir() string {
+	if d := os.Getenv("VOLTIBRI_DATA"); d != "" {
+		return d
+	}
+	return "data"
+}
+
 func serve(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
-	path := fs.String("config", "voltibri.yaml", "configuration file")
+	dataDir := fs.String("data", defaultDataDir(), "data directory (database and secret key), env VOLTIBRI_DATA")
+	yamlPath := fs.String("config", "", "YAML file that manages the configuration (read-only mode, reloaded on change)")
+	listen := fs.String("listen", "", "listen address (default: site.listen from the configuration or 127.0.0.1:7070)")
 	fs.Parse(args)
 
-	cfg, err := config.Load(*path)
+	st, err := store.Open(*dataDir)
 	if err != nil {
 		return err
 	}
-	s, err := site.New(cfg)
-	if err != nil {
-		return err
-	}
-	if cfg.Site.DryRun {
-		slog.Warn("dry-run: voltibri will NOT write to any device (site.dryRun: true)")
-	}
+	defer st.Close()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	srv := &http.Server{Addr: cfg.Site.Listen, Handler: api.Handler(s), ReadHeaderTimeout: 5 * time.Second}
+	addr := *listen
+	if addr == "" {
+		addr = "127.0.0.1:7070"
+		if *yamlPath != "" {
+			if cfg, err := config.Load(*yamlPath); err == nil && cfg.Site.Listen != "" {
+				addr = cfg.Site.Listen
+			}
+		} else if cfg, _, err := st.Current(ctx); err == nil && cfg.Site.Listen != "" {
+			addr = cfg.Site.Listen
+		}
+	}
+
+	rt := server.New(st, *yamlPath)
+	srv := &http.Server{Addr: addr, Handler: api.Handler(rt, st), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
-		slog.Info("web UI", "url", "http://"+cfg.Site.Listen)
+		slog.Info("web UI", "url", "http://"+addr, "data", *dataDir)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("http server", "err", err)
 			stop()
 		}
 	}()
-	err = s.Run(ctx)
+	err = rt.Run(ctx)
 	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	srv.Shutdown(shutdown)
 	return err
+}
+
+const configUsage = `Usage:
+  voltibri config import   [-data DIR] [-m comment] FILE.yaml   store a YAML file as new version
+  voltibri config export   [-data DIR] [-secrets]               print the current configuration as YAML
+  voltibri config versions [-data DIR]                          list configuration versions
+  voltibri config rollback [-data DIR] ID                       restore a version (as new version)
+  voltibri config validate FILE.yaml                            check a YAML file
+`
+
+func configCmd(args []string) error {
+	if len(args) == 0 {
+		fmt.Print(configUsage)
+		return errors.New("missing subcommand")
+	}
+	fs := flag.NewFlagSet("config "+args[0], flag.ExitOnError)
+	dataDir := fs.String("data", defaultDataDir(), "data directory, env VOLTIBRI_DATA")
+	comment := fs.String("m", "", "comment for the new version")
+	secrets := fs.Bool("secrets", false, "include secrets in plain text (careful!)")
+	fs.Parse(args[1:])
+	ctx := context.Background()
+
+	if args[0] == "validate" {
+		if fs.NArg() != 1 {
+			return errors.New("usage: voltibri config validate FILE.yaml")
+		}
+		if _, err := config.Load(fs.Arg(0)); err != nil {
+			return err
+		}
+		fmt.Println("Konfiguration ist gültig.")
+		return nil
+	}
+
+	st, err := store.Open(*dataDir)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	switch args[0] {
+	case "import":
+		if fs.NArg() != 1 {
+			return errors.New("usage: voltibri config import FILE.yaml")
+		}
+		cfg, err := config.Load(fs.Arg(0))
+		if err != nil {
+			return err
+		}
+		c := *comment
+		if c == "" {
+			c = "Import aus " + fs.Arg(0)
+		}
+		id, err := st.Save(ctx, cfg, "cli", c)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Version %d gespeichert.\n", id)
+	case "export":
+		cfg, _, err := st.Current(ctx)
+		if err != nil {
+			return err
+		}
+		if !*secrets {
+			cfg = store.Redact(cfg)
+		}
+		b, err := cfg.YAML()
+		if err != nil {
+			return err
+		}
+		os.Stdout.Write(b)
+	case "versions":
+		vs, err := st.Versions(ctx, 50)
+		if err != nil {
+			return err
+		}
+		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "Version\tZeitpunkt\tVon\tKommentar")
+		for _, v := range vs {
+			fmt.Fprintf(tw, "%d\t%s\t%s\t%s\n", v.ID, v.CreatedAt.Format("02.01.2006 15:04"), v.Author, v.Comment)
+		}
+		tw.Flush()
+	case "rollback":
+		if fs.NArg() != 1 {
+			return errors.New("usage: voltibri config rollback ID")
+		}
+		id, err := strconv.ParseInt(fs.Arg(0), 10, 64)
+		if err != nil {
+			return err
+		}
+		nid, err := st.Rollback(ctx, id, "cli")
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Version %d wiederhergestellt als Version %d.\n", id, nid)
+	default:
+		fmt.Print(configUsage)
+		return fmt.Errorf("unknown subcommand %q", args[0])
+	}
+	return nil
 }
 
 func simulate(args []string, out io.Writer) error {

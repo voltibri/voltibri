@@ -15,11 +15,14 @@ const flowJSON = `{"Body":{"Data":{"Site":{"P_Akku":-1500.5,"P_Grid":-2300,"P_Lo
 
 func TestSolarAPI(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/solar_api/v1/GetPowerFlowRealtimeData.fcgi" {
+		switch r.URL.Path {
+		case "/solar_api/v1/GetPowerFlowRealtimeData.fcgi":
+			w.Write([]byte(flowJSON))
+		case "/solar_api/v1/GetMeterRealtimeData.cgi":
+			w.Write([]byte(`{"Body":{"Data":{"0":{"Current_AC_Phase_1":-3.5,"Current_AC_Phase_2":1.25,"Current_AC_Phase_3":10,"Meter_Location_Current":0}}}}`))
+		default:
 			http.NotFound(w, r)
-			return
 		}
-		w.Write([]byte(flowJSON))
 	}))
 	defer srv.Close()
 	dev, err := New(sdk.DeviceConfig{ID: "f", Mode: sdk.ModeObserved, Params: map[string]any{"host": "x", "url": srv.URL, "capacityWh": 13800}})
@@ -39,6 +42,9 @@ func TestSolarAPI(t *testing.T) {
 	}
 	if v, _ := d.BatteryPower(ctx); v != -1500.5 {
 		t.Errorf("battery %v", v)
+	}
+	if ph, err := d.Currents(ctx); err != nil || ph != (sdk.Phases{3.5, 1.25, 10}) {
+		t.Errorf("currents %v %v", ph, err)
 	}
 	if err := d.SetChargeLimit(ctx, 1000); err == nil {
 		t.Error("observed device must not accept control")
