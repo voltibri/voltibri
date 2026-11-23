@@ -130,3 +130,50 @@ type TariffSource interface {
 type TemperatureForecaster interface {
 	TemperatureForecast(ctx context.Context, from, to time.Time) ([]Slot, error)
 }
+
+// VehicleInfo identifies an electric vehicle offered by a VehicleProvider.
+type VehicleInfo struct {
+	ID    string `json:"id"`    // stable id within the provider
+	Name  string `json:"name"`  // display name as set by the user in the vendor app
+	Brand string `json:"brand"` // e.g. "Tesla"
+	Model string `json:"model"` // e.g. "Model Y"
+	VIN   string `json:"vin,omitempty"`
+}
+
+// VehicleStatus is the state reported by the vehicle (via its cloud).
+// Unknown numbers are NaN.
+type VehicleStatus struct {
+	SoC       float64   // state of charge 0..1
+	LimitSoC  float64   // charge limit set in the car 0..1
+	RangeKm   float64   // remaining range
+	Connected bool      // plugged in
+	Charging  bool      // energy is flowing
+	Updated   time.Time // when the provider last refreshed the data
+}
+
+// VehicleProvider is an account (e.g. Tibber, a vendor cloud) that knows
+// one or more vehicles. Providers should cache: vehicle clouds are slow and
+// rate limited.
+type VehicleProvider interface {
+	Vehicles(ctx context.Context) ([]VehicleInfo, error)
+	VehicleStatus(ctx context.Context, id string) (VehicleStatus, error)
+}
+
+// OAuthAuthorizer is implemented by devices that need an interactive
+// OAuth login in the browser. The core serves the redirect endpoint.
+type OAuthAuthorizer interface {
+	// AuthURL returns the URL the user is sent to; state must be passed
+	// back unchanged to Exchange.
+	AuthURL(redirectURI string) (url, state string, err error)
+	// Exchange completes the login with the code from the redirect.
+	Exchange(ctx context.Context, code, state string) error
+	// Authorized reports whether usable tokens are available.
+	Authorized() bool
+}
+
+// BatteryForceCharger can make the battery charge with a given power even
+// if that power has to come from the grid. Used for metering concepts where
+// a charger sits behind a separate (cascaded) meter.
+type BatteryForceCharger interface {
+	ForceCharge(ctx context.Context, w float64) error
+}

@@ -64,6 +64,56 @@ func TestGoE(t *testing.T) {
 	}
 }
 
+// The forecast survives a restart (shared persistent cache) and bridges API
+// errors such as the rate limit with the cached answer.
+func TestForecastSolarCache(t *testing.T) {
+	limited := false
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if limited {
+			http.Error(w, `{"message":"Rate limit"}`, http.StatusTooManyRequests)
+			return
+		}
+		w.Write([]byte(`{"result":{"watts":{"2026-06-15 12:00:00":3000,"2026-06-15 13:00:00":3000}}}`))
+	}))
+	defer srv.Close()
+	cache := sdk.NewMemCache()
+	mk := func(refresh string) sdk.PVForecaster {
+		d, err := sdk.New(sdk.DeviceConfig{ID: "pv", Type: "forecast.solar", Cache: cache, Params: map[string]any{
+			"url": srv.URL, "lat": 48.6, "lon": 9.0, "refresh": refresh,
+			"planes": []any{map[string]any{"kwp": 5, "az": -118}, map[string]any{"kwp": 5, "az": 62}},
+		}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d.(sdk.PVForecaster)
+	}
+	loc, _ := time.LoadLocation("Europe/Berlin")
+	from := time.Date(2026, 6, 15, 12, 0, 0, 0, loc)
+	get := func(f sdk.PVForecaster) float64 {
+		s, err := f.PVForecast(context.Background(), from, from.Add(time.Hour))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s[0].Value
+	}
+
+	if v := get(mk("1h")); v != 6000 || calls != 2 {
+		t.Fatalf("first start: %v W, %d calls", v, calls)
+	}
+	// "restart": new device, same cache -> no requests
+	if v := get(mk("1h")); v != 6000 || calls != 2 {
+		t.Fatalf("after restart: %v W, %d calls (expected none)", v, calls)
+	}
+	// cache expired and API rate limited -> stale cached forecast is used
+	limited = true
+	time.Sleep(5 * time.Millisecond)
+	if v := get(mk("1ms")); v != 6000 || calls != 4 {
+		t.Fatalf("rate limited: %v W, %d calls", v, calls)
+	}
+}
+
 // Every built-in driver must describe itself for the configuration UI.
 func TestDriversHaveSchemas(t *testing.T) {
 	for _, d := range sdk.Drivers() {
@@ -94,6 +144,25 @@ func TestShellyObservedRefusesWrites(t *testing.T) {
 	}
 }
 
+func TestShellyPM(t *testing.T) {
+	var calls []string
+	// response captured from a Shelly PM Mini Gen3
+	srv := server(t, map[string]string{"/rpc/PM1.GetStatus?id=0": `{"id":0, "voltage":237.9, "current":3.341, "apower":617.5 ,"freq":50.0,"aenergy":{"total":482705.879,"by_minute":[1,2,3],"minute_ts":1795169880},"ret_aenergy":{"total":0.000}}`}, &calls)
+	d := newDev(t, "shelly-pm", sdk.ModeObserved, map[string]any{"url": srv.URL})
+	if p, err := d.(sdk.PowerConsumer).ConsumerPower(context.Background()); err != nil || p != 617.5 {
+		t.Errorf("power %v %v", p, err)
+	}
+	if ph, _ := d.(sdk.PhaseCurrents).Currents(context.Background()); ph != (sdk.Phases{3.341, 0, 0}) {
+		t.Errorf("currents %v", ph)
+	}
+	if e, _ := d.(sdk.EnergyMeter).EnergyWh(context.Background()); e != 482705.879 {
+		t.Errorf("energy %v", e)
+	}
+	if _, ok := d.(sdk.Switch); ok {
+		t.Error("a meter without relay must not offer switching")
+	}
+}
+
 func TestOpenDTU(t *testing.T) {
 	var calls []string
 	srv := server(t, map[string]string{"/api/livedata/status": `{"total":{"Power":{"v":1234.5,"u":"W","d":1}}}`}, &calls)
@@ -109,7 +178,7 @@ func TestForecastSolar(t *testing.T) {
 		"2026-06-15 05:00:00":0,"2026-06-15 12:00:00":6000,"2026-06-15 13:00:00":6000,"2026-06-15 21:00:00":0}}}`}, &calls)
 	d := newDev(t, "forecast.solar", sdk.ModeObserved, map[string]any{
 		"url": srv.URL, "lat": 51.0, "lon": 10.0,
-		"planes": []any{map[string]any{"dec": 30, "az": 0, "kwp": 5}, map[string]any{"dec": 30, "az": 90, "kwp": 5}},
+		"planes": []any{map[string]any{"dec": 30, "az": 0, "kwp": 5}, map[string]any{"dec": 30, "az": 90, "kwp": 5, "horizon": "0,0,10, 20"}},
 	})
 	loc, _ := time.LoadLocation("Europe/Berlin")
 	from := time.Date(2026, 6, 15, 12, 0, 0, 0, loc)
@@ -120,7 +189,12 @@ func TestForecastSolar(t *testing.T) {
 	if len(slots) != 4 || slots[0].Value != 12000 { // two planes summed
 		t.Errorf("unexpected slots %+v", slots)
 	}
+	if len(calls) != 2 || strings.Contains(calls[0], "horizon") || !strings.HasSuffix(calls[1], "?horizon=0%2C0%2C10%2C20") {
+		t.Errorf("expected one request per plane with horizon on the second, got %v", calls)
+	}
+	// cached: no new requests within the refresh interval
+	d.(sdk.PVForecaster).PVForecast(context.Background(), from, from.Add(time.Hour))
 	if len(calls) != 2 {
-		t.Errorf("expected one request per plane, got %v", calls)
+		t.Errorf("forecast not cached: %v", calls)
 	}
 }

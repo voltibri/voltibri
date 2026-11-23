@@ -69,6 +69,26 @@ var migrations = []string{
 		spot_ct REAL,
 		temp_c  REAL
 	)`,
+	`CREATE TABLE cache (
+		namespace TEXT NOT NULL, -- device id
+		key       TEXT NOT NULL,
+		stored_at INTEGER NOT NULL,
+		value     BLOB NOT NULL,
+		PRIMARY KEY (namespace, key)
+	)`,
+	`CREATE TABLE charging_sessions (
+		id           INTEGER PRIMARY KEY AUTOINCREMENT,
+		loadpoint    TEXT NOT NULL,
+		vehicle      TEXT NOT NULL,
+		vehicle_name TEXT NOT NULL,
+		guest        INTEGER NOT NULL,
+		mode         TEXT NOT NULL,
+		start        INTEGER NOT NULL, -- unix seconds
+		end          INTEGER NOT NULL,
+		energy_wh    REAL NOT NULL,
+		solar_wh     REAL NOT NULL,
+		cost_ct      REAL NOT NULL
+	)`,
 }
 
 // Open opens (and creates or migrates) the database in dataDir.
@@ -199,6 +219,14 @@ func (s *Store) load(ctx context.Context, q string, args ...any) (*config.Config
 	return cfg, vi, nil
 }
 
+// LatestVersion returns the id of the newest version (0 if none). Used to
+// notice changes written by other processes (e.g. the CLI).
+func (s *Store) LatestVersion(ctx context.Context) (int64, error) {
+	var id int64
+	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(id), 0) FROM config_versions`).Scan(&id)
+	return id, err
+}
+
 // Versions lists the most recent configuration versions, newest first.
 func (s *Store) Versions(ctx context.Context, limit int) ([]VersionInfo, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, created_at, author, comment FROM config_versions ORDER BY id DESC LIMIT ?`, limit)
@@ -319,6 +347,54 @@ func (s *Store) AppendHistory(ctx context.Context, r series.Record) error {
 	_, err := s.db.ExecContext(ctx, `INSERT OR REPLACE INTO history (slot, pv_w, load_w, spot_ct, temp_c) VALUES (?, ?, ?, ?, ?)`,
 		r.Time.Unix(), r.PVW, r.LoadW, nullable(r.SpotCt), nullable(r.TempC))
 	return err
+}
+
+// ImportHistory stores imported records in one transaction. Slots that
+// already exist (voltibri's own measurements) are kept unless overwrite is
+// set. It returns the number of records written.
+func (s *Store) ImportHistory(ctx context.Context, recs series.Series, overwrite bool) (int, error) {
+	verb := "INSERT OR IGNORE"
+	if overwrite {
+		verb = "INSERT OR REPLACE"
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	stmt, err := tx.PrepareContext(ctx, verb+` INTO history (slot, pv_w, load_w, spot_ct, temp_c) VALUES (?, ?, ?, ?, ?)`)
+	if err != nil {
+		return 0, err
+	}
+	defer stmt.Close()
+	n := 0
+	for _, r := range recs {
+		res, err := stmt.ExecContext(ctx, r.Time.Unix(), r.PVW, r.LoadW, nullable(r.SpotCt), nullable(r.TempC))
+		if err != nil {
+			return n, err
+		}
+		if c, _ := res.RowsAffected(); c > 0 {
+			n++
+		}
+	}
+	return n, tx.Commit()
+}
+
+// HistoryInfo summarises the stored history.
+type HistoryInfo struct {
+	Slots       int
+	First, Last time.Time
+}
+
+// HistoryInfo returns the number of slots and the covered period.
+func (s *Store) HistoryInfo(ctx context.Context) (HistoryInfo, error) {
+	var hi HistoryInfo
+	var first, last sql.NullInt64
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*), MIN(slot), MAX(slot) FROM history`).Scan(&hi.Slots, &first, &last)
+	if first.Valid {
+		hi.First, hi.Last = time.Unix(first.Int64, 0), time.Unix(last.Int64, 0)
+	}
+	return hi, err
 }
 
 // LoadHistory returns all records since the given time.

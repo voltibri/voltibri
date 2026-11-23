@@ -4,38 +4,23 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>voltibri</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="stylesheet" href="common.css">
 <style>
-  :root {
-    --bg:#f4f6f3; --card:#ffffff; --fg:#18201b; --muted:#68736c; --line:#e1e5e0; --track:#e6eae5;
-    --solar:#d99a00; --grid:#6b7a8f; --battery:#1f9d6b; --home:#3d6fb6; --consumer:#3d6fb6; --export:#1f9d6b;
-    --node:#ffffff; --limit:rgba(31,157,107,.13); --warn:#b54a2a; --shadow:0 1px 2px rgba(20,30,25,.06);
-  }
-  @media (prefers-color-scheme: dark) { :root {
-    --bg:#111513; --card:#191e1b; --fg:#e6ebe7; --muted:#97a29b; --line:#2a312d; --track:#2a312d;
-    --solar:#f2b62a; --grid:#93a3b8; --battery:#3cc58c; --home:#7aa4e3; --consumer:#7aa4e3; --export:#3cc58c;
-    --node:#1f2521; --limit:rgba(60,197,140,.15); --warn:#e5805f; --shadow:none; } }
-  * { box-sizing:border-box; }
-  body { margin:0; font:15px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--bg); color:var(--fg); }
-  main { max-width:1080px; margin:0 auto; padding:18px 16px 48px; }
-  header { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
-  .logo { display:flex; align-items:center; gap:8px; }
-  h1 { font-size:21px; margin:0; letter-spacing:-.02em; }
-  .sub { color:var(--muted); font-size:13px; }
-  .spacer { flex:1; }
-  .badge { font-size:12px; padding:3px 9px; border-radius:99px; border:1px solid var(--line); color:var(--muted); background:var(--card); white-space:nowrap; }
-  .badge.warn { color:var(--warn); border-color:currentColor; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; box-shadow:var(--shadow); }
-  .card + .card, .grid2 { margin-top:14px; }
-  h2 { font-size:14px; margin:0 0 10px; font-weight:600; }
   .flowhead { display:flex; align-items:baseline; justify-content:space-between; gap:8px; flex-wrap:wrap; }
   .kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-top:12px; }
   .kpi { border-top:1px solid var(--line); padding-top:10px; }
   .kpi .k { color:var(--muted); font-size:12px; }
   .kpi .v { font-size:20px; font-variant-numeric:tabular-nums; letter-spacing:-.01em; }
   @media (max-width:640px) { .kpis { grid-template-columns:repeat(2,1fr); } }
-  #flow { width:100%; height:auto; display:block; overflow:visible; }
-  #flow text { font-variant-numeric:tabular-nums; paint-order:stroke; stroke:var(--card); stroke-width:4px; stroke-linejoin:round; }
+  #flow { width:100%; height:auto; display:block; margin:0 auto; overflow:visible; }
+  #flow text { font-variant-numeric:tabular-nums; }
   .track { fill:none; stroke:var(--track); stroke-width:2; }
+  .tog { cursor:pointer; outline:none; }
+  .tog:hover > circle:first-of-type, .tog:focus-visible > circle:first-of-type { stroke-width:3.5; }
+  .pop { transform-box:fill-box; transform-origin:center; animation:pop .28s ease-out; }
+  @keyframes pop { from { opacity:0; transform:scale(.6); } }
+  @media (prefers-reduced-motion: reduce) { .pop { animation:none; } }
   .flowline { fill:none; stroke-linecap:round; stroke-dasharray:1 12; animation:dash linear infinite; }
   @keyframes dash { to { stroke-dashoffset:-26; } }
   @media (prefers-reduced-motion: reduce) { .flowline { animation:none; stroke-dasharray:none; opacity:.8; } }
@@ -45,6 +30,37 @@
   .legend { display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--muted); margin-top:8px; }
   .legend i { display:inline-block; width:12px; height:3px; vertical-align:middle; margin-right:5px; border-radius:2px; }
   .err { color:var(--warn); font-size:13px; margin-top:8px; }
+  /* charging panel */
+  #laden[hidden] { display:none; }
+  .lps { display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:12px; }
+  .lp { border:1px solid var(--line); border-radius:12px; padding:14px; display:flex; flex-direction:column; gap:10px; }
+  .lphead { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
+  .lphead h3 { margin:0; font-size:15px; }
+  .lphead .pw { margin-left:auto; font-variant-numeric:tabular-nums; font-weight:600; }
+  .pill { font-size:11px; padding:2px 8px; border-radius:99px; background:var(--track); color:var(--muted); }
+  .pill.on { background:rgba(31,157,107,.15); color:var(--battery); }
+  .vrow { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  select, input[type=time], input[type=datetime-local], input[type=number] {
+    font:inherit; font-size:13px; color:var(--fg); background:var(--card); border:1px solid var(--line); border-radius:8px; padding:5px 8px; }
+  select { max-width:100%; }
+  .socbar { position:relative; height:10px; border-radius:5px; background:var(--track); overflow:hidden; }
+  .socbar i { position:absolute; inset:0 auto 0 0; background:var(--battery); border-radius:5px; }
+  .socbar b { position:absolute; top:0; bottom:0; width:2px; background:var(--fg); opacity:.55; }
+  .socline { display:flex; justify-content:space-between; font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; }
+  .modes { display:grid; grid-template-columns:repeat(4, 1fr); border:1px solid var(--line); border-radius:9px; overflow:hidden; }
+  .modes button { font:inherit; font-size:13px; border:0; background:var(--card); color:var(--fg); padding:7px 4px; cursor:pointer; }
+  .modes button + button { border-left:1px solid var(--line); }
+  .modes button.sel { background:var(--home); color:var(--card); font-weight:600; }
+  .modes button:disabled { cursor:default; opacity:.55; }
+  .planbox { border-top:1px solid var(--line); padding-top:10px; display:flex; flex-direction:column; gap:8px; font-size:13px; }
+  .planbox .ttl { font-weight:600; font-size:13px; }
+  .plans { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:4px; }
+  .plans li { display:flex; align-items:center; gap:8px; }
+  .plans li span { flex:1; }
+  .days { display:flex; gap:3px; }
+  .days label { font-size:11px; display:flex; flex-direction:column; align-items:center; gap:1px; }
+  .sess { display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--muted); }
+  .sess b { color:var(--fg); font-variant-numeric:tabular-nums; }
 </style>
 </head>
 <body>
@@ -59,6 +75,7 @@
     <span class="badge" id="mode">…</span>
     <span class="badge warn" id="dry" hidden>Testmodus</span>
     <span class="badge" id="time">–</span>
+    <a class="navlink" href="konfiguration">Konfiguration</a>
   </header>
 
   <section class="card">
@@ -73,8 +90,16 @@
     <div class="err" id="errors"></div>
   </section>
 
+  <section class="card" id="laden" hidden>
+    <div class="flowhead"><h2>Laden</h2><span class="sub" id="ltariff"></span></div>
+    <div class="flash" id="lflash" hidden></div>
+    <div class="lps" id="lps"></div>
+    <div id="lveh"></div>
+    <div id="lsess"></div>
+  </section>
+
   <section class="card">
-    <h2>Batterieplan: warum?</h2>
+    <h2>Erklärung der Ladeplanung</h2>
     <ul id="reasons"></ul>
   </section>
 
@@ -82,32 +107,21 @@
     <h2>Plan für die nächsten 48 Stunden</h2>
     <svg class="chart" id="chart" viewBox="0 0 960 300" role="img" aria-label="Plan"></svg>
     <div class="legend">
-      <span><i style="background:var(--solar)"></i>PV-Prognose (kW)</span>
-      <span><i style="background:var(--home)"></i>Lastprognose (kW)</span>
+      <span><i style="background:var(--solar)"></i>PV (kW)</span>
+      <span><i style="background:var(--home)"></i>Hausverbrauch (kW)</span>
       <span><i style="background:var(--battery)"></i>erwarteter Ladestand (%)</span>
       <span><i style="background:var(--limit);height:10px"></i>Laden erlaubt</span>
+      <span><i style="background:var(--track);height:10px"></i>gemessen (letzte 2 h)</span>
     </div>
   </section>
 </main>
+<script src="common.js"></script>
 <script>
-const $ = id => document.getElementById(id);
 const kw = w => (Math.abs(w) >= 1000 ? (w/1000).toFixed(1).replace('.', ',') + ' kW' : Math.round(w) + ' W');
 const pct = v => Math.round(v*100) + ' %';
-const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const modes = {delay:'spät laden', immediate:'sofort laden', night:'Nacht', 'no-data':'zu wenig Daten'};
 
 // 24x24 line icons
-const ICONS = {
-  solar:   '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
-  balcony: '<path d="M4 14h16M6 14v6M18 14v6M4 20h16"/><path d="M7 4h10l2 7H5z"/><path d="M12 4v7M6 7.5h12"/>',
-  car:     '<path d="M5 16V11l2-5h10l2 5v5"/><path d="M3 16h18v2H3z"/><circle cx="7.5" cy="13" r="1"/><circle cx="16.5" cy="13" r="1"/>',
-  heatpump:'<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="10" cy="12" r="4"/><path d="M10 8v8M6 12h8"/><path d="M17 9v6"/>',
-  plug:    '<path d="M9 3v5M15 3v5"/><path d="M7 8h10v3a5 5 0 0 1-10 0z"/><path d="M12 16v5"/>',
-  water:   '<path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z"/>',
-  house:   '<path d="M3 11 12 4l9 7"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-5h4v5"/>',
-  grid:    '<path d="M12 2 7 22M12 2l5 20M8.5 9h7M7 14h10M4 22h16M5 6h14"/>',
-  battery: '<rect x="3" y="7" width="16" height="10" rx="2"/><path d="M21 10.5v3"/>',
-};
 
 const COLORS = {producer:'var(--solar)', grid:'var(--grid)', battery:'var(--battery)', consumer:'var(--consumer)', home:'var(--home)'};
 
@@ -116,33 +130,60 @@ function icon(name, x, y, color, size = 24) {
   return `<g transform="translate(${x - size/2} ${y - size/2}) scale(${s})" fill="none" stroke="${color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[name] || ICONS.plug}</g>`;
 }
 
-// layout computes node positions for the available width.
-function layout(st, wide) {
-  const P = st.producers, C = st.consumers.concat([{id:'_rest', name:'Übriges Haus', icon:'house', powerW: st.restW, rest:true}]);
-  const nodes = {}, links = [];
-  let W, H;
-  if (wide) {
-    const rows = Math.max(P.length, C.length, 3);
-    W = 960; H = Math.max(450, rows * 116 + 40);
-    const col = (items, x) => items.forEach((it, i) => { nodes[it.id] = {x, y: H/2 - 10 + (i - (items.length-1)/2) * 116}; });
-    col(P, 110); col(C, 850);
-    nodes._home = {x: 480, y: H/2 - 10};
-    nodes._grid = {x: 480, y: 44};
-    nodes._battery = {x: 480, y: H - 116};
-  } else {
-    const per = 3, rowH = 128, w = 400;
-    const rowsOf = items => Math.ceil(items.length / per);
-    const pr = Math.max(1, rowsOf(P)), cr = rowsOf(C);
-    W = w; H = 40 + pr*rowH + 150 + cr*rowH;
-    const place = (items, y0) => items.forEach((it, i) => {
-      const r = Math.floor(i / per), inRow = Math.min(per, items.length - r*per), k = i % per;
-      nodes[it.id] = {x: w/2 + (k - (inRow-1)/2) * 128, y: y0 + r*rowH};
-    });
-    place(P, 50);
-    const hy = 50 + pr*rowH + 40;
-    nodes._home = {x: w/2, y: hy}; nodes._grid = {x: 60, y: hy}; nodes._battery = {x: w-60, y: hy};
-    place(C, hy + 150);
-  }
+// Overview groups: devices with the same "group" form one bubble; a click on
+// a group opens its devices in an overlay.
+const GROUPS = {pv: {name: 'PV', icon: 'solar'}, wallboxen: {name: 'Wallboxen', icon: 'car'},
+                waermepumpe: {name: 'Wärmepumpe', icon: 'heatpump'}, warmwasser: {name: 'Warmwasser', icon: 'water'}};
+
+function membersOf(items, key) { return items.filter(x => (x.group || x.id) === key); }
+
+function grouped(items, kind) {
+  const order = [];
+  for (const it of items) { const k = it.group || it.id; if (!order.includes(k)) order.push(k); }
+  return order.map(k => {
+    const m = membersOf(items, k);
+    if (m.length === 1 && !GROUPS[k]) return m[0];               // stands alone
+    const def = GROUPS[k] || {name: m[0].name, icon: m[0].icon};
+    return {id: 'g:' + k, name: def.name, icon: def.icon, count: m.length, toggle: k, kind,
+            powerW: m.reduce((s, x) => s + x.powerW, 0),
+            mode: m.every(x => x.mode === 'delegated') ? 'delegated' : '',
+            circuit: m.every(x => x.circuit && x.circuit === m[0].circuit) ? m[0].circuit : ''};
+  });
+}
+
+// Layout: the house in the middle, all other nodes on a circle around it –
+// the sources (PV, grid, battery) on the upper half, the consumers on the
+// lower half. Straight lines connect every node with the house. A click on
+// a group expands its devices into the circle; only one group is open.
+const NODE_R = 30, HOME_R = 36, GAP = 12, MIN_LINE = 40, SCALE = 1.35;
+const MODES = {owned: 'von voltibri gesteuert', delegated: 'extern gesteuert', observed: 'nur beobachtet'};
+let open = null;      // {key, kind} of the expanded group
+let popOpen = false;  // animate the members on the next draw
+
+function expanded(items, kind) {
+  return grouped(items, kind).flatMap(it =>
+    it.count > 1 && open && open.key === it.toggle && open.kind === kind
+      ? membersOf(items, it.toggle).map(m => ({...m, toggle: it.toggle, kind, member: true}))
+      : [it]);
+}
+
+function layout(st) {
+  const P = expanded(st.producers, 'producers');
+  const C = expanded(st.consumers, 'consumers').concat([{id:'_rest', name:'Übriges Haus', icon:'house', powerW: st.restW, rest:true}]);
+  const S = [...P.map(p => p.id), '_grid', ...(st.hasBattery ? ['_battery'] : [])];
+  const N = S.length + C.length;
+  const step = 2 * Math.PI / Math.max(N, 4);
+  const R = Math.max(HOME_R + NODE_R + MIN_LINE, (2 * NODE_R + GAP) / (2 * Math.sin(step / 2)));
+  const pad = NODE_R + 14, W = 2 * (R + pad), H = W;
+  const nodes = {_home: {x: W / 2, y: H / 2}}, links = [];
+  // sources centred on the top, consumers centred on the bottom
+  const arc = (ids, centre, dir) => ids.forEach((id, i) => {
+    const a = centre + dir * (i - (ids.length - 1) / 2) * step;
+    nodes[id] = {x: W / 2 + R * Math.cos(a), y: H / 2 + R * Math.sin(a), a};
+  });
+  arc(S, -Math.PI / 2, 1);
+  arc(C.map(c => c.id), Math.PI / 2, -1);
+
   P.forEach(p => links.push({a: p.id, b: '_home', w: p.powerW, color: COLORS.producer}));
   C.forEach(c => links.push({a: '_home', b: c.id, w: c.powerW, color: COLORS.consumer}));
   links.push(st.gridW >= 0 ? {a:'_grid', b:'_home', w: st.gridW, color: COLORS.grid}
@@ -150,82 +191,326 @@ function layout(st, wide) {
   if (st.hasBattery)
     links.push(st.batteryW >= 0 ? {a:'_battery', b:'_home', w: st.batteryW, color: COLORS.battery}
                                 : {a:'_home', b:'_battery', w: -st.batteryW, color: COLORS.battery});
-  return {W, H, nodes, links, P, C};
+  return {W, H, R, nodes, links, P, C};
 }
 
-function curve(a, b, wide) {
-  if (wide) { const mx = (a.x + b.x) / 2; return `M${a.x},${a.y} C${mx},${a.y} ${mx},${b.y} ${b.x},${b.y}`; }
-  const my = (a.y + b.y) / 2; return `M${a.x},${a.y} C${a.x},${my} ${b.x},${my} ${b.x},${b.y}`;
+// straight line between the rims of two circles
+function line(a, ra, b, rb) {
+  const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
+  const ux = dx / len, uy = dy / len;
+  return `M${(a.x + ux * ra).toFixed(1)},${(a.y + uy * ra).toFixed(1)} L${(b.x - ux * rb).toFixed(1)},${(b.y - uy * rb).toFixed(1)}`;
 }
 
-function node(n, {r, ic, color, value, name, sub, ring}) {
-  let g = `<circle cx="${n.x}" cy="${n.y}" r="${r}" fill="var(--node)" stroke="${color}" stroke-width="2"/>`;
+// A node shows icon and value inside the circle; the name is only a tooltip.
+// count > 1 adds a small bubble with the number of devices.
+function node(n, {r, ic, color, value, title, ring, ringColor, extra, count}) {
+  let g = `<title>${esc(title)}</title><circle cx="${n.x}" cy="${n.y}" r="${r}" fill="var(--node)" stroke="${color}" stroke-width="2"/>`;
   if (ring !== undefined) { // SoC ring
-    const c = 2*Math.PI*(r+5);
-    g += `<circle cx="${n.x}" cy="${n.y}" r="${r+5}" fill="none" stroke="var(--track)" stroke-width="4"/>` +
-         `<circle cx="${n.x}" cy="${n.y}" r="${r+5}" fill="none" stroke="${color}" stroke-width="4" stroke-linecap="round"
+    const c = 2*Math.PI*(r+4);
+    g += `<circle cx="${n.x}" cy="${n.y}" r="${r+4}" fill="none" stroke="var(--track)" stroke-width="3.5"/>` +
+         `<circle cx="${n.x}" cy="${n.y}" r="${r+4}" fill="none" stroke="${ringColor || color}" stroke-width="3.5" stroke-linecap="round"
             stroke-dasharray="${(c*ring).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 ${n.x} ${n.y})"/>`;
   }
-  g += icon(ic, n.x, n.y - (r > 34 ? 7 : 0), color, r > 34 ? 26 : 24);
-  if (r > 34) g += `<text x="${n.x}" y="${n.y + 19}" text-anchor="middle" font-size="13" font-weight="600" fill="var(--fg)">${value}</text>`;
-  const ty = n.y + r + (ring !== undefined ? 24 : 19);
-  if (r <= 34) g += `<text x="${n.x}" y="${ty}" text-anchor="middle" font-size="14" font-weight="600" fill="var(--fg)">${value}</text>`;
-  g += `<text x="${n.x}" y="${ty + (r <= 34 ? 17 : 0)}" text-anchor="middle" font-size="12" fill="var(--muted)">${esc(name)}</text>`;
-  if (sub) g += `<text x="${n.x}" y="${ty + (r <= 34 ? 32 : 15)}" text-anchor="middle" font-size="11" fill="var(--muted)">${esc(sub)}</text>`;
+  const iy = n.y - (extra ? 11 : 7);
+  g += icon(ic, n.x, iy, color, extra ? 18 : 20);
+  g += `<text x="${n.x}" y="${iy + (extra ? 22 : 24)}" text-anchor="middle" font-size="${r > NODE_R ? 14 : 12.5}" font-weight="600" fill="var(--fg)">${value}</text>`;
+  if (extra) g += `<text x="${n.x}" y="${iy + 34}" text-anchor="middle" font-size="10.5" fill="var(--muted)">${extra}</text>`;
+  if (count > 1) { // always top right on the rim
+    const bx = n.x + r * 0.71, by = n.y - r * 0.71;
+    g += `<circle cx="${bx.toFixed(1)}" cy="${by.toFixed(1)}" r="10" fill="${color}" stroke="var(--card)" stroke-width="2.5"/>` +
+         `<text x="${bx.toFixed(1)}" y="${(by + 4).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="700" fill="var(--card)">${count}</text>`;
+  }
   return g;
+}
+
+// load of the sub-distribution (or house connection) a node stands for
+function circuitLoad(id, st) {
+  const c = (st.circuits || []).find(x => x.id === id);
+  if (!c || !(c.maxA > 0)) return null;
+  const a = Math.max(...c.currentsA);
+  return {c, a, u: a / c.maxA, ring: Math.min(1, a / c.maxA), color: a > c.maxA ? 'var(--warn)' : a > 0.9 * c.maxA ? 'var(--solar)' : 'var(--battery)',
+    extra: `${Math.round(a)}/${Math.round(c.maxA)} A`,
+    text: `${c.name}: ${c.currentsA.map(x => x.toFixed(1).replace('.', ',')).join(' / ')} A von ${Math.round(c.maxA)} A${c.estimated ? ' (teils geschätzt)' : ''}`};
+}
+
+function tip(it, st) {
+  if (it.rest) return `${it.name} · ohne eigene Messung · ${kw(it.powerW)}`;
+  if (it.count > 1) return `${it.name} · ${it.count} Geräte · ${kw(it.powerW)} · klicken zum Aufklappen`;
+  const mode = MODES[it.mode] ? MODES[it.mode] + (it.mode === 'owned' && st.dryRun ? ' (Testmodus)' : '') : '';
+  return [it.name, mode, kw(it.powerW), it.member ? 'klicken zum Zuklappen' : ''].filter(Boolean).join(' · ');
 }
 
 function drawFlow(st) {
   const svg = $('flow');
-  const wide = svg.getBoundingClientRect().width >= 640;
-  const {W, H, nodes, links, P, C} = layout(st, wide);
-  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  const {W, H, R, nodes, links, P, C} = layout(st);
+  svg.setAttribute('viewBox', `0 0 ${W.toFixed(0)} ${H.toFixed(0)}`);
+  svg.style.maxWidth = (W * SCALE).toFixed(0) + 'px'; // same node size for any number of nodes
   const maxW = Math.max(1500, ...links.map(l => l.w));
-  let g = '';
-  // dock lines next to the labels instead of crossing them
   const home = nodes._home;
-  const port = (id, other) => {
-    const n = nodes[id];
-    if (id === '_home') {
-      const o = nodes[other];
-      if (other === '_grid' && wide) return {x: n.x, y: n.y - 44};
-      if (other === '_battery' && wide) return {x: n.x, y: n.y + 70};
-      if (!wide && o.y < n.y - 50) return {x: n.x, y: n.y - 44};
-      if (!wide && o.y > n.y + 50) return {x: n.x, y: n.y + 68};
-      return n;
-    }
-    if (wide && id === '_grid') return {x: n.x, y: n.y + 80};
-    if (wide && id === '_battery') return {x: n.x, y: n.y - 36};
-    if (!wide && n.y < home.y - 50) return {x: n.x, y: n.y + 72};
-    if (!wide && n.y > home.y + 50) return {x: n.x, y: n.y - 31};
-    return n;
-  };
+  const rOf = id => id === '_home' ? HOME_R + 4 : (id === '_battery' ? NODE_R + 8 : NODE_R + 4);
+  let g = '';
+  // the members of an open group are joined by an arc on the circle
+  const mem = [...P, ...C].filter(x => x.member).map(x => nodes[x.id].a);
+  if (mem.length > 1) {
+    const a0 = Math.min(...mem), a1 = Math.max(...mem);
+    const pt = a => `${(home.x + R * Math.cos(a)).toFixed(1)},${(home.y + R * Math.sin(a)).toFixed(1)}`;
+    const color = open.kind === 'producers' ? COLORS.producer : COLORS.consumer;
+    g += `<path class="${popOpen ? 'pop' : ''}" d="M${pt(a0)} A${R.toFixed(1)},${R.toFixed(1)} 0 ${a1 - a0 > Math.PI ? 1 : 0} 1 ${pt(a1)}"
+            fill="none" stroke="${color}" stroke-width="6" stroke-linecap="round" opacity=".25"/>`;
+  }
   for (const l of links) {
-    const a = port(l.a, l.b), b = port(l.b, l.a);
-    const d = curve(a, b, wide);
+    const d = line(nodes[l.a], rOf(l.a), nodes[l.b], rOf(l.b));
     g += `<path class="track" d="${d}"/>`;
     if (l.w > 15) {
-      const sw = 2.5 + 6 * Math.min(1, l.w / maxW);
+      const sw = 2.5 + 5 * Math.min(1, l.w / maxW);
       const dur = Math.max(0.6, 3.2 - 2.6 * Math.min(1, l.w / maxW));
       g += `<path class="flowline" d="${d}" stroke="${l.color}" stroke-width="${sw.toFixed(1)}" style="animation-duration:${dur.toFixed(2)}s"/>`;
     }
   }
-  P.forEach(p => g += node(nodes[p.id], {r: 30, ic: p.icon || 'solar', color: COLORS.producer, value: kw(p.powerW), name: p.name,
-    sub: p.mode === 'delegated' ? 'extern gesteuert' : ''}));
-  C.forEach(c => g += node(nodes[c.id], {r: 30, ic: c.icon || 'plug', color: c.rest ? 'var(--muted)' : COLORS.consumer, value: kw(c.powerW), name: c.name,
-    sub: c.rest ? 'ohne eigene Messung' : (c.mode === 'delegated' ? 'extern gesteuert' : '')}));
-  g += node(nodes._grid, {r: 30, ic: 'grid', color: st.gridW >= 0 ? COLORS.grid : 'var(--export)', value: kw(Math.abs(st.gridW)),
-    name: 'Netz', sub: Math.abs(st.gridW) < 15 ? 'ausgeglichen' : (st.gridW > 0 ? 'Bezug' : 'Einspeisung')});
-  if (st.hasBattery)
-    g += node(nodes._battery, {r: 30, ic: 'battery', color: COLORS.battery, value: kw(Math.abs(st.batteryW)), ring: st.soc,
-      name: 'Batterie ' + pct(st.soc), sub: Math.abs(st.batteryW) < 15 ? 'Ruhe' : (st.batteryW < 0 ? 'lädt' : 'entlädt')});
-  g += node(nodes._home, {r: 44, ic: 'house', color: COLORS.home, value: kw(st.loadW), name: 'Hausverbrauch'});
+  const wrap = (it, inner) => it.count > 1 || it.member
+    ? `<g class="tog${it.member && popOpen ? ' pop' : ''}" data-toggle="${esc(it.toggle)}" data-kind="${it.kind}" role="button" tabindex="0"
+         aria-expanded="${!!it.member}" aria-label="${esc(it.name)} ${it.member ? 'zuklappen' : 'aufklappen'}">${inner}</g>`
+    : `<g>${inner}</g>`;
+  P.forEach(p => g += wrap(p, node(nodes[p.id], {r: NODE_R, ic: p.icon || 'solar', color: COLORS.producer,
+    value: kw(p.powerW), title: tip(p, st), count: p.count})));
+  C.forEach(c => {
+    const cl = !c.member && c.circuit ? circuitLoad(c.circuit, st) : null;
+    g += wrap(c, node(nodes[c.id], {r: NODE_R, ic: c.icon || 'plug', color: c.rest ? 'var(--muted)' : COLORS.consumer,
+      value: kw(c.powerW), title: tip(c, st) + (cl ? ' · ' + cl.text : ''), count: c.count,
+      ring: cl ? cl.ring : undefined, ringColor: cl ? cl.color : undefined, extra: cl ? cl.extra : undefined}));
+  });
+  const gridState = Math.abs(st.gridW) < 15 ? 'ausgeglichen' : (st.gridW > 0 ? 'Bezug' : 'Einspeisung');
+  const gl = circuitLoad('grid', st);
+  g += `<g>${node(nodes._grid, {r: NODE_R, ic: 'grid', color: st.gridW >= 0 ? COLORS.grid : 'var(--export)',
+    value: kw(Math.abs(st.gridW)), title: `Netz · ${gridState} · ${kw(Math.abs(st.gridW))}` + (gl ? ` · ${gl.text}` : ''),
+    ring: gl ? gl.ring : undefined, ringColor: gl ? gl.color : undefined, extra: gl ? gl.extra : undefined})}</g>`;
+  if (st.hasBattery) {
+    const batState = Math.abs(st.batteryW) < 15 ? 'Ruhe' : (st.batteryW < 0 ? 'lädt' : 'entlädt');
+    g += `<g>${node(nodes._battery, {r: NODE_R, ic: 'battery', color: COLORS.battery, value: kw(Math.abs(st.batteryW)),
+      ring: st.soc, extra: pct(st.soc), title: `Batterie ${pct(st.soc)} · ${batState} · ${kw(Math.abs(st.batteryW))}`})}</g>`;
+  }
+  g += `<g>${node(home, {r: HOME_R, ic: 'house', color: COLORS.home, value: kw(st.loadW), title: `Hausverbrauch · ${kw(st.loadW)}`})}</g>`;
   svg.innerHTML = g;
+  popOpen = false;
 }
+
+// click on a group expands it (and closes any other), click on one of its
+// devices or on the background closes it again
+function toggleGroup(e) {
+  if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+  const t = e.target.closest('[data-toggle]');
+  if (!t && !open) return;
+  e.preventDefault();
+  const same = t && open && open.key === t.dataset.toggle && open.kind === t.dataset.kind;
+  open = t && !same ? {key: t.dataset.toggle, kind: t.dataset.kind} : null;
+  popOpen = !!open;
+  if (window._last) drawFlow(window._last);
+  if (t && e.type === 'keydown') { // keep keyboard focus on the toggled group
+    const f = $('flow').querySelector(`[data-toggle="${CSS.escape(t.dataset.toggle)}"]`);
+    if (f) f.focus();
+  }
+}
+$('flow').addEventListener('click', toggleGroup);
+$('flow').addEventListener('keydown', toggleGroup);
+
+// --- charging panel ---
+const MODE_LABEL = {external: 'Extern', pv: 'PV', minpv: 'Min+PV', fast: 'Schnell'};
+const MODE_HELP = {external: 'Ein anderes System steuert (z. B. Neogrid). voltibri sperrt, gibt frei und regelt nichts, protokolliert nur.',
+  pv: 'Nur mit PV-Überschuss laden.', minpv: 'Immer mit Mindestleistung, mehr bei Überschuss.', fast: 'Mit maximaler Leistung laden.'};
+const GUEST_POLICY = {share: 'Gast darf PV nutzen, wird zum Netzpreis verrechnet', batteryFirst: 'Batterie hat Vorrang vor Gästen',
+  forceBattery: 'Batterie lädt weiter wie ohne Gast (eigener Zähler)'};
+const DAYS = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+let charging = null;
+const money = (ct, cur) => (ct / 100).toLocaleString('de-DE', {style: 'currency', currency: cur || 'EUR'});
+const kwh = wh => (wh / 1000).toLocaleString('de-DE', {maximumFractionDigits: 1}) + ' kWh';
+const hm = t => new Date(t).toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'});
+const dayhm = t => new Date(t).toLocaleString('de-DE', {weekday: 'short', hour: '2-digit', minute: '2-digit'});
+
+async function send(method, url, body) {
+  const r = await fetch(url, {method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  if (!r.ok) { const e = await r.json().catch(() => ({})); alert(e.error || e.message || ('Fehler ' + r.status)); return false; }
+  await refreshCharging(true);
+  return true;
+}
+const vehicleOf = key => (charging.vehicles || []).find(v => v.key === key);
+
+function planText(p) {
+  const soc = Math.round(p.soc * 100) + ' %';
+  if (p.days && p.days.length) return `${soc} um ${p.time} · ${p.days.map(d => DAYS[d]).join(', ')}`;
+  return `${soc} bis ${new Date(p.at).toLocaleString('de-DE', {weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'})}`;
+}
+
+function renderLoadpoint(lp) {
+  const veh = vehicleOf(lp.vehicle);
+  const guest = lp.vehicle === 'guest';
+  const canEdit = charging.local;
+  const status = !lp.connected ? 'frei' : lp.charging ? 'lädt' : 'angesteckt';
+  const opts = [`<option value="">Automatisch${lp.connected && !lp.manual ? ' (' + esc(lp.vehicleName) + ')' : ''}</option>`,
+    `<option value="guest"${lp.manual && guest ? ' selected' : ''}>Gastfahrzeug</option>`,
+    ...(charging.vehicles || []).map(v => `<option value="${esc(v.key)}"${lp.manual && lp.vehicle === v.key ? ' selected' : ''}>${esc(v.name)}</option>`)];
+  let soc = '';
+  if (veh && veh.soc != null) {
+    soc = `<div><div class="socbar"><i style="width:${(veh.soc * 100).toFixed(0)}%"></i>${veh.limitSoc != null ? `<b style="left:${(veh.limitSoc * 100).toFixed(0)}%" title="Ladelimit im Auto"></b>` : ''}</div>
+      <div class="socline"><span>${pct(veh.soc)}${veh.rangeKm != null ? ' · ' + Math.round(veh.rangeKm) + ' km' : ''}</span>
+      <span>${veh.limitSoc != null ? 'Limit im Auto ' + pct(veh.limitSoc) : ''}</span></div></div>`;
+  }
+  const mode = lp.connected ? lp.mode : (veh ? veh.settings.mode : lp.mode);
+  const modeBtns = Object.keys(MODE_LABEL).map(m =>
+    `<button data-mode="${m}" class="${m === mode ? 'sel' : ''}" title="${esc(MODE_HELP[m])}" ${!canEdit || !lp.connected ? 'disabled' : ''}>${MODE_LABEL[m]}</button>`).join('');
+  let plan = '';
+  if (veh) {
+    const s = veh.settings, sch = lp.plan;
+    plan = `<div class="planbox"><div class="ttl">Ladeplan</div>
+      ${sch ? `<div class="why">${esc(sch.reason)}${sch.slots && sch.slots.length ? ` · Start ${dayhm(sch.start)}, ${kwh(sch.needWh)}${sch.costCt ? ', ca. ' + money(sch.costCt, charging.currency) : ''}` : ''}</div>` : ''}
+      ${(s.plans || []).length ? `<ul class="plans">${s.plans.map(p => `<li><span>${esc(planText(p))}</span>${canEdit ? `<button class="linkbtn" data-delplan="${esc(p.id)}">entfernen</button>` : ''}</li>`).join('')}</ul>` : '<div class="why">Kein Plan. Ein Plan lädt das Auto bis zur Abfahrt auf den Ziel-Ladestand; in PV und Min+PV.</div>'}
+      ${!s.capacityWh ? '<div class="note">Für Pläne die Akkukapazität beim Fahrzeug eintragen.</div>' : ''}
+      ${canEdit ? `<form class="vrow planform" data-veh="${esc(veh.key)}">
+        <input type="number" name="soc" min="10" max="100" step="5" value="80" style="width:64px" aria-label="Ziel-Ladestand in Prozent"> %
+        <input type="time" name="time" value="07:00" required aria-label="Uhrzeit">
+        <span class="days">${DAYS.map((d, i) => `<label>${d}<input type="checkbox" name="d${i}"${i >= 1 && i <= 5 ? '' : ''}></label>`).join('')}</span>
+        <button class="btn" type="submit">Plan hinzufügen</button></form>
+        <div class="why" style="font-size:11px">Ohne Wochentage gilt der Plan einmalig zum nächsten Zeitpunkt.</div>` : ''}
+    </div>`;
+  }
+  const sess = lp.session ? `<div class="sess"><span>Dieser Ladevorgang <b>${kwh(lp.session.energyWh)}</b></span>
+      <span>PV/Akku <b>${lp.session.energyWh > 0 ? Math.round(100 * lp.session.solarWh / lp.session.energyWh) : 0} %</b></span>
+      <span>${guest ? 'Verrechnung' : 'Kosten'} <b>${money(lp.session.costCt, charging.currency)}</b></span></div>` : '';
+  return `<div class="lp" data-lp="${esc(lp.id)}">
+    <div class="lphead"><h3>${esc(lp.name)}</h3><span class="pill${lp.charging ? ' on' : ''}">${status}</span>
+      <span class="pw">${lp.connected ? kw(lp.powerW) : ''}</span></div>
+    ${lp.connected ? `<div class="vrow"><select data-vehsel aria-label="Fahrzeug" ${canEdit ? '' : 'disabled'}>${opts.join('')}</select>
+      ${guest && !lp.detecting ? `<span class="why">${esc(GUEST_POLICY[lp.guestPolicy] || '')}</span>` : ''}</div>` : ''}
+    ${soc}
+    <div class="modes" role="group" aria-label="Lademodus">${modeBtns}</div>
+    ${lp.connected ? `<div class="why">${esc(lp.reason)}</div>` : '<div class="why">Kein Fahrzeug angesteckt.</div>'}
+    ${!lp.owned ? '<div class="note">Nur beobachtet: voltibri schreibt nicht auf diese Wallbox (Gerät im Modus „observed“). Angezeigt wird, was voltibri tun würde.</div>' : ''}
+    ${sess}${plan}
+  </div>`;
+}
+
+function renderVehicles() {
+  const prov = charging.providers || [];
+  const vs = charging.vehicles || [];
+  // vehicle drivers that are not configured yet can be connected from here
+  const configured = new Set(prov.map(p => p.type));
+  const connect = charging.local ? voltibri.drivers().filter(d => d.category === 'vehicle' && !configured.has(d.type)) : [];
+  if (!prov.length && !vs.length) {
+    if (!connect.length) return '';
+    return `<div class="subh">Fahrzeuge</div><div class="note">Ladestand und Abfahrtszeiten kommen aus einem Fahrzeugkonto.
+      ${connect.map(d => `<button type="button" class="btn primary" data-setup-new="${esc(d.type)}">${esc(d.name.replace(/ \(.*\)$/, ''))} verbinden</button>`).join(' ')}</div>`;
+  }
+  const login = prov.map(p => {
+    const edit = charging.local ? ` <button type="button" class="linkbtn" data-setup-edit="${esc(p.id)}">Zugangsdaten ändern</button>` : '';
+    if (!p.needsLogin || p.authorized) return `<div class="note">${esc(p.name)}: verbunden, ${p.vehicles} Fahrzeug${p.vehicles === 1 ? '' : 'e'}.${edit}</div>`;
+    return `<div class="note">${esc(p.name)}: noch nicht angemeldet. ${charging.local ? `<a class="btn primary" href="api/oauth/${encodeURIComponent(p.id)}/login">Bei ${esc(p.name)} anmelden</a>` : 'Anmeldung nur vom lokalen Rechner.'}${edit}</div>`;
+  }).join('');
+  const rows = vs.map(v => `<tr data-veh="${esc(v.key)}">
+      <td>${esc(v.name)}<div class="why" style="font-size:11px">${esc([v.info.brand, v.info.model].filter(Boolean).join(' '))}</div></td>
+      <td class="r">${v.soc != null ? pct(v.soc) : '–'}</td>
+      <td>${v.charging ? 'lädt' : v.connected ? 'angesteckt' : 'unterwegs/frei'}</td>
+      <td><select data-vmode ${charging.local ? '' : 'disabled'}>${Object.keys(MODE_LABEL).map(m => `<option value="${m}"${m === v.settings.mode ? ' selected' : ''}>${MODE_LABEL[m]}</option>`).join('')}</select></td>
+      <td><input type="number" data-vcap min="0" step="1" style="width:72px" value="${v.settings.capacityWh ? v.settings.capacityWh / 1000 : ''}" placeholder="kWh" aria-label="Akkukapazität kWh" ${charging.local ? '' : 'disabled'}> kWh</td>
+      <td><input type="number" data-vmin min="0" step="0.1" style="width:64px" value="${v.settings.minPowerW ? v.settings.minPowerW / 1000 : ''}" placeholder="auto" aria-label="Mindestleistung kW" ${charging.local ? '' : 'disabled'}> kW</td>
+    </tr>`).join('');
+  return `<div class="subh">Fahrzeuge</div>${login}
+    ${vs.length ? `<div class="tablewrap"><table class="list"><thead><tr><th>Fahrzeug</th><th class="r">Ladestand</th><th>Status</th><th>Standardmodus</th><th>Akku</th><th>Min+PV ab</th></tr></thead><tbody>${rows}</tbody></table></div>` :
+      (prov.some(p => p.authorized) ? '<div class="why">Keine Fahrzeuge gefunden. Ist das Auto in der Tibber-App verbunden?</div>' : '')}`;
+}
+
+function renderSessions(ss) {
+  if (!ss || !ss.length) return '';
+  const cur = charging.currency;
+  return `<div class="subh">Letzte Ladevorgänge</div><div class="tablewrap"><table class="list"><thead><tr>
+    <th>Beginn</th><th>Ladepunkt</th><th>Fahrzeug</th><th>Modus</th><th class="r">Energie</th><th class="r">PV/Akku</th><th class="r">Kosten</th></tr></thead><tbody>
+    ${ss.slice(0, 10).map(s => `<tr><td>${new Date(s.start).toLocaleString('de-DE', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'})}${s.end ? '' : ' (läuft)'}</td>
+      <td>${esc((charging.loadpoints.find(l => l.id === s.loadpoint) || {name: s.loadpoint}).name)}</td><td>${esc(s.vehicleName)}${s.guest ? ' · Gast' : ''}</td><td>${MODE_LABEL[s.mode] || esc(s.mode)}</td>
+      <td class="r">${kwh(s.energyWh)}</td><td class="r">${s.energyWh > 0 ? Math.round(100 * s.solarWh / s.energyWh) + ' %' : '–'}</td>
+      <td class="r">${money(s.costCt, cur)}</td></tr>`).join('')}</tbody></table></div>`;
+}
+
+let lastSessions = 0;
+async function refreshCharging(force) {
+  const box = $('laden');
+  if (!force && box.contains(document.activeElement) && /INPUT|SELECT/.test(document.activeElement.tagName)) return; // user is editing
+  try {
+    charging = await fetch('api/charging').then(r => r.json());
+  } catch (e) { return; }
+  box.hidden = !charging.loadpoints.length && !charging.providers.length;
+  if (box.hidden) return;
+  const cur = charging.currency;
+  $('ltariff').textContent = [charging.gridCt != null ? 'Netz ' + charging.gridCt.toFixed(1).replace('.', ',') + ' ct/kWh' : '',
+    charging.feedinCt != null ? 'Einspeisung ' + charging.feedinCt.toFixed(1).replace('.', ',') + ' ct/kWh' : ''].filter(Boolean).join(' · ');
+  $('lps').innerHTML = charging.loadpoints.map(renderLoadpoint).join('');
+  $('lveh').innerHTML = renderVehicles();
+  if (force || Date.now() - lastSessions > 60000) {
+    lastSessions = Date.now();
+    const ss = await fetch('api/sessions').then(r => r.ok ? r.json() : []).catch(() => []);
+    $('lsess').innerHTML = renderSessions(ss);
+  }
+}
+
+function vehicleSettings(key) { return JSON.parse(JSON.stringify(vehicleOf(key).settings)); }
+
+$('laden').addEventListener('click', async e => {
+  const mb = e.target.closest('[data-mode]');
+  if (mb && !mb.disabled) {
+    const lp = charging.loadpoints.find(l => l.id === mb.closest('[data-lp]').dataset.lp);
+    const veh = vehicleOf(lp.vehicle);
+    if (veh) { const s = vehicleSettings(veh.key); s.mode = mb.dataset.mode; await send('PUT', 'api/vehicles/' + veh.key, s); }
+    else await send('PUT', `api/loadpoints/${encodeURIComponent(lp.id)}/guestmode`, {mode: mb.dataset.mode});
+    return;
+  }
+  const del = e.target.closest('[data-delplan]');
+  if (del) {
+    const key = del.closest('[data-lp]') && charging.loadpoints.find(l => l.id === del.closest('[data-lp]').dataset.lp).vehicle;
+    const s = vehicleSettings(key);
+    s.plans = (s.plans || []).filter(p => p.id !== del.dataset.delplan);
+    await send('PUT', 'api/vehicles/' + key, s);
+  }
+});
+$('laden').addEventListener('change', async e => {
+  const t = e.target;
+  if (t.matches('[data-vehsel]')) {
+    await send('PUT', `api/loadpoints/${encodeURIComponent(t.closest('[data-lp]').dataset.lp)}/vehicle`, {vehicle: t.value});
+    return;
+  }
+  const row = t.closest('tr[data-veh]');
+  if (row) {
+    const s = vehicleSettings(row.dataset.veh);
+    if (t.matches('[data-vmode]')) s.mode = t.value;
+    if (t.matches('[data-vcap]')) s.capacityWh = Math.max(0, parseFloat(t.value || '0') * 1000);
+    if (t.matches('[data-vmin]')) s.minPowerW = Math.max(0, parseFloat(t.value || '0') * 1000);
+    await send('PUT', 'api/vehicles/' + row.dataset.veh, s);
+  }
+});
+$('laden').addEventListener('submit', async e => {
+  if (!e.target.matches('.planform')) return;
+  e.preventDefault();
+  const f = e.target, key = f.dataset.veh, s = vehicleSettings(key);
+  const days = DAYS.map((_, i) => f.elements['d' + i].checked ? i : -1).filter(i => i >= 0);
+  const soc = Math.min(100, Math.max(1, parseInt(f.elements.soc.value, 10))) / 100, time = f.elements.time.value;
+  const plan = {soc};
+  if (days.length) { plan.days = days; plan.time = time; }
+  else { // next occurrence of that time
+    const [h, m] = time.split(':').map(Number), at = new Date(); at.setHours(h, m, 0, 0);
+    if (at <= new Date()) at.setDate(at.getDate() + 1);
+    plan.at = at.toISOString();
+  }
+  s.plans = (s.plans || []).concat([plan]);
+  await send('PUT', 'api/vehicles/' + key, s);
+});
+(() => { // result of an OAuth login
+  const msg = new URLSearchParams(location.search).get('oauth');
+  if (!msg) return;
+  $('lflash').hidden = false;
+  $('lflash').textContent = msg === 'ok' ? 'Anmeldung erfolgreich. Fahrzeuge werden geladen …' : msg;
+  history.replaceState(null, '', location.pathname + location.hash);
+})();
 
 async function refresh() {
   try {
-    const [st, plan] = await Promise.all([fetch('api/state').then(r => r.json()), fetch('api/plan').then(r => r.json())]);
+    const [st, plan, hist] = await Promise.all([fetch('api/state').then(r => r.json()), fetch('api/plan').then(r => r.json()),
+      fetch('api/history?hours=2').then(r => r.ok ? r.json() : []).catch(() => [])]);
     drawFlow(st);
     const self = st.loadW > 0 ? Math.max(0, Math.min(1, 1 - Math.max(0, st.gridW) / st.loadW)) : 1;
     $('autarky').textContent = pct(self);
@@ -238,33 +523,78 @@ async function refresh() {
     $('time').textContent = new Date(st.time).toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit', second: '2-digit'});
     $('errors').textContent = (st.errors || []).join(' · ');
     $('reasons').innerHTML = (plan.reasons || []).map(r => `<li>${esc(r)}</li>`).join('');
-    drawChart(plan.slots || []);
+    drawChart(plan.slots || [], hist || []);
     window._last = st;
+    refreshCharging();
   } catch (e) { $('errors').textContent = 'Keine Verbindung zu voltibri: ' + e; }
 }
 
-function drawChart(slots) {
-  const svg = $('chart'), W = 960, H = 300, L = 44, R = 44, T = 10, B = 26;
-  if (!slots.length) { svg.innerHTML = ''; return; }
-  const n = slots.length, x = i => L + (W-L-R) * i / n;
-  const maxW = Math.max(1000, ...slots.map(s => Math.max(s.pvW, s.loadW)));
+// Plan chart on a time axis: the measured last 2 hours (grey background)
+// followed by the forecast, with day boundaries and a "now" marker.
+const SLOT_MS = 15 * 60 * 1000;
+function drawChart(slots, hist) {
+  const svg = $('chart'), W = 960, H = 300, L = 44, R = 44, T = 24, B = 26;
+  if (!slots.length && !hist.length) { svg.innerHTML = ''; return; }
+  const ts = s => new Date(s.start).getTime();
+  const now = Date.now();
+  const t0 = Math.min(now - 2 * 3600e3, ...hist.map(ts));
+  const t1 = slots.length ? ts(slots[slots.length - 1]) + SLOT_MS : now;
+  const x = t => L + (W-L-R) * (t - t0) / (t1 - t0);
+  const all = hist.concat(slots);
+  const maxW = Math.max(1000, ...all.map(s => Math.max(s.pvW, s.loadW)));
   const y = w => T + (H-T-B) * (1 - w/maxW), ys = v => T + (H-T-B) * (1 - v);
+  const fmt = v => (v/1000).toFixed(1).replace('.', ',');
   let g = '';
-  slots.forEach((s, i) => { if (s.chargeLimitW !== 0 && s.pvW > s.loadW)
-    g += `<rect x="${x(i)}" y="${T}" width="${x(i+1)-x(i)+.5}" height="${H-T-B}" fill="var(--limit)"/>`; });
+  // measured part
+  g += `<rect x="${L}" y="${T}" width="${(x(now) - L).toFixed(1)}" height="${H-T-B}" fill="var(--track)" opacity=".55"/>`;
+  // charging allowed: adjacent slots merged into one band (no seams)
+  const bands = [];
+  slots.forEach(s => { if (s.chargeLimitW !== 0 && s.pvW > s.loadW) {
+    const a = Math.max(ts(s), now), b = ts(s) + SLOT_MS, last = bands[bands.length - 1];
+    if (b <= a) return;
+    if (last && last[1] >= a) last[1] = b; else bands.push([a, b]);
+  } });
+  bands.forEach(([a, b]) => g += `<rect x="${x(a).toFixed(1)}" y="${T}" width="${(x(b) - x(a)).toFixed(1)}" height="${H-T-B}" fill="var(--limit)"/>`);
   for (let k = 0; k <= 4; k++) { const v = maxW*k/4;
     g += `<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/>` +
-         `<text x="${L-6}" y="${y(v)+4}" text-anchor="end" font-size="11" fill="var(--muted)">${(v/1000).toFixed(1).replace('.', ',')}</text>` +
-         `<text x="${W-R+6}" y="${ys(k/4)+4}" font-size="11" fill="var(--muted)">${k*25} %</text>`; }
-  slots.forEach((s, i) => { const d = new Date(s.start);
-    if (d.getMinutes() === 0 && d.getHours() % 6 === 0)
-      g += `<text x="${x(i)}" y="${H-8}" text-anchor="middle" font-size="11" fill="var(--muted)">${d.getHours()}:00</text>`; });
-  const path = (f, sc) => slots.map((s, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ',' + sc(f(s)).toFixed(1)).join('');
-  g += `<path d="${path(s => s.pvW, y)}" fill="none" stroke="var(--solar)" stroke-width="2"/>`;
-  if (slots.some(s => s.loadW > 0)) g += `<path d="${path(s => s.loadW, y)}" fill="none" stroke="var(--home)" stroke-width="2"/>`;
-  if (slots.some(s => s.expectedSoC > 0)) g += `<path d="${path(s => s.expectedSoC, ys)}" fill="none" stroke="var(--battery)" stroke-width="2.5"/>`;
+         `<text x="${L-6}" y="${ys(k/4)+4}" text-anchor="end" font-size="11" fill="var(--muted)">${k*25} %</text>` +
+         `<text x="${W-R+6}" y="${y(v)+4}" font-size="11" fill="var(--muted)">${fmt(v)}</text>`; }  // left: SoC, right: kW
+  // hour ticks every 6 h, day boundaries at local midnight
+  const d = new Date(t0); d.setMinutes(0, 0, 0); d.setHours(d.getHours() + 1);
+  for (; d.getTime() < t1; d.setHours(d.getHours() + 1)) {
+    const h = d.getHours(), xt = x(d.getTime()).toFixed(1);
+    if (h === 0) {
+      g += `<line x1="${xt}" x2="${xt}" y1="${T - 14}" y2="${H-B}" stroke="var(--muted)" stroke-dasharray="3 3" opacity=".7"/>` +
+           `<text x="${(+xt + 5).toFixed(1)}" y="${T - 4}" font-size="11" font-weight="600" fill="var(--muted)">${d.toLocaleDateString('de-DE', {weekday: 'short', day: '2-digit', month: '2-digit'})}</text>`;
+    }
+    if (h % 6 === 0) g += `<text x="${xt}" y="${H-8}" text-anchor="middle" font-size="11" fill="var(--muted)">${h}:00</text>`;
+  }
+  // lines are drawn through the slot centres
+  const path = (rows, f, sc) => rows.map((s, i) => (i ? 'L' : 'M') + x(ts(s) + SLOT_MS / 2).toFixed(1) + ',' + sc(f(s)).toFixed(1)).join('');
+  const lines = (rows, extra = '') => {
+    let p = `<path d="${path(rows, s => s.pvW, y)}" fill="none" stroke="var(--solar)" stroke-width="2"${extra}/>`;
+    if (rows.some(s => s.loadW > 0)) p += `<path d="${path(rows, s => s.loadW, y)}" fill="none" stroke="var(--home)" stroke-width="2"${extra}/>`;
+    return p;
+  };
+  if (hist.length) g += lines(hist.concat(slots.slice(0, 1)));
+  if (slots.length) g += lines(slots);
+  if (slots.some(s => s.expectedSoC > 0)) g += `<path d="${path(slots, s => s.expectedSoC, ys)}" fill="none" stroke="var(--battery)" stroke-width="2.5"/>`;
+  // now marker
+  const xn = x(now).toFixed(1);
+  g += `<line x1="${xn}" x2="${xn}" y1="${T - 14}" y2="${H-B}" stroke="var(--fg)" stroke-width="1.5"/>` +
+       `<text x="${(+xn - 5).toFixed(1)}" y="${T - 4}" text-anchor="end" font-size="11" font-weight="600" fill="var(--fg)">jetzt</text>`;
   svg.innerHTML = g;
 }
+
+
+// setup dialog (common.js) entry points in the charging panel
+voltibri.ready.then(() => charging && refreshCharging(true));
+$('laden').addEventListener('click', e => {
+  const n = e.target.closest('[data-setup-new]');
+  if (n) voltibri.open({type: n.dataset.setupNew, onDone: () => refreshCharging(true)});
+  const ed = e.target.closest('[data-setup-edit]');
+  if (ed) voltibri.open({id: ed.dataset.setupEdit, onDone: () => refreshCharging(true)});
+});
 
 let resizeTimer;
 addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => window._last && drawFlow(window._last), 150); });

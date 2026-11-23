@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <title>voltibri – Kolibri an der Batterie-Blüte</title>
+  <!-- Blüte als Batterie mit zwei Ladebalken -->
+  <g fill="#1f9d6b">
+    <rect x="43" y="15" width="12" height="6" rx="1.5"/>
+    <path fill-rule="evenodd" d="M40 21 H58 A4 4 0 0 1 62 25 V58 A4 4 0 0 1 58 62 H40 A4 4 0 0 1 36 58 V25 A4 4 0 0 1 40 21 Z M41 26 V57 H57 V26 Z"/>
+    <rect x="44" y="47" width="10" height="7" rx="1"/>
+    <rect x="44" y="37" width="10" height="7" rx="1"/>
+  </g>
+  <!-- Kolibri, Schnabel am Pluspol -->
+  <g fill="#3d6fb6">
+    <path d="M41.96 17.99 L33.38 16.34 C33.05 21.62 30.41 26.24 25.13 30.86 L18.53 36.14 L15.89 43.4 L13.25 38.78 L7.97 42.74 L11.93 34.16 C15.89 27.56 18.53 22.28 21.17 18.32 C22.49 13.04 25.13 10.4 29.09 10.4 C31.73 10.4 33.38 11.72 33.71 13.04 Z"/>
+    <path d="M17.21 22.61 C13.91 17.66 9.29 13.7 2.03 11.72 C4.67 17 8.63 21.62 14.9 25.58 Z"/>
+  </g>
+</svg>

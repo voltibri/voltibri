@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <title>voltibri – Sonnen-Kolibri</title>
+  <!-- Sonnenscheibe; Kolibri und Flügel als Aussparung (evenodd) -->
+  <path fill="#d99a00" fill-rule="evenodd" d="M8 32 A24 24 0 1 0 56 32 A24 24 0 1 0 8 32 Z
+    M52.22 25.63 L44.16 24.08 C43.85 29.04 41.37 33.38 36.41 37.72 L30.21 42.68 L27.73 49.5 L25.25 45.16 L20.29 48.88 L24.01 40.82 C27.73 34.62 30.21 29.66 32.69 25.94 C33.93 20.98 36.41 18.5 40.13 18.5 C42.61 18.5 44.16 19.74 44.47 20.98 Z
+    M28.97 29.97 C25.87 25.32 21.53 21.6 14.71 19.74 C17.19 24.7 20.91 29.04 26.8 32.76 Z"/>
+  <!-- kurze, kräftige Strahlen -->
+  <g fill="#d99a00">
+    <path d="M32 0.5 L35.5 6 L28.5 6 Z"/>
+    <path d="M32 63.5 L35.5 58 L28.5 58 Z"/>
+    <path d="M0.5 32 L6 28.5 L6 35.5 Z"/>
+    <path d="M63.5 32 L58 28.5 L58 35.5 Z"/>
+    <path d="M9.7 9.7 L16.1 11.1 L11.1 16.1 Z"/>
+    <path d="M54.3 9.7 L52.9 16.1 L47.9 11.1 Z"/>
+    <path d="M9.7 54.3 L11.1 47.9 L16.1 52.9 Z"/>
+    <path d="M54.3 54.3 L47.9 52.9 L52.9 47.9 Z"/>
+  </g>
+</svg>

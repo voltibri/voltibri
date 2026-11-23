@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <title>voltibri – Balance (Kolibri frontal)</title>
+  <!-- Flügel links (Batterie, grün) und rechts (Haus, blau) im Gleichgewicht -->
+  <path fill="#1f9d6b" d="M25 33 C16 32 7 24 2 7 C11 13 19 18 26 25 Z"/>
+  <path fill="#3d6fb6" d="M39 33 C48 32 57 24 62 7 C53 13 45 18 38 25 Z"/>
+  <!-- Schnabel, Kopf und Körper als Blitz (PV, bernstein) -->
+  <g fill="#d99a00">
+    <path d="M30.5 11 L32 0.5 L33.5 11 Z"/>
+    <circle cx="32" cy="15.5" r="6.5"/>
+    <path d="M26.5 20 L38 20 L34 35 L40 35 L28 62 L30.5 41 L24.5 41 Z"/>
+  </g>
+</svg>

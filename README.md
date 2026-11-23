@@ -90,6 +90,26 @@ correction: { factor: 1.0, offsetW: 200, activeAboveW: 50 }
 > Until users and roles exist, configuration changes via the API are only accepted from the
 > local machine.
 
+## EV charging
+
+Every charger is a loadpoint. Vehicles are discovered via vehicle accounts (first: Tibber) and
+recognised when plugged in; unknown vehicles are guests. Per vehicle:
+
+| Mode | Behaviour |
+|---|---|
+| `external` | another system controls car and charger (e.g. a utility VPP) – voltibri never writes, it only logs |
+| `pv` | PV surplus only (start after 1 min, stop after 3 min, 1/3-phase switching) |
+| `minpv` | always the minimum power, more with surplus |
+| `fast` | maximum power |
+
+Charge plans (target SoC by a time, once or weekly) charge in the cheapest slots before the
+target, or as late as possible with a fixed price. Guests at a loadpoint follow a policy:
+`share` (may use PV, booked at the grid price, kept out of the load forecast), `batteryFirst`
+or `forceBattery` (battery keeps charging as without the guest – for chargers behind their own
+meter, e.g. metering concept 40). Tariffs (`fixed` with optional time zones, or `dynamic` from a
+price source plus charges and tax) are configured for grid, feed-in and an optional separate
+charger meter. Sessions with energy, PV share and cost are stored.
+
 ## Drivers
 
 | Type | Capabilities | Notes |
@@ -100,6 +120,8 @@ correction: { factor: 1.0, offsetW: 200, activeAboveW: 50 }
 | `shelly` | switch, consumer power, current, energy | Gen2+ RPC |
 | `forecast.solar` | PV forecast | free API, multiple planes |
 | `awattar` | spot prices (DE-LU) | public API |
+| `tibber` | vehicles (SoC, range, plugged in, charging) | Tibber Data API, OAuth2 login in the browser |
+| `tibber-price` | end-customer prices incl. taxes | Tibber API, personal token |
 | `demo`, `demo-producer`, `demo-consumer` | everything | simulated site |
 
 Every driver describes its parameters (type, unit, default, required, secret) so the UI can
@@ -110,7 +132,7 @@ generate its settings form – including plugins.
 - Users, roles, OIDC – then configuration UI (Vue 3) with setup wizard and device discovery
 - Circuits (sub-distributions) with per-phase load management, shown in the energy flow
 - MQTT (in/out, Home Assistant discovery)
-- EV charging with PV surplus, charging sessions and reports
+- EV charging: more vehicle accounts, reports, battery force-charging for Fronius
 - Price rules per user (e.g. neighbour pays generation cost, own use at lost feed-in tariff)
 - Heat pump control (SG-Ready / Modbus)
 - External plugins via gRPC

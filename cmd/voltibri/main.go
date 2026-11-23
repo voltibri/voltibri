@@ -42,6 +42,7 @@ const usage = `voltibri – smart self-consumption optimizer
 Usage:
   voltibri serve     [-data DIR] [-config FILE]  run the control loop and web UI
   voltibri config    import|export|versions|rollback|validate ...
+  voltibri history   info|import|import-ha ...  stored measurement history
   voltibri simulate  [-input data.csv]           compare charging strategies on history
   voltibri synth     -out data.csv               generate synthetic demo data
   voltibri import-ha -in history.csv -out data.csv -pv ... -grid ...
@@ -62,6 +63,8 @@ func main() {
 		err = serve(os.Args[2:])
 	case "config":
 		err = configCmd(os.Args[2:])
+	case "history":
+		err = historyCmd(os.Args[2:])
 	case "simulate":
 		err = simulate(os.Args[2:], os.Stdout)
 	case "synth":
@@ -82,6 +85,106 @@ func main() {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
+}
+
+const historyUsage = `Usage:
+  voltibri history info      [-data DIR]                         show stored history
+  voltibri history import    [-data DIR] [-overwrite] FILE.csv   import voltibri CSV (time,pv_w,load_w,...)
+  voltibri history import-ha [-data DIR] [-overwrite] -in EXPORT.csv -pv ENTITIES (-load ENTITY | -grid ENTITY [-battery ENTITY]) [-temp ENTITY]
+                                                                 import a Home Assistant history export
+
+Existing slots (voltibri's own measurements) are kept unless -overwrite is given.
+Restart "voltibri serve" afterwards so the forecaster learns from the imported data.
+`
+
+func historyCmd(args []string) error {
+	if len(args) == 0 {
+		fmt.Print(historyUsage)
+		return errors.New("missing subcommand")
+	}
+	fs := flag.NewFlagSet("history "+args[0], flag.ExitOnError)
+	dataDir := fs.String("data", defaultDataDir(), "data directory, env VOLTIBRI_DATA")
+	overwrite := fs.Bool("overwrite", false, "replace existing slots")
+	tz := fs.String("tz", "Europe/Berlin", "time zone")
+	in := fs.String("in", "", "Home Assistant history export (CSV)")
+	pv := fs.String("pv", "", "PV power entities, comma separated")
+	load := fs.String("load", "", "house load entity")
+	grid := fs.String("grid", "", "grid power entity (+import), used if -load is empty")
+	bat := fs.String("battery", "", "battery power entity (+discharge), used if -load is empty")
+	temp := fs.String("temp", "", "outdoor temperature entity")
+	scale := fs.Float64("scale", 1, "power scale (1 = W, 1000 = kW)")
+	fs.Parse(args[1:])
+	ctx := context.Background()
+	loc, err := time.LoadLocation(*tz)
+	if err != nil {
+		return err
+	}
+	st, err := store.Open(*dataDir)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+
+	var recs series.Series
+	switch args[0] {
+	case "info":
+		hi, err := st.HistoryInfo(ctx)
+		if err != nil {
+			return err
+		}
+		if hi.Slots == 0 {
+			fmt.Println("Noch kein Verlauf gespeichert.")
+			return nil
+		}
+		fmt.Printf("%d Viertelstunden (%.1f Tage) von %s bis %s\n", hi.Slots, float64(hi.Slots)/96,
+			hi.First.In(loc).Format("02.01.2006 15:04"), hi.Last.In(loc).Format("02.01.2006 15:04"))
+		return nil
+	case "import":
+		if fs.NArg() != 1 {
+			return errors.New("usage: voltibri history import FILE.csv")
+		}
+		f, err := os.Open(fs.Arg(0))
+		if err != nil {
+			return err
+		}
+		recs, err = series.ReadCSV(bufio.NewReader(f), loc)
+		f.Close()
+		if err != nil {
+			return err
+		}
+	case "import-ha":
+		if *in == "" || *pv == "" {
+			return errors.New("-in and -pv are required")
+		}
+		f, err := os.Open(*in)
+		if err != nil {
+			return err
+		}
+		recs, err = importer.ConvertHA(bufio.NewReader(f), importer.Mapping{
+			PV: strings.Split(*pv, ","), Load: *load, Grid: *grid, Battery: *bat, Temp: *temp, Scale: *scale,
+		}, loc)
+		f.Close()
+		if err != nil {
+			return err
+		}
+	default:
+		fmt.Print(historyUsage)
+		return fmt.Errorf("unknown subcommand %q", args[0])
+	}
+	if len(recs) == 0 {
+		return errors.New("no usable data found")
+	}
+	n, err := st.ImportHistory(ctx, recs, *overwrite)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%d von %d Viertelstunden importiert (%s bis %s).\n", n, len(recs),
+		recs[0].Time.In(loc).Format("02.01.2006 15:04"), recs[len(recs)-1].Time.In(loc).Format("02.01.2006 15:04"))
+	if n < len(recs) {
+		fmt.Println("Bereits vorhandene Viertelstunden wurden behalten (-overwrite ersetzt sie).")
+	}
+	fmt.Println("Bitte \"voltibri serve\" neu starten, damit die Prognose die Daten lernt.")
+	return nil
 }
 
 func defaultDataDir() string {

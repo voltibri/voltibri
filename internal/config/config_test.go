@@ -64,3 +64,38 @@ func TestEmptyConfigIsValidButNotReady(t *testing.T) {
 		t.Error("empty config must not be ready")
 	}
 }
+
+func TestCircuits(t *testing.T) {
+	ok := `
+roles: { grid: demo, pv: [demo] }
+grid: { fuseA: 63 }
+devices:
+  - { id: demo, type: demo }
+  - { id: a, type: demo-consumer }
+  - { id: b, type: demo-consumer }
+circuits:
+  - { id: wb, name: Wallboxen, maxCurrent: 32, devices: [a, b] }
+`
+	if _, err := config.Parse([]byte(ok)); err != nil {
+		t.Fatalf("valid circuits rejected: %v", err)
+	}
+	bad := `
+roles: { grid: demo, pv: [demo] }
+devices:
+  - { id: demo, type: demo }
+  - { id: a, type: demo-consumer }
+circuits:
+  - { id: x, maxCurrent: 32, parent: y, devices: [a, ghost] }
+  - { id: y, maxCurrent: 16, parent: x, devices: [a], meter: a }
+  - { id: grid, maxCurrent: 1 }
+`
+	_, err := config.Parse([]byte(bad))
+	if err == nil {
+		t.Fatal("invalid circuits accepted")
+	}
+	for _, want := range []string{`unknown device "ghost"`, `device "a" is in circuits`, "loop", `must not be "grid"`, "cannot measure phase currents"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("missing %q in %v", want, err)
+		}
+	}
+}

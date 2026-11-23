@@ -94,3 +94,43 @@ devices:
 
   - id: spot
     type: awattar
+
+  # Fahrzeuge aus der Tibber-App (Tibber Data API). API-Client unter
+  # https://data-api.tibber.com/clients/manage anlegen, Redirect-URI:
+  # http://<voltibri-adresse>/api/oauth/callback – danach auf der voltibri-
+  # Seite unter „Laden“ einmal bei Tibber anmelden.
+  # - id: tibber
+  #   name: Tibber
+  #   type: tibber
+  #   params:
+  #     clientId: "..."
+  #     clientSecret: "..."
+
+# Preise in ct/kWh (wie bei evcc: fest, zeitvariabel mit Zonen oder dynamisch)
+tariffs:
+  currency: EUR
+  grid:
+    type: dynamic           # Börsenpreis + Aufschlag, dann Mehrwertsteuer
+    source: spot
+    charges: 18.5           # Netzentgelt, Umlagen, Stromsteuer, Marge
+    tax: 0.19
+  feedin:
+    type: fixed
+    price: 7.9
+  # eigener Zähler für die Wallbox (z. B. Messkonzept 40), zeitvariabel:
+  # charging:
+  #   type: fixed
+  #   price: 28
+  #   zones:
+  #     - { days: Mo-Fr, hours: 22-6, price: 22 }
+
+# Jede Wallbox ist ein Ladepunkt; hier nur Feineinstellungen.
+charging:
+  batteryPrioritySoC: 0.5   # darunter bekommt die Hausbatterie den PV-Überschuss zuerst
+  loadpoints:
+    - charger: wallbox2
+      phases: 3
+      minCurrent: 6
+      maxCurrent: 16
+      guest: share          # share | batteryFirst | forceBattery
+      guestMode: fast       # Lademodus für Gastfahrzeuge

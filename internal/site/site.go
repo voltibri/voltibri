@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/voltibri/voltibri/internal/calendar"
+	"github.com/voltibri/voltibri/internal/charging"
+	"github.com/voltibri/voltibri/internal/circuit"
 	"github.com/voltibri/voltibri/internal/config"
 	"github.com/voltibri/voltibri/internal/forecast"
 	"github.com/voltibri/voltibri/internal/meter"
@@ -24,6 +26,11 @@ import (
 	"github.com/voltibri/voltibri/internal/series"
 	"github.com/voltibri/voltibri/sdk"
 )
+
+// CacheProvider offers persistent per-device caches (implemented by store.Store).
+type CacheProvider interface {
+	Cache(namespace string) sdk.Cache
+}
 
 // History persists the 15-minute measurements (implemented by store.Store).
 type History interface {
@@ -39,29 +46,33 @@ type HistoryProvider interface {
 
 // State is the latest measurement.
 type State struct {
-	Time       time.Time `json:"time"`
-	GridW      float64   `json:"gridW"`
-	PVW        float64   `json:"pvW"`
-	BatteryW   float64   `json:"batteryW"`
-	LoadW      float64   `json:"loadW"`
-	SoC        float64   `json:"soc"`
-	HasBattery bool      `json:"hasBattery"`
-	LimitW     float64   `json:"chargeLimitW"`
-	Controlled bool      `json:"controlled"` // voltibri actively controls the battery
-	DryRun     bool      `json:"dryRun"`
-	Producers  []Reading `json:"producers"`
-	Consumers  []Reading `json:"consumers"`
-	RestW      float64   `json:"restW"` // house load not covered by a measured consumer
-	Errors     []string  `json:"errors,omitempty"`
+	Time       time.Time            `json:"time"`
+	GridW      float64              `json:"gridW"`
+	PVW        float64              `json:"pvW"`
+	BatteryW   float64              `json:"batteryW"`
+	LoadW      float64              `json:"loadW"`
+	SoC        float64              `json:"soc"`
+	HasBattery bool                 `json:"hasBattery"`
+	LimitW     float64              `json:"chargeLimitW"`
+	Controlled bool                 `json:"controlled"` // voltibri actively controls the battery
+	DryRun     bool                 `json:"dryRun"`
+	Producers  []Reading            `json:"producers"`
+	Consumers  []Reading            `json:"consumers"`
+	RestW      float64              `json:"restW"` // house load not covered by a measured consumer
+	Loadpoints []charging.Loadpoint `json:"loadpoints,omitempty"`
+	Circuits   []circuit.Status     `json:"circuits,omitempty"` // house connection first
+	Errors     []string             `json:"errors,omitempty"`
 }
 
 // Reading is the power of a single producer or consumer.
 type Reading struct {
-	ID     string  `json:"id"`
-	Name   string  `json:"name"`
-	Icon   string  `json:"icon"`
-	PowerW float64 `json:"powerW"`
-	Mode   string  `json:"mode"`
+	ID      string  `json:"id"`
+	Name    string  `json:"name"`
+	Icon    string  `json:"icon"`
+	PowerW  float64 `json:"powerW"`
+	Mode    string  `json:"mode"`
+	Group   string  `json:"group"`             // overview groups devices with the same group
+	Circuit string  `json:"circuit,omitempty"` // sub-distribution the device belongs to
 }
 
 type producer struct {
@@ -89,9 +100,15 @@ type Site struct {
 	pvf       sdk.PVForecaster
 	tariff    sdk.TariffSource
 
-	model *forecast.LoadModel
-	hist  History
-	corr  map[string]meter.Correction // per device id
+	charge   *charging.Manager
+	forceCh  sdk.BatteryForceCharger // battery can be force-charged (guest policy forceBattery)
+	forcing  bool
+	forceErr bool
+
+	model    *forecast.LoadModel
+	hist     History
+	corr     map[string]meter.Correction // per device id
+	circuits []circuit.Node              // installation tree, nil if not configured
 
 	mu    sync.RWMutex
 	state State
@@ -118,9 +135,14 @@ func New(cfg *config.Config, hist History) (*Site, error) {
 	}
 	s := &Site{cfg: cfg, loc: loc, hist: hist, devices: map[string]sdk.Device{}, corr: map[string]meter.Correction{},
 		model: forecast.NewLoadModel(forecast.DefaultConfig(), cal, loc)}
+	s.circuits = circuitNodes(cfg)
 	for _, dc := range cfg.Devices {
 		s.corr[dc.ID] = dc.Correction
-		dev, err := sdk.New(sdk.DeviceConfig{ID: dc.ID, Type: dc.Type, Mode: sdk.ControlMode(dc.Mode), DryRun: cfg.Site.DryRun, Params: dc.Params})
+		dcfg := sdk.DeviceConfig{ID: dc.ID, Type: dc.Type, Mode: sdk.ControlMode(dc.Mode), DryRun: cfg.Site.DryRun, Params: dc.Params}
+		if cp, ok := hist.(CacheProvider); ok {
+			dcfg.Cache = cp.Cache(dc.ID)
+		}
+		dev, err := sdk.New(dcfg)
 		if err != nil {
 			return nil, fmt.Errorf("device %s: %w", dc.ID, err)
 		}
@@ -136,7 +158,7 @@ func New(cfg *config.Config, hist History) (*Site, error) {
 		if !ok {
 			return nil, fmt.Errorf("roles.pv: device %q cannot measure PV power", id)
 		}
-		s.pvs = append(s.pvs, producer{meta: meta(cfg, id, "solar"), dev: pv})
+		s.pvs = append(s.pvs, producer{meta: meta(cfg, id, "solar", true), dev: pv})
 		isPV[id] = true
 	}
 	// every other device that measures its own consumption is a consumer
@@ -146,9 +168,9 @@ func New(cfg *config.Config, hist History) (*Site, error) {
 		}
 		dev := s.devices[dc.ID]
 		if ch, ok := dev.(sdk.Charger); ok {
-			s.consumers = append(s.consumers, consumer{meta: meta(cfg, dc.ID, "car"), charger: ch})
+			s.consumers = append(s.consumers, consumer{meta: meta(cfg, dc.ID, "car", false), charger: ch})
 		} else if pc, ok := dev.(sdk.PowerConsumer); ok {
-			s.consumers = append(s.consumers, consumer{meta: meta(cfg, dc.ID, "plug"), power: pc})
+			s.consumers = append(s.consumers, consumer{meta: meta(cfg, dc.ID, "plug", false), power: pc})
 		}
 	}
 	if id := cfg.Roles.Battery; id != "" {
@@ -158,6 +180,17 @@ func New(cfg *config.Config, hist History) (*Site, error) {
 		if ctl, ok := s.devices[id].(sdk.BatteryController); ok && modeOf(cfg, id) == sdk.ModeOwned {
 			s.batCtl = ctl
 		}
+	}
+	if ctl, ok := s.batCtl.(sdk.BatteryForceCharger); ok {
+		s.forceCh = ctl
+	}
+	var settings sdk.Cache
+	if cp, ok := hist.(CacheProvider); ok {
+		settings = cp.Cache("charging")
+	}
+	sessions, _ := hist.(charging.SessionStore)
+	if s.charge, err = charging.New(cfg, loc, s.devices, settings, sessions); err != nil {
+		return nil, err
 	}
 	if id := cfg.Roles.PVForecast; id != "" {
 		if s.pvf, ok = s.devices[id].(sdk.PVForecaster); !ok {
@@ -173,7 +206,7 @@ func New(cfg *config.Config, hist History) (*Site, error) {
 }
 
 // meta returns display information for a device.
-func meta(cfg *config.Config, id, defIcon string) Reading {
+func meta(cfg *config.Config, id, defIcon string, producer bool) Reading {
 	r := Reading{ID: id, Name: id, Icon: defIcon}
 	for _, d := range cfg.Devices {
 		if d.ID == id {
@@ -184,9 +217,30 @@ func meta(cfg *config.Config, id, defIcon string) Reading {
 				r.Icon = d.Icon
 			}
 			r.Mode = d.Mode
+			r.Group = d.Group
 		}
 	}
+	if r.Group == "" {
+		r.Group = defaultGroup(r, producer)
+	}
 	return r
+}
+
+// defaultGroup derives the overview group: all producers form "pv", consumers
+// are grouped by icon (all cars, all heat pumps, ...), anything else stands alone.
+func defaultGroup(r Reading, producer bool) string {
+	if producer {
+		return "pv"
+	}
+	switch r.Icon {
+	case "car":
+		return "wallboxen"
+	case "heatpump":
+		return "waermepumpe"
+	case "water":
+		return "warmwasser"
+	}
+	return r.ID
 }
 
 func modeOf(cfg *config.Config, id string) sdk.ControlMode {
@@ -262,6 +316,9 @@ func (s *Site) Run(ctx context.Context) error {
 	keepAlive := time.NewTicker(time.Minute)
 	defer keepAlive.Stop()
 
+	go s.charge.Run(ctx)
+	defer s.charge.Close()
+
 	s.measure(ctx)
 	s.replan(ctx)
 	s.apply(ctx)
@@ -324,12 +381,15 @@ func (s *Site) measure(ctx context.Context) bool {
 	}
 	st.LoadW = math.Max(0, st.GridW+st.PVW+st.BatteryW)
 	known := 0.0
+	chargers := map[string]sdk.ChargerStatus{}
 	for _, c := range s.consumers {
 		var w float64
 		if c.charger != nil {
 			cs, err := c.charger.ChargerStatus(ctx)
 			note(err)
 			w = cs.PowerW
+			cs.PowerW = math.Max(0, s.power(c.meta.ID, w))
+			chargers[c.meta.ID] = cs
 		} else {
 			w, err = c.power.ConsumerPower(ctx)
 			note(err)
@@ -340,6 +400,25 @@ func (s *Site) measure(ctx context.Context) bool {
 		st.Consumers = append(st.Consumers, r)
 	}
 	st.RestW = math.Max(0, st.LoadW-known)
+	var tree *circuit.Tree
+	if s.circuits != nil {
+		powers, phases := map[string]float64{}, map[string]int{}
+		for _, c := range st.Consumers {
+			powers[c.ID] = c.PowerW
+			if _, ok := chargers[c.ID]; ok {
+				phases[c.ID] = s.cfg.LoadpointFor(c.ID).Phases
+			}
+		}
+		tree = s.measureCircuits(ctx, powers, phases, note)
+		st.Circuits = tree.Statuses() // before load management books planned changes
+		for i := range st.Consumers {
+			if c := tree.CircuitOf(st.Consumers[i].ID); c != circuit.Root {
+				st.Consumers[i].Circuit = c
+			}
+		}
+	}
+	guestW := s.updateCharging(ctx, st, chargers, tree)
+	st.Loadpoints = s.charge.Loadpoints()
 	st.Errors = errs
 	for _, e := range errs {
 		slog.Warn("measurement error", "err", e)
@@ -365,7 +444,7 @@ func (s *Site) measure(ctx context.Context) bool {
 	}
 	if len(errs) == 0 {
 		s.sumPV += st.PVW
-		s.sumLoad += st.LoadW
+		s.sumLoad += math.Max(0, st.LoadW-guestW) // guests stay out of the load forecast
 		s.nSamples++
 	}
 	return newSlot
@@ -434,7 +513,7 @@ func (s *Site) apply(ctx context.Context) {
 	s.mu.RLock()
 	limit := s.plan.CurrentLimitW()
 	s.mu.RUnlock()
-	if s.batCtl == nil {
+	if s.batCtl == nil || s.forcing { // forced charging for a guest overrides the plan
 		return
 	}
 	var err error
@@ -451,6 +530,51 @@ func (s *Site) apply(ctx context.Context) {
 	s.state.LimitW = limit
 	s.mu.Unlock()
 }
+
+// updateCharging runs the loadpoints and returns the guest charging power.
+func (s *Site) updateCharging(ctx context.Context, st State, chargers map[string]sdk.ChargerStatus, tree *circuit.Tree) float64 {
+	if !s.charge.HasLoadpoints() {
+		return 0
+	}
+	s.mu.RLock()
+	plan := s.plan
+	s.mu.RUnlock()
+	prio := s.cfg.Charging.BatteryPrioritySoC
+	if prio == 0 {
+		prio = 0.5
+	}
+	// the battery keeps PV first while it is low, unless the battery plan
+	// expects enough surplus later anyway
+	batteryFirst := st.HasBattery && st.SoC < prio && plan.Mode != planner.ModeDelay
+	res := s.charge.Update(ctx, charging.SiteInput{Now: st.Time, GridW: st.GridW, BatteryW: st.BatteryW, PVW: st.PVW, LoadW: st.LoadW,
+		Chargers: chargers, BatteryPriority: batteryFirst, Circuits: tree})
+
+	// guest policy forceBattery: charge the battery as if the guest was not there
+	want := 0.0
+	if res.ForceBatteryW > 50 && st.SoC < 0.99 && plan.CurrentLimitW() != 0 {
+		want = math.Min(res.ForceBatteryW, s.cfg.Battery.MaxChargeW)
+	}
+	switch {
+	case want > 0 && s.forceCh == nil:
+		if !s.forceErr {
+			slog.Warn("guest policy forceBattery: the battery cannot be force-charged (no control or not supported); the battery charges from real surplus only")
+			s.forceErr = true
+		}
+	case want > 0:
+		if err := s.forceCh.ForceCharge(ctx, want); err != nil {
+			slog.Error("force-charging the battery failed", "err", err)
+		} else {
+			s.forcing = true
+		}
+	case s.forcing:
+		s.forcing = false
+		s.apply(ctx) // back to the battery plan
+	}
+	return res.GuestW
+}
+
+// Charging returns the loadpoint manager.
+func (s *Site) Charging() *charging.Manager { return s.charge }
 
 // State returns the latest measurement.
 func (s *Site) State() State {

@@ -9,11 +9,13 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"sync"
 	"time"
 
+	"github.com/voltibri/voltibri/internal/charging"
 	"github.com/voltibri/voltibri/internal/config"
 	"github.com/voltibri/voltibri/internal/planner"
 	"github.com/voltibri/voltibri/internal/site"
@@ -64,6 +66,16 @@ func (r *Runtime) State() site.State {
 	return r.site.State()
 }
 
+// Charging returns the loadpoint manager of the running site (nil if none).
+func (r *Runtime) Charging() *charging.Manager {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.site == nil {
+		return nil
+	}
+	return r.site.Charging()
+}
+
 // Plan implements api.Source.
 func (r *Runtime) Plan() planner.Plan {
 	r.mu.RLock()
@@ -96,50 +108,69 @@ func (r *Runtime) Run(ctx context.Context) error {
 		}
 		go r.watchYAML(ctx)
 	}
+	go r.watchDB(ctx, changes)
+
+	// the currently running site
+	var (
+		cur     *site.Site
+		curVer  int64
+		cancel  context.CancelFunc = func() {}
+		done    chan error
+		stopCur = func() {
+			if cur != nil {
+				cancel()
+				<-done
+				cur = nil
+			}
+		}
+	)
+	defer stopCur()
+
 	for {
 		cfg, vi, err := r.store.Current(ctx)
-		var s *site.Site
 		switch {
 		case errors.Is(err, store.ErrNoConfig):
 			r.set(nil, Status{State: "setup", Message: "voltibri ist noch nicht eingerichtet."})
 		case err != nil:
-			r.set(nil, Status{State: "error", Message: err.Error()})
+			r.set(cur, Status{State: "error", Message: err.Error(), Version: curVer})
+		case cfg.Ready() != nil:
+			// deliberately incomplete (e.g. everything removed): stop and wait for setup
+			stopCur()
+			r.set(nil, Status{State: "setup", Message: cfg.Ready().Error(), Version: vi.ID})
 		default:
-			s, err = site.New(cfg, r.store)
+			// build the new site first; only switch over if that works, so a
+			// broken configuration never stops a working one
+			s, err := site.New(cfg, r.store)
 			if err != nil {
-				state := "error"
-				if cfg.Ready() != nil {
-					state = "setup"
+				msg := fmt.Sprintf("Version %d kann nicht gestartet werden: %v", vi.ID, err)
+				if cur != nil {
+					msg += fmt.Sprintf(" – Version %d läuft weiter.", curVer)
 				}
-				r.set(nil, Status{State: state, Message: err.Error(), Version: vi.ID})
-				slog.Warn("site not started", "version", vi.ID, "reason", err)
-			} else {
-				r.set(s, Status{State: "running", Version: vi.ID})
-				slog.Info("site started", "version", vi.ID, "author", vi.Author, "comment", vi.Comment)
+				r.set(cur, Status{State: "error", Message: msg, Version: curVer})
+				slog.Error("new configuration rejected", "version", vi.ID, "running", curVer, "reason", err)
+				break
 			}
+			stopCur()
+			runCtx, c := context.WithCancel(ctx)
+			cancel, done, cur, curVer = c, make(chan error, 1), s, vi.ID
+			go func(s *site.Site, done chan<- error) { done <- s.Run(runCtx) }(s, done)
+			r.set(s, Status{State: "running", Version: vi.ID})
+			slog.Info("site started", "version", vi.ID, "author", vi.Author, "comment", vi.Comment)
 		}
 
-		runCtx, cancel := context.WithCancel(ctx)
-		done := make(chan error, 1)
-		if s != nil {
-			go func() { done <- s.Run(runCtx) }()
+		var curDone <-chan error
+		if cur != nil {
+			curDone = done
 		}
 		select {
 		case <-ctx.Done():
-			cancel()
-			if s != nil {
-				<-done
-			}
 			return nil
 		case v := <-changes:
+			slog.Info("configuration changed", "version", v)
+		case err := <-curDone:
 			cancel()
-			if s != nil {
-				<-done
-			}
-			slog.Info("configuration changed, restarting site", "version", v)
-		case err := <-done:
-			cancel()
-			r.set(nil, Status{State: "error", Message: errString(err), Version: vi.ID})
+			cur = nil
+			r.set(nil, Status{State: "error", Message: errString(err), Version: curVer})
 			slog.Error("site stopped", "err", err)
 			select { // wait for a fix
 			case <-ctx.Done():
@@ -155,6 +186,32 @@ func errString(err error) string {
 		return "site stopped"
 	}
 	return err.Error()
+}
+
+// watchDB notices versions saved by other processes (e.g. "voltibri config
+// import" while the server runs).
+func (r *Runtime) watchDB(ctx context.Context, changes chan<- int64) {
+	last, _ := r.store.LatestVersion(ctx)
+	t := time.NewTicker(5 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			v, err := r.store.LatestVersion(ctx)
+			if err != nil || v <= last {
+				continue
+			}
+			last = v
+			if v != r.Status().Version {
+				select {
+				case changes <- v:
+				default:
+				}
+			}
+		}
+	}
 }
 
 // syncYAML stores the YAML file as a new version if it differs from the

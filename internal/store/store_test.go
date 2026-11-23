@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/voltibri/voltibri/internal/charging"
 	"github.com/voltibri/voltibri/internal/config"
 	"github.com/voltibri/voltibri/internal/series"
 	"github.com/voltibri/voltibri/sdk"
@@ -117,6 +118,32 @@ func TestConfigVersionsAndSecrets(t *testing.T) {
 	}
 }
 
+func TestCachePersists(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, b := s.Cache("dev-a"), s.Cache("dev-b")
+	if _, _, ok := a.Get("k"); ok {
+		t.Fatal("empty cache returned a value")
+	}
+	a.Put("k", []byte("eins"))
+	a.Put("k", []byte("zwei"))
+	b.Put("k", []byte("andere"))
+	s.Close()
+
+	s, _ = Open(dir)
+	defer s.Close()
+	v, ts, ok := s.Cache("dev-a").Get("k")
+	if !ok || string(v) != "zwei" || time.Since(ts) > time.Minute {
+		t.Errorf("after reopen: %q %v %v", v, ts, ok)
+	}
+	if v, _, _ := s.Cache("dev-b").Get("k"); string(v) != "andere" {
+		t.Errorf("namespaces mixed: %q", v)
+	}
+}
+
 func TestHistory(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(t.TempDir())
@@ -143,5 +170,46 @@ func TestHistory(t *testing.T) {
 	}
 	if len(got) != 2 || got[0].SpotCt != -1.5 || got[0].HasTemp() || got[1].HasSpot() || got[1].LoadW != 700 || !got[1].Time.Equal(recs[1].Time) {
 		t.Errorf("unexpected history %+v", got)
+	}
+
+	// import keeps existing measurements unless overwrite is requested
+	imp := series.Series{
+		{Time: t0, PVW: 1, LoadW: 1, SpotCt: math.NaN(), TempC: math.NaN()},
+		{Time: t0.Add(2 * series.Slot), PVW: 2, LoadW: 2, SpotCt: math.NaN(), TempC: math.NaN()},
+	}
+	n, err := s.ImportHistory(ctx, imp, false)
+	if err != nil || n != 1 {
+		t.Fatalf("import: %d %v", n, err)
+	}
+	got, _ = s.LoadHistory(ctx, t0.Add(-time.Hour), loc)
+	if len(got) != 3 || got[0].PVW != 5000 {
+		t.Errorf("existing slot overwritten: %+v", got[0])
+	}
+	if n, _ := s.ImportHistory(ctx, imp, true); n != 2 {
+		t.Errorf("overwrite import wrote %d", n)
+	}
+	hi, _ := s.HistoryInfo(ctx)
+	if hi.Slots != 3 || !hi.First.Equal(t0) {
+		t.Errorf("info %+v", hi)
+	}
+}
+
+func TestChargingSessions(t *testing.T) {
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	start := time.Unix(1795000000, 0)
+	for i, wh := range []float64{1000, 2000} {
+		if _, err := st.SaveSession(ctx, charging.Session{Loadpoint: "wb", Vehicle: "guest", VehicleName: "Gast", Guest: true,
+			Mode: charging.ModeFast, Start: start.Add(time.Duration(i) * time.Hour), End: start.Add(time.Duration(i)*time.Hour + 30*time.Minute), EnergyWh: wh, CostCt: wh * 0.03}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := st.Sessions(ctx, 10)
+	if err != nil || len(got) != 2 || got[0].EnergyWh != 2000 || !got[0].Guest || got[0].Mode != charging.ModeFast {
+		t.Fatalf("sessions: %v %+v", err, got)
 	}
 }

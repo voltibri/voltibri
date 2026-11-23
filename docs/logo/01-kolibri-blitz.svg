@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <title>voltibri – Kolibri-Blitz</title>
+  <!-- Kolibri-Silhouette (Kopf, Schnabel, Körper, gegabelter Schwanz) -->
+  <path fill="#3d6fb6" d="M63.5 21.5 L50.5 19 C50 27 46 34 38 41 L28 49 L24 60 L20 53 L12 59 L18 46 C24 36 28 28 32 22 C34 14 38 10 44 10 C48 10 50.5 12 51 14 Z"/>
+  <!-- Flügel als Blitz, mit Abstand zum Körper: bleibt einfarbig lesbar -->
+  <path fill="#d99a00" d="M3 3 L20 3 L16 13 L27 13 L25.5 31 L17 20 L8 20 Z"/>
+</svg>

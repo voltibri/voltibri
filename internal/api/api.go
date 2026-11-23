@@ -16,7 +16,9 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/voltibri/voltibri/internal/charging"
 	"github.com/voltibri/voltibri/internal/config"
 	"github.com/voltibri/voltibri/internal/planner"
 	"github.com/voltibri/voltibri/internal/server"
@@ -28,12 +30,34 @@ import (
 //go:embed index.html
 var indexHTML []byte
 
+//go:embed favicon.svg
+var faviconSVG []byte
+
+//go:embed config.html
+var configHTML []byte
+
+//go:embed common.js
+var commonJS []byte
+
+//go:embed common.css
+var commonCSS []byte
+
+// static serves an embedded file.
+func static(ctype string, b []byte) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", ctype)
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Write(b)
+	}
+}
+
 // Runtime provides live data and status.
 type Runtime interface {
 	State() site.State
 	Plan() planner.Plan
 	Status() server.Status
 	ReadOnly() bool
+	Charging() *charging.Manager // nil while no site runs
 }
 
 // Handler returns the HTTP handler.
@@ -46,6 +70,9 @@ func Handler(rt Runtime, st *store.Store) http.Handler {
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
+	mux.HandleFunc("GET /api/history", h.history)
+	h.chargingRoutes(mux)
+	h.deviceRoutes(mux)
 	mux.HandleFunc("GET /api/drivers", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, sdk.Drivers()) })
 
 	mux.HandleFunc("GET /api/config", h.getConfig)
@@ -60,6 +87,14 @@ func Handler(rt Runtime, st *store.Store) http.Handler {
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write(indexHTML)
+	})
+	mux.HandleFunc("GET /konfiguration", static("text/html; charset=utf-8", configHTML))
+	mux.HandleFunc("GET /common.js", static("text/javascript; charset=utf-8", commonJS))
+	mux.HandleFunc("GET /common.css", static("text/css; charset=utf-8", commonCSS))
+	mux.HandleFunc("GET /favicon.svg", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/svg+xml")
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		w.Write(faviconSVG)
 	})
 	return mux
 }
@@ -80,6 +115,7 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.WriteHeader(code)
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
+	enc.SetEscapeHTML(false)
 	enc.Encode(v)
 }
 
@@ -212,6 +248,37 @@ func (h *handler) importYAML(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.save(w, r, cfg, "YAML-Import")
+}
+
+// historySlot is one measured 15-minute slot for the plan chart.
+type historySlot struct {
+	Start time.Time `json:"start"`
+	PVW   float64   `json:"pvW"`
+	LoadW float64   `json:"loadW"`
+}
+
+// history returns the measured slots of the last ?hours= hours (default 2,
+// at most 48), oldest first.
+func (h *handler) history(w http.ResponseWriter, r *http.Request) {
+	hours := 2
+	if v := r.URL.Query().Get("hours"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 48 {
+			writeErr(w, http.StatusBadRequest, "hours muss zwischen 1 und 48 liegen", err)
+			return
+		}
+		hours = n
+	}
+	recs, err := h.st.LoadHistory(r.Context(), time.Now().Add(-time.Duration(hours)*time.Hour), time.Local)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "Verlauf konnte nicht gelesen werden", err)
+		return
+	}
+	out := make([]historySlot, 0, len(recs))
+	for _, rec := range recs {
+		out = append(out, historySlot{Start: rec.Time, PVW: rec.PVW, LoadW: rec.LoadW})
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (h *handler) versions(w http.ResponseWriter, r *http.Request) {

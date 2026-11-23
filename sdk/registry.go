@@ -29,6 +29,7 @@ type DeviceConfig struct {
 	Mode   ControlMode
 	DryRun bool           // log writes instead of executing them
 	Params map[string]any // driver specific settings (defaults applied)
+	Cache  Cache          // persistent per-device cache (never nil inside a factory)
 }
 
 // Factory creates a device from its configuration.
@@ -52,6 +53,8 @@ const (
 	CapEnergy         Capability = "energy"          // EnergyMeter
 	CapPVForecast     Capability = "pv-forecast"     // PVForecaster
 	CapTariff         Capability = "tariff"          // TariffSource
+	CapVehicles       Capability = "vehicles"        // VehicleProvider
+	CapOAuth          Capability = "oauth"           // OAuthAuthorizer
 )
 
 // Category groups drivers in user interfaces.
@@ -64,6 +67,7 @@ const (
 	CatMeter    Category = "meter"
 	CatForecast Category = "forecast"
 	CatTariff   Category = "tariff"
+	CatVehicle  Category = "vehicle"
 	CatDemo     Category = "demo"
 )
 
@@ -76,6 +80,7 @@ type Driver struct {
 	Category     Category     `json:"category"`
 	Capabilities []Capability `json:"capabilities"`
 	Params       []Param      `json:"params"`
+	SetupURL     string       `json:"setupUrl,omitempty"` // where to create credentials (API client, token)
 	Factory      Factory      `json:"-"`
 }
 
@@ -124,6 +129,9 @@ func New(cfg DeviceConfig) (Device, error) {
 		return nil, fmt.Errorf("%s: %w", cfg.ID, err)
 	}
 	cfg.Params = params
+	if cfg.Cache == nil {
+		cfg.Cache = NewMemCache()
+	}
 	return d.Factory(cfg)
 }
 

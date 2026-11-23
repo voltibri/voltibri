@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <title>voltibri – v-Monogramm mit Flügel</title>
+  <!-- linker Strich des „v“ = Körper mit Kopf und Schnabel -->
+  <g fill="#3d6fb6">
+    <circle cx="16" cy="15" r="8"/>
+    <path d="M10 11 L0.5 3.5 L9 18.5 Z"/>
+    <path d="M9 19 L23 17 L37 50 L31 60 Z"/>
+  </g>
+  <!-- rechter Strich = Flügel mit drei Federstufen -->
+  <path fill="#d99a00" d="M35 60 L55 4 L63 7 L58 19 L63 21.5 L56.5 32 L61 35 L41 59 Z"/>
+</svg>
