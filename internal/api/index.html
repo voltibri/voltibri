@@ -2,18 +2,28 @@
 <html lang="de">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>voltibri</title>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="theme-color" content="#f4f2ec" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b1113" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="voltibri">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="stylesheet" href="common.css">
 <style>
-  .flowhead { display:flex; align-items:baseline; justify-content:space-between; gap:8px; flex-wrap:wrap; }
-  .kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-top:12px; }
-  .kpi { border-top:1px solid var(--line); padding-top:10px; }
-  .kpi .k { color:var(--muted); font-size:12px; }
-  .kpi .v { font-size:20px; font-variant-numeric:tabular-nums; letter-spacing:-.01em; }
-  @media (max-width:640px) { .kpis { grid-template-columns:repeat(2,1fr); } }
-  #flow { width:100%; height:auto; display:block; margin:0 auto; overflow:visible; }
+  /* hero: big numbers above the energy flow */
+  .stats { display:grid; grid-template-columns:repeat(4, 1fr); gap:8px 20px; }
+  .stat { display:flex; flex-direction:column; gap:2px; min-width:0; }
+  .stat .big { font-size:34px; font-weight:300; line-height:1.1; letter-spacing:-.035em; white-space:nowrap; }
+  .stat .big small { font-size:16px; font-weight:400; color:var(--muted); margin-left:3px; letter-spacing:0; }
+  .stat .sub { font-size:12px; }
+  .dot { display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:6px; vertical-align:1px; }
+  @media (max-width:700px) { .stats { grid-template-columns:repeat(2, 1fr); } .stat .big { font-size:28px; } }
+  #flow { width:100%; height:auto; display:block; margin:10px auto 0; overflow:visible; }
   #flow text { font-variant-numeric:tabular-nums; }
   .track { fill:none; stroke:var(--track); stroke-width:2; }
   .tog { cursor:pointer; outline:none; }
@@ -24,35 +34,42 @@
   .flowline { fill:none; stroke-linecap:round; stroke-dasharray:1 12; animation:dash linear infinite; }
   @keyframes dash { to { stroke-dashoffset:-26; } }
   @media (prefers-reduced-motion: reduce) { .flowline { animation:none; stroke-dasharray:none; opacity:.8; } }
-  ul { margin:0; padding-left:18px; }
-  li + li { margin-top:4px; }
-  svg.chart { width:100%; height:auto; display:block; }
-  .legend { display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--muted); margin-top:8px; }
-  .legend i { display:inline-block; width:12px; height:3px; vertical-align:middle; margin-right:5px; border-radius:2px; }
   .err { color:var(--warn); font-size:13px; margin-top:8px; }
-  /* charging panel */
+  .err:empty { display:none; }
+
+  /* card head: eyebrow + title left, details right */
+  .cardhead { display:flex; align-items:flex-end; gap:10px 16px; flex-wrap:wrap; margin-bottom:14px; }
+  .cardhead h2 { margin:2px 0 0; }
+  .cardhead .right { margin-left:auto; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .chip { font-size:12px; padding:3px 10px; border-radius:99px; background:var(--card-2); border:1px solid var(--line); color:var(--muted); white-space:nowrap; }
+  .chip b { color:var(--fg); font-weight:600; }
+
+  /* wallboxes */
   #laden[hidden] { display:none; }
-  .lps { display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:12px; }
-  .lp { border:1px solid var(--line); border-radius:12px; padding:14px; display:flex; flex-direction:column; gap:10px; }
-  .lphead { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
-  .lphead h3 { margin:0; font-size:15px; }
-  .lphead .pw { margin-left:auto; font-variant-numeric:tabular-nums; font-weight:600; }
-  .pill { font-size:11px; padding:2px 8px; border-radius:99px; background:var(--track); color:var(--muted); }
-  .pill.on { background:rgba(31,157,107,.15); color:var(--battery); }
+  .lps { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:12px; }
+  .lp { background:var(--card-2); border:1px solid var(--line); border-radius:18px; padding:16px; display:flex; flex-direction:column; gap:12px; }
+  .lphead { display:flex; align-items:center; gap:8px; min-width:0; }
+  .lphead h3 { margin:0; font-size:15px; font-weight:650; letter-spacing:-.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+  .lphead .pill { flex:none; }
+  .lphead .pw { margin-left:auto; flex:none; white-space:nowrap; font-size:22px; font-weight:300; letter-spacing:-.03em; font-variant-numeric:tabular-nums; }
+  .pill { font-size:11px; font-weight:550; padding:2px 9px; border-radius:99px; background:var(--track); color:var(--muted); }
+  .pill.on { background:var(--accent-soft); color:var(--accent); }
+  .lpsub { font-size:13px; color:var(--muted); margin-top:-6px; display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
   .vrow { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
   select, input[type=time], input[type=datetime-local], input[type=number] {
-    font:inherit; font-size:13px; color:var(--fg); background:var(--card); border:1px solid var(--line); border-radius:8px; padding:5px 8px; }
+    font:inherit; font-size:13px; color:var(--fg); background:var(--card); border:1px solid var(--line); border-radius:9px; padding:5px 8px; }
   select { max-width:100%; }
-  .socbar { position:relative; height:10px; border-radius:5px; background:var(--track); overflow:hidden; }
-  .socbar i { position:absolute; inset:0 auto 0 0; background:var(--battery); border-radius:5px; }
-  .socbar b { position:absolute; top:0; bottom:0; width:2px; background:var(--fg); opacity:.55; }
-  .socline { display:flex; justify-content:space-between; font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; }
-  .modes { display:grid; grid-template-columns:repeat(4, 1fr); border:1px solid var(--line); border-radius:9px; overflow:hidden; }
-  .modes button { font:inherit; font-size:13px; border:0; background:var(--card); color:var(--fg); padding:7px 4px; cursor:pointer; }
-  .modes button + button { border-left:1px solid var(--line); }
-  .modes button.sel { background:var(--home); color:var(--card); font-weight:600; }
-  .modes button:disabled { cursor:default; opacity:.55; }
-  .planbox { border-top:1px solid var(--line); padding-top:10px; display:flex; flex-direction:column; gap:8px; font-size:13px; }
+  .socbar { position:relative; height:8px; border-radius:4px; background:var(--track); overflow:hidden; }
+  .socbar i { position:absolute; inset:0 auto 0 0; background:linear-gradient(90deg, var(--accent), var(--battery)); border-radius:4px; }
+  .socbar b { position:absolute; top:0; bottom:0; width:2px; background:var(--fg); opacity:.5; }
+  .socline { display:flex; justify-content:space-between; font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; margin-top:4px; }
+  .modes { display:grid; grid-template-columns:repeat(4, 1fr); gap:3px; padding:3px; border-radius:12px; background:var(--track); }
+  .modes button { font:inherit; font-size:13px; font-weight:550; border:0; background:transparent; color:var(--muted); padding:6px 4px; border-radius:9px; cursor:pointer; }
+  .modes button.sel { background:var(--card); color:var(--fg); box-shadow:0 1px 3px rgba(0,0,0,.12); }
+  .modes button:disabled { cursor:default; }
+  .modes button:disabled:not(.sel) { opacity:.6; }
+  .lp details.more > div { display:flex; flex-direction:column; gap:10px; margin-top:10px; }
+  .planbox { display:flex; flex-direction:column; gap:8px; font-size:13px; }
   .planbox .ttl { font-weight:600; font-size:13px; }
   .plans { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:4px; }
   .plans li { display:flex; align-items:center; gap:8px; }
@@ -61,58 +78,52 @@
   .days label { font-size:11px; display:flex; flex-direction:column; align-items:center; gap:1px; }
   .sess { display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--muted); }
   .sess b { color:var(--fg); font-variant-numeric:tabular-nums; }
+  #lveh:not(:empty) { margin-top:14px; }
+  #lveh details.more > div { margin-top:10px; display:flex; flex-direction:column; gap:8px; }
+
+  /* battery plan */
+  svg.chart { width:100%; height:auto; display:block; }
+  .legend { display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--muted); margin:8px 0 12px; }
+  .legend i { display:inline-block; width:12px; height:3px; vertical-align:middle; margin-right:5px; border-radius:2px; }
+  #reasons { margin:10px 0 0; padding-left:18px; font-size:14px; }
+  #reasons li + li { margin-top:4px; }
 </style>
 </head>
 <body>
 <main>
-  <header>
-    <div class="logo">
-      <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 5 13h6l-1 9 8-11h-6z" fill="var(--solar)"/></svg>
-      <h1>voltibri</h1>
-    </div>
-    <span class="sub">smart self-consumption optimizer</span>
-    <span class="spacer"></span>
-    <span class="badge" id="mode">…</span>
-    <span class="badge warn" id="dry" hidden>Testmodus</span>
-    <span class="badge" id="time">–</span>
-    <a class="navlink" href="konfiguration">Konfiguration</a>
-  </header>
+  <header class="top"></header>
 
-  <section class="card">
-    <div class="flowhead"><h2>Energiefluss</h2><span class="sub" id="summary"></span></div>
-    <svg id="flow" role="img" aria-label="Energiefluss zwischen Erzeugern, Netz, Batterie und Verbrauchern"></svg>
-    <div class="kpis">
-      <div class="kpi"><div class="k">Autarkie jetzt</div><div class="v" id="autarky">–</div></div>
-      <div class="kpi"><div class="k">Batterie</div><div class="v" id="soc">–</div></div>
-      <div class="kpi"><div class="k">Ladegrenze</div><div class="v" id="limit">–</div></div>
-      <div class="kpi"><div class="k">Ziel am Abend</div><div class="v" id="target">–</div></div>
+  <section class="card hero" aria-label="Jetzt">
+    <div class="stats">
+      <div class="stat"><span class="eyebrow"><i class="dot" style="background:var(--solar)"></i>Erzeugung</span><span class="big num" id="sPV">–</span></div>
+      <div class="stat"><span class="eyebrow"><i class="dot" style="background:var(--home)"></i>Verbrauch</span><span class="big num" id="sLoad">–</span></div>
+      <div class="stat"><span class="eyebrow"><i class="dot" style="background:var(--accent)"></i>Autarkie</span><span class="big num" id="autarky">–</span></div>
+      <div class="stat"><span class="eyebrow"><i class="dot" style="background:var(--battery)"></i>Batterie</span><span class="big num" id="soc">–</span><span class="sub" id="batState"></span></div>
     </div>
+    <svg id="flow" role="img" aria-label="Energiefluss zwischen Erzeugern, Netz, Batterie und Verbrauchern"></svg>
     <div class="err" id="errors"></div>
   </section>
 
   <section class="card" id="laden" hidden>
-    <div class="flowhead"><h2>Laden</h2><span class="sub" id="ltariff"></span></div>
+    <div class="cardhead"><div><div class="eyebrow">Laden</div><h2>Wallboxen</h2></div>
+      <div class="right"><span class="sub" id="ltariff"></span><a class="navlink" href="berichte">Alle Ladevorgänge →</a></div></div>
     <div class="flash" id="lflash" hidden></div>
     <div class="lps" id="lps"></div>
     <div id="lveh"></div>
-    <div id="lsess"></div>
   </section>
 
   <section class="card">
-    <h2>Erklärung der Ladeplanung</h2>
-    <ul id="reasons"></ul>
-  </section>
-
-  <section class="card">
-    <h2>Plan für die nächsten 48 Stunden</h2>
-    <svg class="chart" id="chart" viewBox="0 0 960 300" role="img" aria-label="Plan"></svg>
+    <div class="cardhead"><div><div class="eyebrow">Batterie</div><h2 id="bTitle">Ladeplanung</h2></div>
+      <div class="right"><span class="chip" id="limit">–</span><span class="chip" id="target">–</span></div></div>
+    <svg class="chart" id="chart" viewBox="0 0 960 300" role="img" aria-label="Plan für die nächsten 48 Stunden"></svg>
     <div class="legend">
-      <span><i style="background:var(--solar)"></i>PV (kW)</span>
-      <span><i style="background:var(--home)"></i>Hausverbrauch (kW)</span>
-      <span><i style="background:var(--battery)"></i>erwarteter Ladestand (%)</span>
+      <span><i style="background:var(--solar)"></i>PV</span>
+      <span><i style="background:var(--home)"></i>Hausverbrauch</span>
+      <span><i style="background:var(--battery)"></i>erwarteter Ladestand</span>
       <span><i style="background:var(--limit);height:10px"></i>Laden erlaubt</span>
-      <span><i style="background:var(--track);height:10px"></i>gemessen (letzte 2 h)</span>
+      <span><i style="background:var(--track);height:10px"></i>gemessen</span>
     </div>
+    <details class="more" data-k="why"><summary>Warum so?</summary><ul id="reasons"></ul></details>
   </section>
 </main>
 <script src="common.js"></script>
@@ -133,7 +144,8 @@ function icon(name, x, y, color, size = 24) {
 // Overview groups: devices with the same "group" form one bubble; a click on
 // a group opens its devices in an overlay.
 const GROUPS = {pv: {name: 'PV', icon: 'solar'}, wallboxen: {name: 'Wallboxen', icon: 'car'},
-                waermepumpe: {name: 'Wärmepumpe', icon: 'heatpump'}, warmwasser: {name: 'Warmwasser', icon: 'water'}};
+                waermepumpe: {name: 'Wärmepumpe', icon: 'heatpump'}, warmwasser: {name: 'Warmwasser', icon: 'water'},
+                haushalt: {name: 'Haushalt', icon: 'plug'}};
 
 function membersOf(items, key) { return items.filter(x => (x.group || x.id) === key); }
 
@@ -352,7 +364,7 @@ function renderLoadpoint(lp) {
   if (veh && veh.soc != null) {
     soc = `<div><div class="socbar"><i style="width:${(veh.soc * 100).toFixed(0)}%"></i>${veh.limitSoc != null ? `<b style="left:${(veh.limitSoc * 100).toFixed(0)}%" title="Ladelimit im Auto"></b>` : ''}</div>
       <div class="socline"><span>${pct(veh.soc)}${veh.rangeKm != null ? ' · ' + Math.round(veh.rangeKm) + ' km' : ''}</span>
-      <span>${veh.limitSoc != null ? 'Limit im Auto ' + pct(veh.limitSoc) : ''}</span></div></div>`;
+      <span>${veh.limitSoc != null ? 'Limit ' + pct(veh.limitSoc) : ''}</span></div></div>`;
   }
   const mode = lp.connected ? lp.mode : (veh ? veh.settings.mode : lp.mode);
   const modeBtns = Object.keys(MODE_LABEL).map(m =>
@@ -362,29 +374,33 @@ function renderLoadpoint(lp) {
     const s = veh.settings, sch = lp.plan;
     plan = `<div class="planbox"><div class="ttl">Ladeplan</div>
       ${sch ? `<div class="why">${esc(sch.reason)}${sch.slots && sch.slots.length ? ` · Start ${dayhm(sch.start)}, ${kwh(sch.needWh)}${sch.costCt ? ', ca. ' + money(sch.costCt, charging.currency) : ''}` : ''}</div>` : ''}
-      ${(s.plans || []).length ? `<ul class="plans">${s.plans.map(p => `<li><span>${esc(planText(p))}</span>${canEdit ? `<button class="linkbtn" data-delplan="${esc(p.id)}">entfernen</button>` : ''}</li>`).join('')}</ul>` : '<div class="why">Kein Plan. Ein Plan lädt das Auto bis zur Abfahrt auf den Ziel-Ladestand; in PV und Min+PV.</div>'}
+      ${(s.plans || []).length ? `<ul class="plans">${s.plans.map(p => `<li><span>${esc(planText(p))}</span>${canEdit ? `<button class="linkbtn" data-delplan="${esc(p.id)}">entfernen</button>` : ''}</li>`).join('')}</ul>` : '<div class="why">Kein Plan. Ein Plan lädt das Auto bis zur Abfahrt auf den Ziel-Ladestand (in PV und Min+PV).</div>'}
       ${!s.capacityWh ? '<div class="note">Für Pläne die Akkukapazität beim Fahrzeug eintragen.</div>' : ''}
       ${canEdit ? `<form class="vrow planform" data-veh="${esc(veh.key)}">
         <input type="number" name="soc" min="10" max="100" step="5" value="80" style="width:64px" aria-label="Ziel-Ladestand in Prozent"> %
         <input type="time" name="time" value="07:00" required aria-label="Uhrzeit">
-        <span class="days">${DAYS.map((d, i) => `<label>${d}<input type="checkbox" name="d${i}"${i >= 1 && i <= 5 ? '' : ''}></label>`).join('')}</span>
+        <span class="days">${DAYS.map((d, i) => `<label>${d}<input type="checkbox" name="d${i}"></label>`).join('')}</span>
         <button class="btn" type="submit">Plan hinzufügen</button></form>
         <div class="why" style="font-size:11px">Ohne Wochentage gilt der Plan einmalig zum nächsten Zeitpunkt.</div>` : ''}
     </div>`;
   }
-  const sess = lp.session ? `<div class="sess"><span>Dieser Ladevorgang <b>${kwh(lp.session.energyWh)}</b></span>
-      <span>PV/Akku <b>${lp.session.energyWh > 0 ? Math.round(100 * lp.session.solarWh / lp.session.energyWh) : 0} %</b></span>
-      <span>${guest ? 'Verrechnung' : 'Kosten'} <b>${money(lp.session.costCt, charging.currency)}</b></span></div>` : '';
+  const s = lp.session;
+  const sess = s ? `<div class="sess"><span>Dieser Ladevorgang <b>${kwh(s.energyWh)}</b></span>
+      <span>PV/Akku <b>${s.energyWh > 0 ? Math.round(100 * (s.pvWh + s.batteryWh) / s.energyWh) : 0} %</b></span>
+      <span>${guest ? 'Verrechnung' : 'Kosten'} <b>${money(s.costCt, charging.currency)}</b></span></div>` : '';
+  const who = lp.connected ? esc(lp.vehicleName) : 'kein Fahrzeug';
   return `<div class="lp" data-lp="${esc(lp.id)}">
-    <div class="lphead"><h3>${esc(lp.name)}</h3><span class="pill${lp.charging ? ' on' : ''}">${status}</span>
-      <span class="pw">${lp.connected ? kw(lp.powerW) : ''}</span></div>
-    ${lp.connected ? `<div class="vrow"><select data-vehsel aria-label="Fahrzeug" ${canEdit ? '' : 'disabled'}>${opts.join('')}</select>
-      ${guest && !lp.detecting ? `<span class="why">${esc(GUEST_POLICY[lp.guestPolicy] || '')}</span>` : ''}</div>` : ''}
+    <div class="lphead"><h3>${esc(lp.name)}</h3><span class="pw">${lp.connected ? kw(lp.powerW) : ''}</span></div>
+    <div class="lpsub"><span class="pill${lp.charging ? ' on' : ''}">${status}</span>
+      ${!lp.owned ? '<span class="pill" title="voltibri schreibt nicht auf diese Wallbox (Modus „observed“) und zeigt nur, was es tun würde.">beobachtet</span>' : ''}<span>${who}</span></div>
     ${soc}
     <div class="modes" role="group" aria-label="Lademodus">${modeBtns}</div>
-    ${lp.connected ? `<div class="why">${esc(lp.reason)}</div>` : '<div class="why">Kein Fahrzeug angesteckt.</div>'}
-    ${!lp.owned ? '<div class="note">Nur beobachtet: voltibri schreibt nicht auf diese Wallbox (Gerät im Modus „observed“). Angezeigt wird, was voltibri tun würde.</div>' : ''}
-    ${sess}${plan}
+    ${lp.connected ? `<div class="why">${esc(lp.reason)}</div>` : ''}
+    ${sess}
+    ${lp.connected || veh ? `<details class="more" data-k="lp:${esc(lp.id)}"><summary>Fahrzeug &amp; Ladeplan</summary><div>
+      ${lp.connected ? `<div class="vrow"><select data-vehsel aria-label="Fahrzeug" ${canEdit ? '' : 'disabled'}>${opts.join('')}</select>
+        ${guest && !lp.detecting ? `<span class="why">${esc(GUEST_POLICY[lp.guestPolicy] || '')}</span>` : ''}</div>` : ''}
+      ${plan}</div></details>` : ''}
   </div>`;
 }
 
@@ -396,7 +412,7 @@ function renderVehicles() {
   const connect = charging.local ? voltibri.drivers().filter(d => d.category === 'vehicle' && !configured.has(d.type)) : [];
   if (!prov.length && !vs.length) {
     if (!connect.length) return '';
-    return `<div class="subh">Fahrzeuge</div><div class="note">Ladestand und Abfahrtszeiten kommen aus einem Fahrzeugkonto.
+    return `<div class="note">Ladestand und Abfahrtszeiten kommen aus einem Fahrzeugkonto.
       ${connect.map(d => `<button type="button" class="btn primary" data-setup-new="${esc(d.type)}">${esc(d.name.replace(/ \(.*\)$/, ''))} verbinden</button>`).join(' ')}</div>`;
   }
   const login = prov.map(p => {
@@ -412,23 +428,22 @@ function renderVehicles() {
       <td><input type="number" data-vcap min="0" step="1" style="width:72px" value="${v.settings.capacityWh ? v.settings.capacityWh / 1000 : ''}" placeholder="kWh" aria-label="Akkukapazität kWh" ${charging.local ? '' : 'disabled'}> kWh</td>
       <td><input type="number" data-vmin min="0" step="0.1" style="width:64px" value="${v.settings.minPowerW ? v.settings.minPowerW / 1000 : ''}" placeholder="auto" aria-label="Mindestleistung kW" ${charging.local ? '' : 'disabled'}> kW</td>
     </tr>`).join('');
-  return `<div class="subh">Fahrzeuge</div>${login}
+  const needLogin = prov.some(p => p.needsLogin && !p.authorized);
+  return `<details class="more" data-k="veh"${needLogin ? ' open' : ''}><summary>Fahrzeuge (${vs.length})</summary><div>${login}
     ${vs.length ? `<div class="tablewrap"><table class="list"><thead><tr><th>Fahrzeug</th><th class="r">Ladestand</th><th>Status</th><th>Standardmodus</th><th>Akku</th><th>Min+PV ab</th></tr></thead><tbody>${rows}</tbody></table></div>` :
-      (prov.some(p => p.authorized) ? '<div class="why">Keine Fahrzeuge gefunden. Ist das Auto in der Tibber-App verbunden?</div>' : '')}`;
+      (prov.some(p => p.authorized) ? '<div class="why">Keine Fahrzeuge gefunden. Ist das Auto in der Tibber-App verbunden?</div>' : '')}</div></details>`;
 }
 
-function renderSessions(ss) {
-  if (!ss || !ss.length) return '';
-  const cur = charging.currency;
-  return `<div class="subh">Letzte Ladevorgänge</div><div class="tablewrap"><table class="list"><thead><tr>
-    <th>Beginn</th><th>Ladepunkt</th><th>Fahrzeug</th><th>Modus</th><th class="r">Energie</th><th class="r">PV/Akku</th><th class="r">Kosten</th></tr></thead><tbody>
-    ${ss.slice(0, 10).map(s => `<tr><td>${new Date(s.start).toLocaleString('de-DE', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'})}${s.end ? '' : ' (läuft)'}</td>
-      <td>${esc((charging.loadpoints.find(l => l.id === s.loadpoint) || {name: s.loadpoint}).name)}</td><td>${esc(s.vehicleName)}${s.guest ? ' · Gast' : ''}</td><td>${MODE_LABEL[s.mode] || esc(s.mode)}</td>
-      <td class="r">${kwh(s.energyWh)}</td><td class="r">${s.energyWh > 0 ? Math.round(100 * s.solarWh / s.energyWh) + ' %' : '–'}</td>
-      <td class="r">${money(s.costCt, cur)}</td></tr>`).join('')}</tbody></table></div>`;
+// re-rendering every 5 s must not close what the user opened
+const openDetails = new Set();
+document.addEventListener('toggle', e => {
+  const d = e.target;
+  if (d.tagName === 'DETAILS' && d.dataset.k) d.open ? openDetails.add(d.dataset.k) : openDetails.delete(d.dataset.k);
+}, true);
+function restoreDetails(root) {
+  root.querySelectorAll('details[data-k]').forEach(d => { if (openDetails.has(d.dataset.k)) d.open = true; });
 }
 
-let lastSessions = 0;
 async function refreshCharging(force) {
   const box = $('laden');
   if (!force && box.contains(document.activeElement) && /INPUT|SELECT/.test(document.activeElement.tagName)) return; // user is editing
@@ -437,18 +452,12 @@ async function refreshCharging(force) {
   } catch (e) { return; }
   box.hidden = !charging.loadpoints.length && !charging.providers.length;
   if (box.hidden) return;
-  const cur = charging.currency;
-  $('ltariff').textContent = [charging.gridCt != null ? 'Netz ' + charging.gridCt.toFixed(1).replace('.', ',') + ' ct/kWh' : '',
-    charging.feedinCt != null ? 'Einspeisung ' + charging.feedinCt.toFixed(1).replace('.', ',') + ' ct/kWh' : ''].filter(Boolean).join(' · ');
+  $('ltariff').textContent = [charging.gridCt != null ? 'Netz ' + charging.gridCt.toFixed(1).replace('.', ',') + ' ct' : '',
+    charging.feedinCt != null ? 'Einspeisung ' + charging.feedinCt.toFixed(1).replace('.', ',') + ' ct' : ''].filter(Boolean).join(' · ');
   $('lps').innerHTML = charging.loadpoints.map(renderLoadpoint).join('');
   $('lveh').innerHTML = renderVehicles();
-  if (force || Date.now() - lastSessions > 60000) {
-    lastSessions = Date.now();
-    const ss = await fetch('api/sessions').then(r => r.ok ? r.json() : []).catch(() => []);
-    $('lsess').innerHTML = renderSessions(ss);
-  }
+  restoreDetails(box);
 }
-
 function vehicleSettings(key) { return JSON.parse(JSON.stringify(vehicleOf(key).settings)); }
 
 $('laden').addEventListener('click', async e => {
@@ -507,26 +516,37 @@ $('laden').addEventListener('submit', async e => {
   history.replaceState(null, '', location.pathname + location.hash);
 })();
 
+topbar('overview');
+// big number with a small unit: "4,2 kW" -> 4,2<small>kW</small>
+const big = s => { const m = String(s).match(/^(.*?)\s*(kW|W|%)$/); return m ? `${esc(m[1])}<small>${m[2]}</small>` : esc(s); };
+const PLAN_TITLE = {delay: 'Spät laden', immediate: 'Sofort laden', night: 'Für die Nacht laden', 'no-data': 'Zu wenig Daten'};
+
 async function refresh() {
   try {
     const [st, plan, hist] = await Promise.all([fetch('api/state').then(r => r.json()), fetch('api/plan').then(r => r.json()),
       fetch('api/history?hours=2').then(r => r.ok ? r.json() : []).catch(() => [])]);
     drawFlow(st);
     const self = st.loadW > 0 ? Math.max(0, Math.min(1, 1 - Math.max(0, st.gridW) / st.loadW)) : 1;
-    $('autarky').textContent = pct(self);
-    $('soc').textContent = st.hasBattery ? pct(st.soc) : '–';
-    $('limit').textContent = !st.controlled ? 'nur Empfehlung' : (st.chargeLimitW < 0 ? 'keine' : kw(st.chargeLimitW));
-    $('target').textContent = plan.targetSoC ? pct(plan.targetSoC) : '–';
-    $('summary').textContent = `Erzeugung ${kw(st.pvW)} · Verbrauch ${kw(st.loadW)}`;
-    $('dry').hidden = !st.dryRun;
-    $('mode').textContent = 'Batterie: ' + (modes[plan.mode] || plan.mode);
-    $('time').textContent = new Date(st.time).toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit', second: '2-digit'});
+    $('sPV').innerHTML = big(kw(st.pvW));
+    $('sLoad').innerHTML = big(kw(st.loadW));
+    $('autarky').innerHTML = big(pct(self));
+    $('soc').innerHTML = st.hasBattery ? big(pct(st.soc)) : '–';
+    $('batState').textContent = !st.hasBattery ? '' : Math.abs(st.batteryW) < 15 ? 'in Ruhe' : (st.batteryW < 0 ? 'lädt ' : 'entlädt ') + (Math.abs(st.batteryW) >= 15 ? kw(Math.abs(st.batteryW)) : '');
+    $('bTitle').textContent = PLAN_TITLE[plan.mode] || modes[plan.mode] || 'Ladeplanung';
+    $('limit').innerHTML = 'Ladegrenze <b>' + esc(!st.controlled ? 'nur Empfehlung' : (st.chargeLimitW < 0 ? 'keine' : kw(st.chargeLimitW))) + '</b>';
+    $('target').innerHTML = 'Ziel am Abend <b>' + (plan.targetSoC ? pct(plan.targetSoC) : '–') + '</b>';
+    $('hstatus').innerHTML = (st.dryRun ? '<span class="badge warn" title="voltibri schreibt nichts auf Geräte, sondern protokolliert nur">Testmodus</span>' : '') +
+      `<span class="live" title="letzte Messung">${new Date(st.time).toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit', second: '2-digit'})}</span>`;
     $('errors').textContent = (st.errors || []).join(' · ');
     $('reasons').innerHTML = (plan.reasons || []).map(r => `<li>${esc(r)}</li>`).join('');
     drawChart(plan.slots || [], hist || []);
     window._last = st;
     refreshCharging();
-  } catch (e) { $('errors').textContent = 'Keine Verbindung zu voltibri: ' + e; }
+  } catch (e) {
+    $('errors').textContent = 'Keine Verbindung zu voltibri: ' + e;
+    const l = document.querySelector('.live');
+    if (l) l.classList.add('off');
+  }
 }
 
 // Plan chart on a time axis: the measured last 2 hours (grey background)

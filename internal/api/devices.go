@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/voltibri/voltibri/internal/config"
 	"github.com/voltibri/voltibri/internal/store"
@@ -18,6 +19,7 @@ import (
 // deviceRoutes lets the web page add or change a single device without
 // sending the whole configuration (setup dialogs, e.g. "Tibber verbinden").
 func (h *handler) deviceRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/assets", h.assets)
 	mux.HandleFunc("GET /api/devices/{id}", h.getDevice)
 	mux.HandleFunc("PUT /api/devices/{id}", h.write(h.putDevice))
 	mux.HandleFunc("DELETE /api/devices/{id}", h.write(h.deleteDevice))
@@ -232,4 +234,36 @@ func (h *handler) putSection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.save(w, r, cfg, t.label+" geändert")
+}
+
+// assetInfo is a device as asset: derived kind and life cycle.
+type assetInfo struct {
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	Kind           string `json:"kind"`
+	RunKind        string `json:"runKind"`
+	Retired        bool   `json:"retired"`
+	Commissioned   string `json:"commissioned,omitempty"`
+	Decommissioned string `json:"decommissioned,omitempty"`
+}
+
+// assets lists all devices with their derived asset kind.
+func (h *handler) assets(w http.ResponseWriter, r *http.Request) {
+	cfg, err := h.current(r)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "Konfiguration konnte nicht gelesen werden", err)
+		return
+	}
+	now := time.Now()
+	out := []assetInfo{}
+	for _, d := range cfg.Devices {
+		name := d.Name
+		if name == "" {
+			name = d.ID
+		}
+		k := config.KindOf(d)
+		out = append(out, assetInfo{ID: d.ID, Name: name, Kind: k, RunKind: config.RunKind(k), Retired: d.Retired(now),
+			Commissioned: d.Commissioned, Decommissioned: d.Decommissioned})
+	}
+	writeJSON(w, http.StatusOK, out)
 }

@@ -2,9 +2,17 @@
 <html lang="de">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>voltibri · Konfiguration</title>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="theme-color" content="#f4f2ec" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b1113" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="voltibri">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="stylesheet" href="common.css">
 <style>
   .toc { display:flex; gap:6px; flex-wrap:wrap; margin:0 0 14px; }
@@ -43,6 +51,8 @@
   .ubar.high i { background:var(--solar); }
   .ubar.over i { background:var(--warn); }
   .dev.sub { padding-left:18px; }
+  tr.undone td { color:var(--muted); }
+  .dev.retired .nm, .dev.retired .ic { opacity:.55; }
   .banner { border-radius:10px; padding:10px 12px; font-size:13px; margin-bottom:14px; border:1px solid var(--line); background:var(--card); }
   .banner.err { border-color:var(--warn); color:var(--warn); }
   .vers td:first-child { white-space:nowrap; }
@@ -55,17 +65,7 @@
 </head>
 <body>
 <main>
-  <header>
-    <div class="logo">
-      <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 5 13h6l-1 9 8-11h-6z" fill="var(--solar)"/></svg>
-      <h1>voltibri</h1>
-    </div>
-    <span class="sub">Konfiguration</span>
-    <span class="spacer"></span>
-    <span class="badge" id="ver">…</span>
-    <span class="badge warn" id="ro" hidden>über YAML verwaltet</span>
-    <a class="navlink" href="./">← Übersicht</a>
-  </header>
+  <header class="top"></header>
   <div class="banner" id="banner" hidden></div>
   <nav class="toc" id="toc" aria-label="Bereiche"></nav>
   <div id="areas"></div>
@@ -82,8 +82,15 @@
     <div class="err" id="circErr" role="alert"></div><div class="actions" id="circActions"></div>
   </form>
 </dialog>
+<dialog class="setup" id="ev" aria-labelledby="evTitle">
+  <form class="inner" id="evForm" novalidate>
+    <h2 id="evTitle"></h2><div id="evBody"></div>
+    <div class="err" id="evErr" role="alert"></div><div class="actions" id="evActions"></div>
+  </form>
+</dialog>
 <script src="common.js"></script>
 <script>
+topbar('config');
 const kw = w => (Math.abs(w) >= 1000 ? (w / 1000).toFixed(1).replace('.', ',') + ' kW' : Math.round(w) + ' W');
 const num = (v, d = 1) => Number(v).toLocaleString('de-DE', {maximumFractionDigits: d});
 const pctv = v => v == null ? '–' : Math.round(v * 100) + ' %';
@@ -92,18 +99,18 @@ const when = t => new Date(t).toLocaleString('de-DE', {day: '2-digit', month: '2
 // Areas in display order. pick: driver categories offered by "hinzufügen",
 // icon: default symbol for new devices.
 const AREAS = [
-  {key: 'infra', title: 'Infrastruktur', icon: 'house', pick: ['inverter', 'meter'],
+  {key: 'infra', title: 'Infrastruktur', icon: 'house', pick: ['inverter', 'meter', 'none'], defKind: 'pv',
    why: 'Netzzähler, Wechselrichter und Hausbatterie – die Grundlage für alle Entscheidungen.'},
   {key: 'grid', title: 'Netz + Unterverteilungen', icon: 'grid',
    why: 'Absicherung des Hausanschlusses und Unterverteilungen mit eigener Sicherung. Das Lastmanagement hält die Ströme pro Phase darunter.'},
-  {key: 'wallbox', title: 'Wallboxen', icon: 'car', pick: ['charger'], defIcon: 'car',
+  {key: 'wallbox', title: 'Wallboxen', icon: 'car', pick: ['charger', 'none'], defIcon: 'car', defKind: 'ev-charger',
    why: 'Jede Wallbox ist ein Ladepunkt.'},
   {key: 'vehicles', title: 'Fahrzeuge', icon: 'car', pick: ['vehicle'],
    why: 'Fahrzeugkonten liefern Ladestand und Ladeziel.'},
-  {key: 'heat', title: 'Heizung + Klima', icon: 'heatpump', pick: ['switch', 'meter'], defIcon: 'heatpump',
+  {key: 'heat', title: 'Heizung + Klima', icon: 'heatpump', pick: ['switch', 'meter', 'none'], defIcon: 'heatpump', defKind: 'heating-rod',
    why: 'Wärmepumpe, Warmwasser, Klimageräte.'},
-  {key: 'other', title: 'Weitere Verbraucher', icon: 'plug', pick: ['switch', 'meter'], defIcon: 'plug',
-   why: 'Gemessene oder schaltbare Verbraucher, die in keinen anderen Bereich passen.'},
+  {key: 'other', title: 'Haushalt', icon: 'plug', pick: ['switch', 'meter', 'none'], defIcon: 'plug', defKind: 'appliance',
+   why: 'Haushaltsgeräte wie Kühlschrank, Waschmaschine, Backofen oder E-Bike-Ladegerät – gemessen, auf Wunsch steuerbar.'},
   {key: 'prices', title: 'Prognose + Preise', icon: 'solar', pick: ['forecast', 'tariff'],
    why: 'PV-Prognose, Strompreise und Tarife.'},
   {key: 'strategy', title: 'Batteriestrategie', icon: 'battery', why: 'Wie voltibri die Hausbatterie lädt.'},
@@ -112,18 +119,17 @@ const AREAS = [
 
 let D = {};  // loaded data
 
+// area by asset kind (derived on the server, see config.KindOf)
+const AREA_OF_KIND = {'ev-charger': 'wallbox', 'vehicle-account': 'vehicles', 'heat-pump': 'heat', 'heating-rod': 'heat', climate: 'heat',
+  forecast: 'prices', tariff: 'prices', pv: 'infra', battery: 'infra', inverter: 'infra', 'grid-meter': 'infra', appliance: 'other'};
+const assetOf = id => (D.assets || []).find(a => a.id === id) || {};
 function areaOf(dev) {
-  const drv = voltibri.driver(dev.type) || {category: '', capabilities: []};
-  const caps = drv.capabilities || [], cat = drv.category, r = D.cfg.roles || {};
-  if (cat === 'vehicle') return 'vehicles';
-  if (cat === 'charger' || caps.includes('charger')) return 'wallbox';
-  if (cat === 'forecast' || cat === 'tariff') return 'prices';
-  if (r.grid === dev.id || r.battery === dev.id || (r.pv || []).includes(dev.id) || cat === 'inverter') return 'infra';
-  if (['heatpump', 'water'].includes(dev.icon)) return 'heat';
-  if (dev.icon === 'car') return 'wallbox';
-  if (cat === 'demo') return 'infra';
-  return 'other';
+  const r = D.cfg.roles || {};
+  if (r.grid === dev.id || r.battery === dev.id || (r.pv || []).includes(dev.id)) return 'infra';
+  return AREA_OF_KIND[assetOf(dev.id).kind] || 'other';
 }
+const RUN_WORD = {charging: ['Ladevorgang', 'Ladevorgänge'], heating: ['Heizlauf', 'Heizläufe'], run: ['Lauf', 'Läufe']};
+const monthYear = d => { const [y, m] = d.split('-'); return `${m}/${y}`; };
 
 function rolesOf(id) {
   const r = D.cfg.roles || {}, out = [];
@@ -160,7 +166,7 @@ function extraFor(dev, area) {
   const p = dev.params || {}, out = [];
   const c = dev.correction || {};
   if (c.factor || c.offsetW) out.push(`Korrektur: ${c.factor ? '×' + num(c.factor, 3) : ''}${c.offsetW ? ` ${c.offsetW > 0 ? '+' : ''}${num(c.offsetW, 0)} W` : ''}${c.activeAboveW ? ` ab ${num(c.activeAboveW, 0)} W` : ''}`);
-  if (area === 'wallbox') {
+  if (area === 'wallbox' && dev.type !== 'none') {
     const lp = (D.cfg.charging && D.cfg.charging.loadpoints || []).find(l => l.charger === dev.id) || {};
     const GUEST = {share: 'teilen', batteryFirst: 'Batterie zuerst', forceBattery: 'Batterie erzwingen'};
     out.push(`<b>${lp.phases || 3}</b>-phasig`, `<b>${lp.minCurrent || 6}–${lp.maxCurrent || 16} A</b>`,
@@ -197,13 +203,27 @@ function devRow(dev, area) {
     const w = livePower(dev.id);
     if (w != null) val = kw(w);
   }
+  const asset = assetOf(dev.id);
+  if (asset.kind && (dev.type === 'none' || dev.kind)) chips.unshift(`<span class="chip">${esc(KIND_LABEL[asset.kind] || asset.kind)}</span>`);
+  if ((area === 'heat' || area === 'other') && !asset.retired && controlOf(drv)[0] !== 'keine') chips.push(`<span class="chip" title="${esc(controlOf(drv)[1])}">${controlOf(drv)[0]}</span>`);
+  if (dev.flexibility && dev.flexibility !== 'none') chips.push(`<span class="chip ctl">${esc(FLEX_TEXT[dev.flexibility] ? FLEX_TEXT[dev.flexibility][0] : dev.flexibility)}</span>`);
+  if (dev.runs === false) chips.push('<span class="chip">ohne Läufe</span>');
+  if (asset.retired) { chips.push(`<span class="chip">stillgelegt seit ${monthYear(dev.decommissioned)}</span>`); val = ''; }
   const errs = devErrors(dev);
   if (errs.length) chips.push(`<span class="chip err" title="${esc(errs.join('\n'))}">Fehler</span>`);
   const extra = extraFor(dev, area);
+  if (dev.commissioned && !asset.retired) extra.push(`in Betrieb seit ${monthYear(dev.commissioned)}`);
+  for (const s of (D.runs || []).filter(x => x.asset === dev.id)) {
+    const w = RUN_WORD[s.kind] || RUN_WORD.run;
+    const share = s.energyWh > 0 ? ` · ${Math.round(100 * s.solarWh / s.energyWh)} % PV` : '';
+    extra.push(`<b>${s.count}</b> ${s.count === 1 ? w[0] : w[1]} · <b>${num(s.energyWh / 1000, 0)} kWh</b>${share}` +
+      ` · ${new Date(s.first).toLocaleDateString('de-DE', {month: '2-digit', year: 'numeric'})}–${new Date(s.last).toLocaleDateString('de-DE', {month: '2-digit', year: 'numeric'})}` +
+      (s.imported ? ` <span class="why">(${s.imported === s.count ? 'alle' : s.imported} importiert)</span>` : ''));
+  }
   if (area === 'vehicles') (D.charging.vehicles || []).filter(v => v.provider === dev.id).forEach(v =>
     extra.push(`<b>${esc(v.name)}</b> ${v.soc != null ? pctv(v.soc) : ''} ${esc([v.info.brand, v.info.model].filter(Boolean).join(' '))}`));
   if (errs.length) extra.push(...errs.map(e => `<span style="color:var(--warn)">${esc(e)}</span>`));
-  return `<div class="dev">
+  return `<div class="dev${asset.retired ? ' retired' : ''}">
     <span class="ic">${iconSVG(icon, 22)}</span>
     <div><div class="nm">${esc(dev.name || dev.id)}</div>
       <div class="meta"><span>${esc(drv.name)}</span>${address(dev) ? `<span>${esc(address(dev))}</span>` : ''}${chips.join('')}</div></div>
@@ -382,8 +402,93 @@ function systemSection() {
     ['Feiertage', (s.holidays || []).length ? esc(s.holidays.join(', ')) : 'nur bundesweite'],
     ['Status', esc(D.status.state === 'running' ? 'läuft' : D.status.state === 'setup' ? 'Einrichtung' : 'Fehler')]]) +
     `<div class="sublabel">Versionen</div><div class="tablewrap"><table class="list vers"><thead><tr><th>Nr.</th><th>Zeit</th><th>von</th><th>Kommentar</th><th></th></tr></thead><tbody>${vers}</tbody></table></div>
-    <p class="why" style="margin:10px 0 0"><a class="navlink" href="api/config/export">Als YAML exportieren</a> (Geheimnisse werden nicht mit exportiert)</p>`;
+    <p class="why" style="margin:10px 0 0"><a class="navlink" href="api/config/export">Als YAML exportieren</a> (Geheimnisse werden nicht mit exportiert)</p>` +
+    importsSection();
 }
+
+// ---- imports (charging sessions from evcc) ----
+function importsSection() {
+  const rows = D.imports.map(i => `<tr${i.undoneAt ? ' class="undone"' : ''}><td>${i.id}</td><td>${when(i.createdAt)}</td><td>${esc(i.source)}</td>
+    <td class="r">${i.count}</td><td>${esc((i.params && i.params.url) || '')}</td>
+    <td>${i.undoneAt ? 'rückgängig gemacht ' + when(i.undoneAt) : (D.local ? `<button type="button" class="linkbtn" data-undo="${i.id}" data-count="${i.count}">rückgängig</button>` : 'aktiv')}</td></tr>`).join('');
+  return `<div class="sublabel">Importe ${D.local ? '<button type="button" class="linkbtn" data-evcc>Läufe aus evcc übernehmen</button>' : ''}</div>
+    ${rows ? `<div class="tablewrap"><table class="list"><thead><tr><th>Nr.</th><th>Zeit</th><th>Quelle</th><th class="r">Anzahl</th><th>Adresse</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+      : '<p class="why" style="margin:6px 0 0">Noch nichts importiert. Übernommene Ladevorgänge werden gekennzeichnet und lassen sich pro Import wieder entfernen.</p>'}`;
+}
+
+const importTargets = () => (D.assets || []).filter(a => !['forecast', 'tariff', 'vehicle-account'].includes(a.kind));
+const RUN_KIND_TEXT = {charging: 'Ladevorgänge', heating: 'Heizläufe', run: 'Läufe'};
+let evccState = {};
+
+function openEvcc() {
+  const last = D.imports.find(i => i.source === 'evcc' && i.params && i.params.url);
+  evccState = {url: last ? last.params.url : '', mapping: {}};
+  $('evTitle').textContent = 'Läufe aus evcc übernehmen';
+  $('evBody').innerHTML = `<div class="stack">
+    <div class="why">voltibri liest alle Ladevorgänge über die evcc-API (<code>/api/sessions</code>). Schon übernommene werden übersprungen, laufende ausgelassen.
+      Jeder Import lässt sich unter „Importe“ wieder rückgängig machen.</div>
+    <label class="f" for="ev_url">Adresse von evcc<input type="text" id="ev_url" value="${esc(evccState.url)}" placeholder="http://evcc.local:7070" autocomplete="off"></label></div>`;
+  $('evErr').textContent = '';
+  $('evActions').innerHTML = '<button type="button" class="btn" data-close>Abbrechen</button><button type="submit" class="btn primary">Vorschau</button>';
+  $('ev').dataset.step = 'url';
+  $('ev').showModal();
+  $('ev_url').focus();
+}
+
+async function evccCall(dryRun) {
+  const r = await fetch('api/imports/evcc', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({url: evccState.url, mapping: evccState.mapping, dryRun})});
+  const res = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error([res.error || 'Fehler ' + r.status].concat(res.details || []).join(' · '));
+  return res;
+}
+
+function renderPreview(p) {
+  const day = t => new Date(t).toLocaleDateString('de-DE');
+  const opts = sel => `<option value="-"${sel === '-' ? ' selected' : ''}>nicht übernehmen</option><option value="="${sel === '=' || sel === '' ? ' selected' : ''}>übernehmen mit Namen aus evcc</option>` + importTargets().map(c =>
+    `<option value="${esc(c.id)}"${c.id === sel ? ' selected' : ''}>${esc(c.name)} (${esc(KIND_LABEL[c.kind] || c.kind)}${c.retired ? ', stillgelegt' : ''})</option>`).join('');
+  $('evBody').innerHTML = `<div class="stack">
+    ${kv([['Neu', `<b>${p.new}</b> Ladevorgänge`], ['Schon übernommen', p.duplicate], ['Laufen noch', p.unfinished], ['Ausgelassen', p.excluded],
+      p.new ? ['Zeitraum', `${day(p.from)} – ${day(p.to)}`] : null, p.new ? ['Energie', num(p.energyWh / 1000, 1) + ' kWh'] : null,
+      p.new ? ['Mit Preis', `${p.withPrice} von ${p.new}`] : null])}
+    ${p.loadpoints.length ? `<fieldset class="roles"><legend>Zuordnung der Ladepunkte</legend>
+      ${p.loadpoints.map(m => `<label class="f">${esc(m.title)} <span class="why">(${m.sessions} ${m.target === '-' ? 'Einträge' : RUN_KIND_TEXT[m.runKind] || 'Läufe'}${m.auto ? (m.target === '-' ? ', kein passendes Gerät' : ', per Name erkannt') : ''})</span>
+        <select data-map="${esc(m.title)}">${opts(m.target)}</select></label>`).join('')}</fieldset>` : ''}
+    ${p.new && p.withPrice < p.new ? '<div class="note">Ladevorgänge ohne Preis werden ohne Kosten übernommen (angezeigt als „–“), nicht nachträglich berechnet.</div>' : ''}
+  </div>`;
+  $('evActions').innerHTML = p.new
+    ? `<button type="button" class="btn" data-close>Abbrechen</button><button type="submit" class="btn primary">${p.new} Läufe importieren</button>`
+    : '<button type="button" class="btn primary" data-close>Schließen</button>';
+  $('ev').dataset.step = 'preview';
+}
+
+$('evForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const step = $('ev').dataset.step;
+  $('evErr').textContent = '';
+  if (step === 'url') {
+    evccState.url = $('ev_url').value.trim();
+    if (!/^https?:\/\//.test(evccState.url)) { $('evErr').textContent = 'Bitte die Adresse mit http:// oder https:// angeben.'; return; }
+  }
+  if (step === 'preview') {
+    for (const s of document.querySelectorAll('[data-map]')) evccState.mapping[s.dataset.map] = s.value;
+  }
+  const prev = $('evActions').innerHTML;
+  $('evActions').innerHTML = `<button type="button" class="btn" disabled>${step === 'url' ? 'evcc wird abgefragt …' : 'Importiere …'}</button>`;
+  try {
+    const res = await evccCall(step === 'url');
+    if (step === 'url') return renderPreview(res.preview);
+    $('evBody').innerHTML = res.import
+      ? `<div class="why">Import ${res.import.id}: <b>${res.import.count}</b> Läufe übernommen. Sie sind als „aus evcc“ gekennzeichnet und lassen sich unter „Importe“ rückgängig machen.</div>`
+      : '<div class="why">Nichts Neues – alle Ladevorgänge waren schon übernommen.</div>';
+    $('evActions').innerHTML = '<button type="button" class="btn primary" data-close>Fertig</button>';
+    load();
+  } catch (err) {
+    $('evErr').textContent = err.message;
+    $('evActions').innerHTML = prev;
+  }
+});
+$('ev').addEventListener('click', e => { if (e.target === $('ev') || e.target.closest('[data-close]')) $('ev').close(); });
 
 // ---- grid connection and sub-distributions ----
 const liveCircuit = id => ((D.state && D.state.circuits) || []).find(c => c.id === id);
@@ -529,15 +634,16 @@ function render() {
 async function load() {
   const j = u => fetch(u).then(r => r.ok ? r.json() : null).catch(() => null);
   await voltibri.ready;
-  const [cfg, status, state, charging, versions] = await Promise.all([j('api/config'), j('api/status'), j('api/state'), j('api/charging'), j('api/config/versions')]);
+  const [cfg, status, state, charging, versions, imports, assets, runs] = await Promise.all([j('api/config'), j('api/status'), j('api/state'),
+    j('api/charging'), j('api/config/versions'), j('api/imports'), j('api/assets'), j('api/runs/summary')]);
   if (!cfg) { $('banner').hidden = false; $('banner').className = 'banner err'; $('banner').textContent = 'Konfiguration konnte nicht geladen werden.'; return; }
-  D = {cfg: cfg.config, version: cfg.version, readOnly: cfg.readOnly, status: status || {}, state, charging: charging || {}, versions: versions || [],
+  D = {cfg: cfg.config, version: cfg.version, readOnly: cfg.readOnly, status: status || {}, state, charging: charging || {}, versions: versions || [], imports: imports || [], assets: assets || [], runs: runs || [],
        local: charging ? charging.local !== false : true};
   D.cfg.roles = D.cfg.roles || {};
   D.cfg.site = D.cfg.site || {};
   D.cfg.battery = D.cfg.battery || {};
-  $('ver').textContent = D.version.id ? `Version ${D.version.id} · ${when(D.version.createdAt)}` : 'noch nicht gespeichert';
-  $('ro').hidden = !D.readOnly;
+  $('hstatus').innerHTML = (D.readOnly ? '<span class="badge warn">über YAML verwaltet</span>' : '') +
+    `<span class="badge">${D.version.id ? `Version ${D.version.id} · ${when(D.version.createdAt)}` : 'noch nicht gespeichert'}</span>`;
   const b = $('banner');
   const msg = new URLSearchParams(location.search).get('oauth');
   if (msg) history.replaceState(null, '', location.pathname + location.hash);
@@ -550,6 +656,15 @@ async function load() {
 }
 
 $('areas').addEventListener('click', async e => {
+  if (e.target.closest('[data-evcc]')) return openEvcc();
+  const un = e.target.closest('[data-undo]');
+  if (un) {
+    if (!confirm(`Import ${un.dataset.undo} rückgängig machen? Die ${un.dataset.count} Ladevorgänge dieses Imports werden entfernt. Eigene Ladevorgänge und andere Importe bleiben unberührt.`)) return;
+    const r = await fetch(`api/imports/${un.dataset.undo}/undo`, {method: 'POST'});
+    const x = await r.json().catch(() => ({}));
+    if (!r.ok) alert(x.error || 'Fehler ' + r.status);
+    return load();
+  }
   const ci = e.target.closest('[data-circuit]');
   if (ci) return openCircuit(ci.dataset.circuit);
   const sec = e.target.closest('[data-section]');
@@ -560,7 +675,7 @@ $('areas').addEventListener('click', async e => {
   if (add) {
     const a = AREAS.find(x => x.key === add.dataset.add);
     const choose = voltibri.drivers().filter(d => a.pick.includes(d.category)).map(d => d.type);
-    return voltibri.open({choose, title: a.title + ': hinzufügen', defaults: {icon: a.defIcon}, onDone: load});
+    return voltibri.open({choose, title: a.title + ': hinzufügen', defaults: {icon: a.defIcon, kind: a.defKind}, onDone: load});
   }
   const rb = e.target.closest('[data-rollback]');
   if (rb && confirm(`Version ${rb.dataset.rollback} zurückholen? Das wird als neue Version gespeichert.`)) {

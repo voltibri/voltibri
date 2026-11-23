@@ -43,6 +43,7 @@ Usage:
   voltibri serve     [-data DIR] [-config FILE]  run the control loop and web UI
   voltibri config    import|export|versions|rollback|validate ...
   voltibri history   info|import|import-ha ...  stored measurement history
+  voltibri runs      list|import-evcc|imports|undo-import  charging sessions, heating cycles ...
   voltibri simulate  [-input data.csv]           compare charging strategies on history
   voltibri synth     -out data.csv               generate synthetic demo data
   voltibri import-ha -in history.csv -out data.csv -pv ... -grid ...
@@ -65,6 +66,8 @@ func main() {
 		err = configCmd(os.Args[2:])
 	case "history":
 		err = historyCmd(os.Args[2:])
+	case "runs", "sessions":
+		err = sessionsCmd(os.Args[2:])
 	case "simulate":
 		err = simulate(os.Args[2:], os.Stdout)
 	case "synth":

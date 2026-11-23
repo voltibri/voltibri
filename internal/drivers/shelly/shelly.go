@@ -17,8 +17,8 @@ import (
 func init() {
 	sdk.RegisterDriver(sdk.Driver{
 		Type:         "shelly",
-		Name:         "Shelly Plus / Pro / Gen3 (Schalter)",
-		Description:  "Ein Schaltkanal eines Shelly Gen2+ mit Leistungsmessung (lokale RPC-API).",
+		Name:         "Shelly Plus / Pro / Gen3 / Plug (Schalter)",
+		Description:  "Ein Schaltkanal eines Shelly Gen2+ mit Leistungsmessung (lokale RPC-API), auch Zwischenstecker wie Shelly Plug S.",
 		Category:     sdk.CatSwitch,
 		Capabilities: []sdk.Capability{sdk.CapSwitch, sdk.CapConsumer, sdk.CapPhases, sdk.CapEnergy},
 		Params: []sdk.Param{

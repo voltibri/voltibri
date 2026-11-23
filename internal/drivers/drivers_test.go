@@ -117,7 +117,7 @@ func TestForecastSolarCache(t *testing.T) {
 // Every built-in driver must describe itself for the configuration UI.
 func TestDriversHaveSchemas(t *testing.T) {
 	for _, d := range sdk.Drivers() {
-		if d.Name == d.Type && d.Description == "" || d.Category == "" || len(d.Capabilities) == 0 || d.Params == nil {
+		if d.Name == d.Type && d.Description == "" || d.Category == "" || (len(d.Capabilities) == 0 && d.Category != sdk.CatNone) || d.Params == nil {
 			t.Errorf("driver %s lacks metadata: %+v", d.Type, d)
 		}
 		for _, p := range d.Params {

@@ -99,3 +99,37 @@ circuits:
 		}
 	}
 }
+
+func TestLifecycleAndKinds(t *testing.T) {
+	cfg, err := config.Parse([]byte(`
+roles: { grid: demo, pv: [demo] }
+devices:
+  - { id: demo, type: demo }
+  - { id: openwb, name: OpenWB, type: none, kind: ev-charger, commissioned: "2024-09-01", decommissioned: "2025-02-15" }
+  - { id: rod, type: none, icon: water, decommissioned: "2025-10-20" }
+`))
+	if err != nil {
+		t.Fatalf("retired devices rejected: %v", err)
+	}
+	if k := config.KindOf(cfg.Devices[1]); k != config.KindEVCharger || config.RunKind(k) != config.RunCharging {
+		t.Errorf("openwb kind %q", k)
+	}
+	if k := config.KindOf(cfg.Devices[2]); k != config.KindHeatingRod || config.RunKind(k) != config.RunHeating {
+		t.Errorf("rod kind %q", k)
+	}
+	if k := config.KindOf(cfg.Devices[0]); k != config.KindInverter {
+		t.Errorf("demo kind %q", k)
+	}
+	_, err = config.Parse([]byte(`
+roles: { grid: demo, pv: [demo] }
+devices:
+  - { id: demo, type: demo, decommissioned: "2020-01-01" }
+  - { id: x, type: none, kind: toaster, commissioned: "2025-05-01", decommissioned: "2025-01-01" }
+  - { id: y, type: none, commissioned: "1.5.2025" }
+`))
+	for _, want := range []string{"decommissioned but still used", `unknown kind "toaster"`, "decommissioned before commissioned", "YYYY-MM-DD"} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("missing %q in %v", want, err)
+		}
+	}
+}

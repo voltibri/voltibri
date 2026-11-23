@@ -90,7 +90,7 @@ func TestDeleteDeviceAndRoles(t *testing.T) {
 
 func TestPagesServed(t *testing.T) {
 	h, _ := setup(t, false)
-	for path, want := range map[string]string{"/konfiguration": "Infrastruktur", "/common.js": "voltibri", "/common.css": ".setup", "/": "common.js"} {
+	for path, want := range map[string]string{"/berichte": "Pro Monat", "/konfiguration": "Infrastruktur", "/common.js": "voltibri", "/common.css": ".setup", "/": "common.js"} {
 		if rec := do(h, "GET", path, "", local); rec.Code != 200 || !strings.Contains(rec.Body.String(), want) {
 			t.Errorf("%s: %d", path, rec.Code)
 		}

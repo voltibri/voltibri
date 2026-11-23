@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/voltibri/voltibri/internal/charging"
 	"github.com/voltibri/voltibri/internal/config"
+	"github.com/voltibri/voltibri/internal/run"
 	"github.com/voltibri/voltibri/internal/series"
 	"github.com/voltibri/voltibri/sdk"
 )
@@ -194,7 +194,7 @@ func TestHistory(t *testing.T) {
 	}
 }
 
-func TestChargingSessions(t *testing.T) {
+func TestRuns(t *testing.T) {
 	st, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -203,13 +203,144 @@ func TestChargingSessions(t *testing.T) {
 	ctx := context.Background()
 	start := time.Unix(1795000000, 0)
 	for i, wh := range []float64{1000, 2000} {
-		if _, err := st.SaveSession(ctx, charging.Session{Loadpoint: "wb", Vehicle: "guest", VehicleName: "Gast", Guest: true,
-			Mode: charging.ModeFast, Start: start.Add(time.Duration(i) * time.Hour), End: start.Add(time.Duration(i)*time.Hour + 30*time.Minute), EnergyWh: wh, CostCt: wh * 0.03}); err != nil {
+		if _, err := st.SaveRun(ctx, run.Run{Asset: "wb", Kind: "charging", Vehicle: "guest", VehicleName: "Gast", Guest: true, Mode: "fast",
+			Start: start.Add(time.Duration(i) * time.Hour), End: start.Add(time.Duration(i)*time.Hour + 30*time.Minute),
+			EnergyWh: wh, PVWh: wh / 2, BatteryWh: wh / 4, GridWh: wh / 4, CostCt: wh * 0.03, PriceNote: "Gast", Attrs: map[string]any{"socEnd": 0.8}}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	got, err := st.Sessions(ctx, 10)
-	if err != nil || len(got) != 2 || got[0].EnergyWh != 2000 || !got[0].Guest || got[0].Mode != charging.ModeFast {
-		t.Fatalf("sessions: %v %+v", err, got)
+	st.SaveRun(ctx, run.Run{Asset: "rod", Kind: "heating", Start: start, End: start.Add(time.Hour), EnergyWh: 3000, PVWh: 3000})
+	got, err := st.Runs(ctx, run.Filter{Kind: "charging", Limit: 10})
+	if err != nil || len(got) != 2 || got[0].EnergyWh != 2000 || !got[0].Guest || got[0].Mode != "fast" || got[0].BatteryWh != 500 ||
+		got[0].SolarWh() != 1500 || got[0].Attrs["socEnd"] != 0.8 || got[0].PriceNote != "Gast" || got[0].Source != "" {
+		t.Fatalf("runs: %v %+v", err, got)
+	}
+	if got, _ := st.Runs(ctx, run.Filter{Asset: "rod"}); len(got) != 1 || got[0].Kind != "heating" {
+		t.Fatalf("by asset: %+v", got)
+	}
+	sum, _ := st.RunSummaries(ctx, run.Filter{})
+	if len(sum) != 2 || sum[1].Asset != "wb" || sum[1].Count != 2 || sum[1].EnergyWh != 3000 || sum[1].SolarWh != 2250 {
+		t.Fatalf("summaries %+v", sum)
+	}
+}
+
+func TestImportAndUndo(t *testing.T) {
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	start := time.Unix(1790000000, 0)
+	own, _ := st.SaveRun(ctx, run.Run{Asset: "wb", Kind: "charging", Start: start, End: start.Add(time.Hour), EnergyWh: 500})
+	evcc := func(id string, wh float64) run.Run {
+		return run.Run{Asset: "wb", Kind: "charging", VehicleName: "Auto", Start: start.Add(-48 * time.Hour), End: start.Add(-47 * time.Hour),
+			EnergyWh: wh, CostUnknown: true, ExternalID: id}
+	}
+	imp, skipped, err := st.ImportRuns(ctx, Import{Source: "evcc", Author: "nils", Params: map[string]any{"url": "http://evcc"}},
+		[]run.Run{evcc("1", 1000), evcc("2", 2000)})
+	if err != nil || imp.ID == 0 || imp.Count != 2 || skipped != 0 {
+		t.Fatalf("import: %+v %d %v", imp, skipped, err)
+	}
+	imp2, skipped, _ := st.ImportRuns(ctx, Import{Source: "evcc", Author: "nils"}, []run.Run{evcc("2", 2000), evcc("3", 3000)})
+	if imp2.Count != 1 || skipped != 1 {
+		t.Fatalf("second import: %+v %d", imp2, skipped)
+	}
+	if imp3, skipped, _ := st.ImportRuns(ctx, Import{Source: "evcc"}, []run.Run{evcc("3", 3000)}); imp3.ID != 0 || skipped != 1 {
+		t.Fatalf("empty import recorded: %+v", imp3)
+	}
+	ss, _ := st.Runs(ctx, run.Filter{Limit: 10})
+	if len(ss) != 4 || ss[0].ID != own || ss[0].Source != "" || ss[1].Source != "evcc" || !ss[1].CostUnknown || ss[1].ImportID == 0 {
+		t.Fatalf("runs: %+v", ss)
+	}
+	if sum, _ := st.RunSummaries(ctx, run.Filter{}); sum[0].Imported != 3 {
+		t.Errorf("imported count %+v", sum)
+	}
+	n, err := st.UndoImport(ctx, imp.ID)
+	if err != nil || n != 2 {
+		t.Fatalf("undo: %d %v", n, err)
+	}
+	if _, err := st.UndoImport(ctx, imp.ID); err != ErrUndone {
+		t.Errorf("undo twice: %v", err)
+	}
+	ss, _ = st.Runs(ctx, run.Filter{Limit: 10})
+	if len(ss) != 2 || ss[1].ExternalID != "3" {
+		t.Fatalf("after undo: %+v", ss)
+	}
+	ims, _ := st.Imports(ctx)
+	if len(ims) != 2 || ims[1].UndoneAt == nil || ims[1].Params["url"] != "http://evcc" || ims[0].UndoneAt != nil {
+		t.Fatalf("imports: %+v", ims)
+	}
+	if imp4, _, _ := st.ImportRuns(ctx, Import{Source: "evcc"}, []run.Run{evcc("1", 1000)}); imp4.Count != 1 {
+		t.Fatalf("reimport: %+v", imp4)
+	}
+}
+
+func TestOverlappingImportHidesMeasuredRun(t *testing.T) {
+	st, _ := Open(t.TempDir())
+	defer st.Close()
+	ctx := context.Background()
+	t0 := time.Unix(1795000000, 0)
+	st.SaveRun(ctx, run.Run{Asset: "wb", Kind: "charging", Start: t0.Add(4 * time.Hour), End: t0.Add(5 * time.Hour), EnergyWh: 1800})
+	st.SaveRun(ctx, run.Run{Asset: "wb", Kind: "charging", Start: t0.Add(20 * time.Hour), End: t0.Add(21 * time.Hour), EnergyWh: 900})  // after
+	st.SaveRun(ctx, run.Run{Asset: "other", Kind: "charging", Start: t0.Add(4 * time.Hour), End: t0.Add(5 * time.Hour), EnergyWh: 700}) // other asset
+	imp, _, _ := st.ImportRuns(ctx, Import{Source: "evcc"}, []run.Run{{Asset: "wb", Kind: "charging", Start: t0, End: t0.Add(12 * time.Hour), EnergyWh: 18400, ExternalID: "1"}})
+	got, _ := st.Runs(ctx, run.Filter{})
+	if len(got) != 3 {
+		t.Fatalf("visible runs: %+v", got)
+	}
+	for _, r := range got {
+		if r.EnergyWh == 1800 {
+			t.Fatal("overlapping measured run still visible")
+		}
+	}
+	if all, _ := st.Runs(ctx, run.Filter{All: true}); len(all) != 4 {
+		t.Errorf("all: %d", len(all))
+	}
+	if sum, _ := st.RunSummaries(ctx, run.Filter{}); sum[1].Asset != "wb" || sum[1].Count != 2 || sum[1].EnergyWh != 19300 {
+		t.Errorf("summary %+v", sum)
+	}
+	st.UndoImport(ctx, imp.ID)
+	if got, _ := st.Runs(ctx, run.Filter{Asset: "wb"}); len(got) != 2 {
+		t.Errorf("after undo: %+v", got)
+	}
+}
+
+func TestLoadProfile(t *testing.T) {
+	st, _ := Open(t.TempDir())
+	defer st.Close()
+	ctx := context.Background()
+	loc, _ := time.LoadLocation("Europe/Berlin")
+	t0 := time.Date(2026, 6, 1, 10, 0, 0, 0, loc)
+	for i := 0; i < 8; i++ { // two hours
+		st.AppendProfile(ctx, t0.Add(time.Duration(i)*15*time.Minute), []ProfileValue{
+			{Asset: "wb", ImportWh: 2750, PVWh: 2000, BatteryWh: 250, GridWh: 500, CostCt: 15.123},
+			{Asset: "fridge", ImportWh: 12.34},
+			{Asset: "idle"}, // not stored
+			{Asset: "pv", ExportWh: 1500},
+		})
+	}
+	var rows int
+	st.db.QueryRow(`SELECT COUNT(*) FROM load_profile`).Scan(&rows)
+	if rows != 24 {
+		t.Fatalf("rows %d (zero slots must not be stored)", rows)
+	}
+	sums, err := st.ProfileSums(ctx, []string{"wb", "fridge"}, t0, t0.Add(2*time.Hour), loc, BucketHour)
+	if err != nil || len(sums) != 4 || sums[0].Key != "2026-06-01T10" || sums[0].Asset != "fridge" || math.Abs(sums[0].ImportWh-49.2) > 1e-9 ||
+		sums[1].ImportWh != 11000 || sums[1].PVWh != 8000 || math.Abs(sums[1].CostCt-60.492) > 1e-9 {
+		t.Fatalf("sums %v %+v", err, sums)
+	}
+	if tot, _ := st.ProfileSums(ctx, nil, time.Time{}, time.Time{}, loc, ""); len(tot) != 3 {
+		t.Fatalf("totals %+v", tot)
+	}
+	starts, _ := st.ProfileStarts(ctx)
+	if !starts["wb"].Equal(t0) || len(starts) != 3 {
+		t.Fatalf("starts %v", starts)
+	}
+	// runs covered by the profile can be left out
+	st.SaveRun(ctx, run.Run{Asset: "wb", Kind: "charging", Start: t0.Add(-time.Hour), EnergyWh: 1})
+	st.SaveRun(ctx, run.Run{Asset: "wb", Kind: "charging", Start: t0.Add(time.Hour), EnergyWh: 2})
+	if rs, _ := st.Runs(ctx, run.Filter{ProfiledFrom: starts}); len(rs) != 1 || rs[0].EnergyWh != 1 {
+		t.Fatalf("profiled runs %+v", rs)
 	}
 }

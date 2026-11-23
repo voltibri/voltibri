@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>voltibri · Berichte</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="theme-color" content="#f4f2ec" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b1113" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="voltibri">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="stylesheet" href="common.css">
+<style>
+  .filters { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:16px; }
+  .seg { display:inline-grid; grid-auto-flow:column; gap:3px; padding:3px; border-radius:12px; background:var(--card); box-shadow:var(--shadow); }
+  .seg button { font:inherit; font-size:13px; font-weight:550; border:0; background:transparent; color:var(--muted); padding:0 12px; height:32px; line-height:32px; border-radius:9px; cursor:pointer; }
+  .seg button[aria-pressed=true] { background:var(--fg); color:var(--bg); }
+  /* Safari ignores padding on native selects: draw them ourselves, same height as the segment controls */
+  .filters select { -webkit-appearance:none; appearance:none; font:inherit; font-size:13px; font-weight:550; line-height:1; color:var(--fg); height:38px; border:0; box-shadow:var(--shadow); border-radius:12px; padding:0 34px 0 14px;
+    background:var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%238a948f' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 13px center; cursor:pointer; }
+  .filters select:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  .filters select[hidden] { display:none; }
+  /* one toolbar: kind, device, vehicle, period – wraps only when space runs out */
+  .toolbar { background:var(--card); box-shadow:var(--shadow); border-radius:18px; padding:6px; gap:6px; }
+  .toolbar .seg, .toolbar .pnav { box-shadow:none; background:transparent; padding:0; }
+  .toolbar select, .toolbar .range input { box-shadow:none; background-color:var(--card-2); }
+  .toolbar .seg button { display:inline-flex; align-items:center; gap:6px; height:38px; line-height:38px; padding:0 12px; border-radius:12px; }
+  .toolbar .seg button svg { width:16px; height:16px; flex:none; }
+  .toolbar .seg button[aria-pressed=true] { background:var(--accent-soft); color:var(--accent); }
+  .toolbar .tsep { flex:1; min-width:0; }
+  .toolbar .pnav button { color:var(--muted); width:34px; height:38px; }
+  .toolbar .pnav span { min-width:120px; }
+  @media (max-width:720px) {
+    .toolbar .seg { width:100%; display:grid; grid-template-columns:repeat(4, 1fr); }
+    .toolbar .seg button { justify-content:center; padding:0 6px; }
+    .toolbar select { flex:1; }
+    .toolbar .tsep { display:none; }
+  }
+  .pnav { display:inline-flex; align-items:center; gap:2px; padding:3px; border-radius:12px; background:var(--card); box-shadow:var(--shadow); }
+  .pnav button { font:inherit; font-size:18px; line-height:1; width:32px; height:32px; border:0; border-radius:9px; background:transparent; color:var(--fg); cursor:pointer; }
+  .pnav button:hover:not(:disabled) { background:var(--track); }
+  .pnav button:disabled { opacity:.3; cursor:default; }
+  .pnav span { font-size:14px; font-weight:600; min-width:150px; text-align:center; padding:0 6px; font-variant-numeric:tabular-nums; }
+  .pnav[hidden], .range[hidden] { display:none; }
+  .range { display:inline-flex; align-items:center; gap:6px; }
+  .range input { -webkit-appearance:none; appearance:none; font:inherit; font-size:13px; font-weight:550; color:var(--fg); background:var(--card); border:0; box-shadow:var(--shadow); border-radius:12px; height:38px; padding:0 12px; }
+  .range span { color:var(--muted); }
+  .stats { display:grid; grid-template-columns:repeat(4, 1fr); gap:8px 20px; }
+  .stat { display:flex; flex-direction:column; gap:2px; min-width:0; }
+  .stat .big { font-size:32px; font-weight:300; line-height:1.1; letter-spacing:-.035em; white-space:nowrap; }
+  .stat .big small { font-size:15px; font-weight:400; color:var(--muted); margin-left:3px; letter-spacing:0; }
+  .stat .sub { font-size:12px; }
+  @media (max-width:700px) { .stats { grid-template-columns:repeat(2, 1fr); } .stat .big { font-size:26px; } }
+  .cardhead { display:flex; align-items:flex-end; gap:10px 16px; flex-wrap:wrap; margin-bottom:12px; }
+  .cardhead h2 { margin:2px 0 0; }
+  .cardhead .right { margin-left:auto; display:flex; gap:12px; font-size:12px; color:var(--muted); flex-wrap:wrap; }
+  .cardhead .right i { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:5px; vertical-align:-1px; }
+  svg.months { width:100%; height:auto; display:block; }
+  svg.months text { font-size:11px; fill:var(--muted); font-variant-numeric:tabular-nums; }
+  svg.months rect.bar { transition:opacity .15s; }
+  svg.months g.m:hover rect.bar { opacity:.75; }
+  table.list td, table.list th { white-space:nowrap; }
+  table.list td.wrap { white-space:normal; }
+  .pill { font-size:11px; font-weight:550; padding:2px 8px; border-radius:99px; background:var(--track); color:var(--muted); }
+  .share { display:inline-block; width:46px; height:6px; border-radius:3px; background:var(--track); vertical-align:middle; margin-right:6px; overflow:hidden; }
+  .share i { display:block; height:100%; background:var(--solar); }
+  .more-row { display:flex; justify-content:center; margin-top:12px; }
+  .empty { color:var(--muted); font-size:14px; padding:24px 0; text-align:center; }
+</style>
+</head>
+<body>
+<main>
+  <header class="top"></header>
+
+  <div class="filters toolbar">
+    <div class="seg" role="group" aria-label="Art" id="kinds">
+      <button data-kind="charging" aria-pressed="true"><span data-ic="car"></span>Laden</button>
+      <button data-kind="heating" aria-pressed="false"><span data-ic="flame"></span>Heizen</button>
+      <button data-kind="run" aria-pressed="false"><span data-ic="plug"></span>Haushalt</button>
+      <button data-kind="" aria-pressed="false"><span data-ic="list"></span>Alle</button>
+    </div>
+    <select id="asset" aria-label="Gerät"><option value="">Alle Geräte</option></select>
+    <select id="vehicle" aria-label="Fahrzeug" hidden><option value="">Alle Fahrzeuge</option></select>
+    <span class="tsep"></span>
+    <select id="periods" aria-label="Zeitraum"><option value="day">Tag</option><option value="month">Monat</option><option value="year">Jahr</option><option value="custom">Individuell</option></select>
+    <div class="pnav" id="pnav">
+      <button type="button" id="prev" aria-label="Früherer Zeitraum">‹</button>
+      <span id="plabel" aria-live="polite"></span>
+      <button type="button" id="next" aria-label="Späterer Zeitraum">›</button>
+    </div>
+    <div class="range" id="range" hidden>
+      <input type="date" id="from" aria-label="Von"><span>–</span><input type="date" id="to" aria-label="Bis">
+    </div>
+  </div>
+
+  <section class="card">
+    <div class="stats">
+      <div class="stat"><span class="eyebrow">Energie</span><span class="big num" id="tEnergy">–</span><span class="sub" id="tCount"></span></div>
+      <div class="stat"><span class="eyebrow">Aus PV &amp; Akku</span><span class="big num" id="tSolar">–</span><span class="sub" id="tSolarKwh"></span></div>
+      <div class="stat"><span class="eyebrow">Kosten</span><span class="big num" id="tCost">–</span><span class="sub" id="tCostNote"></span></div>
+      <div class="stat"><span class="eyebrow">Ø pro kWh</span><span class="big num" id="tPerKwh">–</span><span class="sub">inkl. PV-Anteil</span></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="cardhead"><div><div class="eyebrow">Verlauf</div><h2 id="seriesTitle">Pro Monat</h2></div>
+      <div class="right"><span><i style="background:var(--solar)"></i>PV &amp; Akku</span><span><i style="background:var(--grid)"></i>Netz</span></div></div>
+    <svg class="months" id="months" viewBox="0 0 960 240" role="img" aria-label="Energie im Zeitraum"></svg>
+  </section>
+
+  <section class="card">
+    <div class="cardhead"><div><div class="eyebrow">Geräte</div><h2>Nach Gerät</h2></div></div>
+    <div class="tablewrap"><table class="list" id="perAsset"></table></div>
+  </section>
+
+  <section class="card">
+    <div class="cardhead"><div><div class="eyebrow">Einzeln</div><h2 id="listTitle">Ladevorgänge</h2></div></div>
+    <div class="tablewrap"><table class="list" id="runs"></table></div>
+    <div class="more-row"><button class="btn" id="moreBtn" hidden>Mehr laden</button></div>
+  </section>
+</main>
+<script src="common.js"></script>
+<script>
+topbar('reports');
+document.querySelectorAll('[data-ic]').forEach(e => { e.outerHTML = iconSVG(e.dataset.ic, 16); });
+const num = (v, d = 0) => Number(v).toLocaleString('de-DE', {maximumFractionDigits: d, minimumFractionDigits: d});
+const kwhTxt = wh => num(wh / 1000, wh >= 100000 ? 0 : 1);
+const euro = ct => (ct / 100).toLocaleString('de-DE', {style: 'currency', currency: 'EUR'});
+const big = (v, unit) => `${esc(v)}<small>${unit}</small>`;
+const KIND_WORD = {charging: ['Ladevorgang', 'Ladevorgänge'], heating: ['Heizphase', 'Heizphasen'], run: ['Lauf', 'Läufe'], '': ['Lauf', 'Läufe']};
+const MODE = {external: 'Extern', pv: 'PV', minpv: 'Min+PV', fast: 'Schnell'};
+const MONTHS = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
+
+const F = {kind: 'charging', asset: '', vehicle: ''};
+// period: day, month, year or custom; date anchors day/month/year
+const P = {period: 'month', date: '', from: '', to: ''};
+let assets = {}, page = 0;
+const PAGE = 100;
+
+// dates as YYYY-MM-DD in local time
+const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const parse = s => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
+const today = () => iso(new Date());
+
+// filters live in the URL so a report can be bookmarked
+(() => {
+  const q = new URLSearchParams(location.search);
+  if (q.has('kind')) F.kind = q.get('kind');
+  F.asset = q.get('asset') || '';
+  F.vehicle = q.get('vehicle') || '';
+  if (['day', 'month', 'year', 'custom'].includes(q.get('period'))) P.period = q.get('period');
+  P.date = /^\d{4}-\d\d-\d\d$/.test(q.get('date') || '') ? q.get('date') : today();
+  P.from = q.get('from') || '';
+  P.to = q.get('to') || '';
+  if (P.period === 'custom' && (!P.from || !P.to)) {
+    const d = parse(P.date);
+    P.from = iso(new Date(d.getFullYear(), d.getMonth() - 2, 1));
+    P.to = P.date;
+  }
+})();
+
+// range of the current period (both inclusive) and the chart bucket
+function range() {
+  const d = parse(P.date);
+  switch (P.period) {
+    case 'day': return {from: P.date, to: P.date, bucket: 'hour'};
+    case 'month': return {from: iso(new Date(d.getFullYear(), d.getMonth(), 1)), to: iso(new Date(d.getFullYear(), d.getMonth() + 1, 0)), bucket: 'day'};
+    case 'year': return {from: `${d.getFullYear()}-01-01`, to: `${d.getFullYear()}-12-31`, bucket: 'month'};
+  }
+  const days = (parse(P.to) - parse(P.from)) / 864e5 + 1;
+  return {from: P.from, to: P.to, bucket: days <= 2 ? 'hour' : days <= 62 ? 'day' : 'month'};
+}
+function shift(dir) {
+  const d = parse(P.date);
+  if (P.period === 'day') d.setDate(d.getDate() + dir);
+  if (P.period === 'month') d.setMonth(d.getMonth() + dir, 1);
+  if (P.period === 'year') d.setFullYear(d.getFullYear() + dir, 0, 1);
+  P.date = iso(d);
+}
+function periodLabel() {
+  const d = parse(P.date);
+  if (P.period === 'day') return d.toLocaleDateString('de-DE', {weekday: 'short', day: 'numeric', month: 'long', year: 'numeric'});
+  if (P.period === 'month') return d.toLocaleDateString('de-DE', {month: 'long', year: 'numeric'});
+  if (P.period === 'year') return String(d.getFullYear());
+  return '';
+}
+const query = extra => {
+  const r = range();
+  return new URLSearchParams(Object.entries({...F, from: r.from, to: r.to, ...extra}).filter(([, v]) => v !== '' && v != null)).toString();
+};
+
+async function init() {
+  const [as, all] = await Promise.all([fetch('api/assets').then(r => r.json()), fetch('api/runs/summary').then(r => r.json())]);
+  as.forEach(a => assets[a.id] = a);
+  fillAssets(all);
+  sync();
+  load();
+}
+
+function fillAssets(all) {
+  const ids = [...new Set(all.filter(s => !F.kind || s.kind === F.kind).map(s => s.asset))];
+  ids.sort((a, b) => name(a).localeCompare(name(b), 'de'));
+  $('asset').innerHTML = '<option value="">Alle Geräte</option>' + ids.map(id =>
+    `<option value="${esc(id)}">${esc(name(id))}${assets[id] && assets[id].retired ? ' (stillgelegt)' : ''}</option>`).join('');
+  if (!ids.includes(F.asset)) F.asset = '';
+  window._summary = all;
+}
+const name = id => (assets[id] && assets[id].name) || id;
+
+// vehicles of the selected kind and device (all periods, so switching the
+// period keeps the choice); only where runs have vehicles
+async function fillVehicles() {
+  const sel = $('vehicle');
+  const vs = F.kind === 'charging' || F.kind === ''
+    ? await fetch('api/runs/vehicles?' + new URLSearchParams(Object.entries({kind: F.kind, asset: F.asset}).filter(([, v]) => v))).then(r => r.json()).catch(() => [])
+    : [];
+  sel.hidden = !vs.length;
+  sel.innerHTML = '<option value="">Alle Fahrzeuge</option>' + vs.map(v =>
+    `<option value="${esc(v.name)}">${esc(v.guest ? 'Gastfahrzeuge' : v.name)} (${v.count})</option>`).join('');
+  if (!vs.some(v => v.name === F.vehicle)) F.vehicle = '';
+  sel.value = F.vehicle;
+}
+
+function sync() {
+  document.querySelectorAll('#kinds button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.kind === F.kind)));
+  $('asset').value = F.asset;
+  $('vehicle').value = F.vehicle;
+  $('periods').value = P.period;
+  const custom = P.period === 'custom';
+  $('pnav').hidden = custom;
+  $('range').hidden = !custom;
+  $('plabel').textContent = periodLabel();
+  $('next').disabled = !custom && range().to >= today();
+  if (custom) { $('from').value = P.from; $('to').value = P.to; }
+  const url = new URLSearchParams(Object.entries({kind: F.kind, asset: F.asset, vehicle: F.vehicle, period: P.period,
+    date: custom || P.date === today() ? '' : P.date, from: custom ? P.from : '', to: custom ? P.to : ''}).filter(([, v]) => v !== '')).toString();
+  history.replaceState(null, '', location.pathname + (url ? '?' + url : ''));
+}
+
+async function load() {
+  await fillVehicles();
+  sync();
+  const r = range();
+  const [series, per] = await Promise.all([fetch(`api/runs/series?bucket=${r.bucket}&` + query()).then(x => x.json()), fetch('api/runs/summary?' + query()).then(x => x.json())]);
+  renderTotals(per);
+  lastSeries = series;
+  renderSeries(series);
+  renderPerAsset(per);
+  page = 0;
+  $('runs').innerHTML = '';
+  $('listTitle').textContent = (KIND_WORD[F.kind] || KIND_WORD.run)[1];
+  loadRuns();
+}
+
+function renderTotals(per) {
+  const t = per.reduce((a, s) => ({count: a.count + s.count, e: a.e + s.energyWh, sol: a.sol + s.solarWh, cost: a.cost + s.costCt, imp: a.imp + s.imported}),
+    {count: 0, e: 0, sol: 0, cost: 0, imp: 0});
+  const w = KIND_WORD[F.kind] || KIND_WORD.run;
+  $('tEnergy').innerHTML = big(kwhTxt(t.e), 'kWh');
+  $('tCount').textContent = `${num(t.count)} ${t.count === 1 ? w[0] : w[1]}`;
+  $('tSolar').innerHTML = t.e > 0 ? big(num(100 * t.sol / t.e), '%') : '–';
+  $('tSolarKwh').textContent = t.e > 0 ? `${kwhTxt(t.sol)} kWh selbst erzeugt` : '';
+  $('tCost').innerHTML = big(euro(t.cost).replace(/\s?€$/, ''), '€');
+  $('tCostNote').textContent = t.imp ? `davon ${num(t.imp)} aus evcc` : '';
+  $('tPerKwh').innerHTML = t.e > 0 ? big(num(t.cost / (t.e / 1000), 1), 'ct') : '–';
+}
+
+// every bucket of the period, also the empty ones: hours, days or months
+function buckets(r) {
+  const out = [], from = parse(r.from), to = parse(r.to);
+  const pad = n => String(n).padStart(2, '0');
+  if (r.bucket === 'hour') {
+    for (let d = new Date(from); d <= to; d.setDate(d.getDate() + 1))
+      for (let h = 0; h < 24; h++) out.push({key: `${iso(d)}T${pad(h)}`, date: new Date(d.getFullYear(), d.getMonth(), d.getDate(), h)});
+  } else if (r.bucket === 'day') {
+    for (let d = new Date(from); d <= to; d.setDate(d.getDate() + 1)) out.push({key: iso(d), date: new Date(d)});
+  } else {
+    for (let d = new Date(from.getFullYear(), from.getMonth(), 1); d <= to; d.setMonth(d.getMonth() + 1))
+      out.push({key: `${d.getFullYear()}-${pad(d.getMonth() + 1)}`, date: new Date(d)});
+  }
+  return out;
+}
+const DAYS = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+function bucketLabel(b, kind, first) {
+  const d = b.date;
+  if (kind === 'hour') return d.getHours() === 0 && !first ? `${d.getDate()}.${d.getMonth() + 1}.` : String(d.getHours());
+  if (kind === 'day') return d.getDate() === 1 || first ? `${d.getDate()}.${d.getMonth() + 1}.` : String(d.getDate());
+  return d.getMonth() === 0 || first ? `${MONTHS[d.getMonth()]} ${String(d.getFullYear()).slice(2)}` : MONTHS[d.getMonth()];
+}
+function bucketTitle(b, kind) {
+  const d = b.date;
+  if (kind === 'hour') return `${DAYS[d.getDay()]} ${d.toLocaleDateString('de-DE')} ${d.getHours()}–${d.getHours() + 1} Uhr`;
+  if (kind === 'day') return `${DAYS[d.getDay()]} ${d.toLocaleDateString('de-DE')}`;
+  return `${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+function renderSeries(series) {
+  const r = range(), svg = $('months');
+  $('seriesTitle').textContent = {hour: 'Pro Stunde', day: 'Pro Tag', month: 'Pro Monat'}[r.bucket];
+  const W = Math.max(340, Math.round(svg.getBoundingClientRect().width) || 960), H = W < 600 ? 200 : 240, L = 40, R = 8, T = 24, B = 28;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  if (!series.length) { svg.innerHTML = `<text x="${W / 2}" y="${H / 2}" text-anchor="middle">Keine Einträge im gewählten Zeitraum</text>`; return; }
+  const byKey = Object.fromEntries(series.map(m => [m.key, m]));
+  const all = buckets(r).map(b => ({...b, ...(byKey[b.key] || {energyWh: 0, pvWh: 0, batteryWh: 0, gridWh: 0, count: 0, costCt: 0})}));
+  const max = Math.max(...all.map(m => m.energyWh), 1) / 1000;
+  const step = niceStep(max), top = Math.ceil(max / step) * step;
+  const x = i => L + (W - L - R) * i / all.length, bw = Math.max(3, (W - L - R) / all.length * 0.68);
+  const y = kwh => T + (H - T - B) * (1 - kwh / top);
+  let g = '';
+  for (let v = 0; v <= top + 1e-9; v += step)
+    g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${num(v)}</text>`;
+  // label every n-th bucket; n from a nice set so labels fall on round values
+  const fit = Math.max(4, Math.floor(W / 46));
+  const every = [1, 2, 3, 4, 6, 12, 24, 48].find(n => all.length / n <= fit) || Math.ceil(all.length / fit);
+  const today0 = new Date(); today0.setMinutes(0, 0, 0);
+  all.forEach((m, i) => {
+    const sol = (m.pvWh + m.batteryWh) / 1000, grid = Math.max(0, m.energyWh / 1000 - sol);
+    const cx = x(i) + ((W - L - R) / all.length - bw) / 2;
+    const future = m.date > today0;
+    g += `<g class="m"><title>${bucketTitle(m, r.bucket)}: ${kwhTxt(m.energyWh)} kWh, ${m.energyWh > 0 ? num(100 * sol * 1000 / m.energyWh) : 0} % PV & Akku, ${num(m.count)} ${KIND_WORD[F.kind || ''][1]}, ${euro(m.costCt)}</title>
+      <rect class="bar" x="${cx.toFixed(1)}" y="${T}" width="${bw.toFixed(1)}" height="${(y(0) - T).toFixed(1)}" fill="transparent"/>
+      <rect class="bar" x="${cx.toFixed(1)}" y="${y(sol + grid).toFixed(1)}" width="${bw.toFixed(1)}" height="${(y(sol) - y(sol + grid)).toFixed(1)}" rx="2" fill="var(--grid)" opacity=".55"/>
+      <rect class="bar" x="${cx.toFixed(1)}" y="${y(sol).toFixed(1)}" width="${bw.toFixed(1)}" height="${(y(0) - y(sol)).toFixed(1)}" rx="2" fill="var(--solar)"/></g>`;
+    if (i % every === 0)
+      g += `<text x="${(cx + bw / 2).toFixed(1)}" y="${H - 10}" text-anchor="middle"${future ? ' opacity=".5"' : ''}>${bucketLabel(m, r.bucket, i === 0)}</text>`;
+  });
+  g += `<text x="${L - 6}" y="10" text-anchor="end">kWh</text>`;
+  svg.innerHTML = g;
+}
+function niceStep(max) {
+  const raw = max / 4, p = Math.pow(10, Math.floor(Math.log10(raw || 1)));
+  return [1, 2, 2.5, 5, 10].map(f => f * p).find(s => s >= raw) || raw;
+}
+
+function shareBar(e, sol) {
+  if (!(e > 0)) return '–';
+  const p = Math.round(100 * sol / e);
+  return `<span class="share"><i style="width:${p}%"></i></span>${p} %`;
+}
+
+function renderPerAsset(per) {
+  if (!per.length) { $('perAsset').innerHTML = '<tr><td class="empty">Keine Einträge.</td></tr>'; return; }
+  per.sort((a, b) => b.energyWh - a.energyWh);
+  $('perAsset').innerHTML = `<thead><tr><th>Gerät</th><th>Art</th><th class="r">Anzahl</th><th class="r">Energie</th><th>PV &amp; Akku</th><th class="r">Kosten</th><th>Zeitraum</th></tr></thead><tbody>` +
+    per.map(s => `<tr><td><a href="?${query({asset: s.asset})}" data-asset="${esc(s.asset)}">${esc(name(s.asset))}</a>${assets[s.asset] && assets[s.asset].retired ? ' <span class="pill">stillgelegt</span>' : ''}</td>
+      <td>${(KIND_WORD[s.kind] || KIND_WORD.run)[1]}</td><td class="r">${num(s.count)}</td><td class="r">${kwhTxt(s.energyWh)} kWh</td>
+      <td>${shareBar(s.energyWh, s.solarWh)}</td><td class="r">${euro(s.costCt)}</td>
+      <td>${new Date(s.first).toLocaleDateString('de-DE', {month: '2-digit', year: 'numeric'})} – ${new Date(s.last).toLocaleDateString('de-DE', {month: '2-digit', year: 'numeric'})}</td></tr>`).join('') + '</tbody>';
+}
+
+async function loadRuns() {
+  const rs = await fetch('api/runs?' + query({limit: PAGE, offset: page * PAGE})).then(r => r.json());
+  const t = $('runs');
+  if (page === 0) {
+    if (!rs.length) { t.innerHTML = '<tr><td class="empty">Keine Einträge im gewählten Zeitraum.</td></tr>'; $('moreBtn').hidden = true; return; }
+    t.innerHTML = `<thead><tr><th>Beginn</th><th class="r">Dauer</th><th>Gerät</th>${F.kind === 'heating' || F.kind === 'run' ? '' : '<th>Fahrzeug</th><th>Modus</th>'}
+      <th class="r">Energie</th><th>PV &amp; Akku</th><th class="r">Kosten</th><th></th></tr></thead><tbody></tbody>`;
+  }
+  const dur = r => { const m = Math.round((new Date(r.end) - new Date(r.start)) / 60000); return m >= 60 ? `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}` : `${m} min`; };
+  t.querySelector('tbody').insertAdjacentHTML('beforeend', rs.map(r => `<tr>
+    <td>${new Date(r.start).toLocaleString('de-DE', {weekday: 'short', day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit'})}</td>
+    <td class="r">${r.end ? dur(r) : 'läuft'}</td><td>${esc(name(r.asset))}</td>
+    ${F.kind === 'heating' || F.kind === 'run' ? '' : `<td>${esc(r.vehicleName || '–')}${r.guest ? ' <span class="pill">Gast</span>' : ''}</td><td>${MODE[r.mode] || '–'}</td>`}
+    <td class="r">${kwhTxt(r.energyWh)} kWh</td><td>${shareBar(r.energyWh, r.pvWh + r.batteryWh)}</td>
+    <td class="r" title="${esc(r.priceNote || '')}">${r.costUnknown ? '–' : euro(r.costCt)}</td>
+    <td>${r.source ? `<span class="pill" title="übernommen aus ${esc(r.source)} (Import ${r.importId})">${esc(r.source)}</span>` : ''}</td></tr>`).join(''));
+  $('moreBtn').hidden = rs.length < PAGE;
+}
+
+$('kinds').addEventListener('click', e => {
+  const b = e.target.closest('[data-kind]');
+  if (!b) return;
+  F.kind = b.dataset.kind;
+  fillAssets(window._summary || []);
+  sync(); load();
+});
+$('asset').addEventListener('change', () => { F.asset = $('asset').value; sync(); load(); });
+$('vehicle').addEventListener('change', () => { F.vehicle = $('vehicle').value; sync(); load(); });
+$('periods').addEventListener('change', e => {
+  const p = e.target.value;
+  if (p === 'custom' && P.period !== 'custom') { const r = range(); P.from = r.from; P.to = r.to; }
+  P.period = p;
+  sync(); load();
+});
+$('prev').addEventListener('click', () => { shift(-1); sync(); load(); });
+$('next').addEventListener('click', () => { shift(1); sync(); load(); });
+for (const id of ['from', 'to']) $(id).addEventListener('change', () => {
+  if (!$('from').value || !$('to').value) return;
+  [P.from, P.to] = [$('from').value, $('to').value].sort();
+  sync(); load();
+});
+$('perAsset').addEventListener('click', e => {
+  const a = e.target.closest('[data-asset]');
+  if (!a) return;
+  e.preventDefault();
+  F.asset = a.dataset.asset; sync(); load();
+});
+$('moreBtn').addEventListener('click', () => { page++; loadRuns(); });
+let lastSeries = [], rt;
+addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => renderSeries(lastSeries), 150); });
+init();
+</script>
+</body>
+</html>

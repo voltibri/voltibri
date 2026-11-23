@@ -23,6 +23,7 @@ import (
 	"github.com/voltibri/voltibri/internal/forecast"
 	"github.com/voltibri/voltibri/internal/meter"
 	"github.com/voltibri/voltibri/internal/planner"
+	"github.com/voltibri/voltibri/internal/run"
 	"github.com/voltibri/voltibri/internal/series"
 	"github.com/voltibri/voltibri/sdk"
 )
@@ -109,6 +110,8 @@ type Site struct {
 	hist     History
 	corr     map[string]meter.Correction // per device id
 	circuits []circuit.Node              // installation tree, nil if not configured
+	prof     profile                     // load profile of the current slot
+	runs     map[string]*runState        // run detection per device
 
 	mu    sync.RWMutex
 	state State
@@ -136,7 +139,11 @@ func New(cfg *config.Config, hist History) (*Site, error) {
 	s := &Site{cfg: cfg, loc: loc, hist: hist, devices: map[string]sdk.Device{}, corr: map[string]meter.Correction{},
 		model: forecast.NewLoadModel(forecast.DefaultConfig(), cal, loc)}
 	s.circuits = circuitNodes(cfg)
+	now := time.Now()
 	for _, dc := range cfg.Devices {
+		if dc.Retired(now) {
+			continue // decommissioned: history only
+		}
 		s.corr[dc.ID] = dc.Correction
 		dcfg := sdk.DeviceConfig{ID: dc.ID, Type: dc.Type, Mode: sdk.ControlMode(dc.Mode), DryRun: cfg.Site.DryRun, Params: dc.Params}
 		if cp, ok := hist.(CacheProvider); ok {
@@ -188,7 +195,7 @@ func New(cfg *config.Config, hist History) (*Site, error) {
 	if cp, ok := hist.(CacheProvider); ok {
 		settings = cp.Cache("charging")
 	}
-	sessions, _ := hist.(charging.SessionStore)
+	sessions, _ := hist.(run.Store)
 	if s.charge, err = charging.New(cfg, loc, s.devices, settings, sessions); err != nil {
 		return nil, err
 	}
@@ -208,8 +215,10 @@ func New(cfg *config.Config, hist History) (*Site, error) {
 // meta returns display information for a device.
 func meta(cfg *config.Config, id, defIcon string, producer bool) Reading {
 	r := Reading{ID: id, Name: id, Icon: defIcon}
+	kind := ""
 	for _, d := range cfg.Devices {
 		if d.ID == id {
+			kind = config.KindOf(d)
 			if d.Name != "" {
 				r.Name = d.Name
 			}
@@ -221,16 +230,28 @@ func meta(cfg *config.Config, id, defIcon string, producer bool) Reading {
 		}
 	}
 	if r.Group == "" {
-		r.Group = defaultGroup(r, producer)
+		r.Group = defaultGroup(r, kind, producer)
 	}
 	return r
 }
 
 // defaultGroup derives the overview group: all producers form "pv", consumers
 // are grouped by icon (all cars, all heat pumps, ...), anything else stands alone.
-func defaultGroup(r Reading, producer bool) string {
+func defaultGroup(r Reading, kind string, producer bool) string {
 	if producer {
 		return "pv"
+	}
+	switch kind {
+	case config.KindEVCharger:
+		return "wallboxen"
+	case config.KindHeatPump:
+		return "waermepumpe"
+	case config.KindHeatingRod:
+		return "warmwasser"
+	case config.KindAppliance, config.KindClimate:
+		if r.Icon == "plug" || r.Icon == "" {
+			return "haushalt" // household appliances share one bubble
+		}
 	}
 	switch r.Icon {
 	case "car":
@@ -326,6 +347,12 @@ func (s *Site) Run(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
+			// keep what was measured: the started slot (added to on the
+			// next start) and open runs
+			s.finishRuns(time.Now())
+			fctx, fcancel := context.WithTimeout(context.Background(), 5*time.Second)
+			s.flushProfile(fctx, s.slot)
+			fcancel()
 			if s.batCtl != nil {
 				rctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				if err := s.batCtl.ResetLimits(rctx); err != nil {
@@ -431,6 +458,12 @@ func (s *Site) measure(ctx context.Context) bool {
 
 	slot := series.SlotStart(st.Time)
 	newSlot := !s.slot.IsZero() && !slot.Equal(s.slot)
+	// load profile per device and run detection
+	if newSlot {
+		s.flushProfile(ctx, s.slot)
+	}
+	gridCt, feedinCt := s.charge.Prices(ctx)
+	s.sampleProfile(st, sourcesOf(st, gridCt, feedinCt))
 	if newSlot && s.nSamples > 0 {
 		r := series.Record{Time: s.slot, PVW: s.sumPV / float64(s.nSamples), LoadW: s.sumLoad / float64(s.nSamples), SpotCt: math.NaN(), TempC: math.NaN()}
 		s.model.Add(r)

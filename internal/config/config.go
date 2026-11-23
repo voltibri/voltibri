@@ -134,6 +134,23 @@ type Device struct {
 	Mode       string           `yaml:"mode,omitempty" json:"mode,omitempty"`
 	Correction meter.Correction `yaml:"correction,omitempty" json:"correction,omitempty"`
 	Params     map[string]any   `yaml:"params,omitempty" json:"params,omitempty"`
+	// Runs: detect runs from the power (nil = yes for consumers). Off for
+	// devices that cycle all day, e.g. a fridge.
+	Runs *bool `yaml:"runs,omitempty" json:"runs,omitempty"`
+	// RunThresholdW: a run starts above this power (default 25 W).
+	RunThresholdW float64 `yaml:"runThresholdW,omitempty" json:"runThresholdW,omitempty"`
+	// Flexibility: none (default), shiftable (start can be delayed, the
+	// program then runs to its end), interruptible (may be switched on and
+	// off as long as it is done by its deadline) or surplus (no target, runs
+	// only on PV surplus).
+	Flexibility string `yaml:"flexibility,omitempty" json:"flexibility,omitempty"`
+	// Kind of asset (pv, battery, ev-charger, heat-pump, heating-rod, ...);
+	// empty = derived from the driver and icon, see KindOf.
+	Kind string `yaml:"kind,omitempty" json:"kind,omitempty"`
+	// Life cycle (YYYY-MM-DD). Decommissioned devices are not polled but keep
+	// their history.
+	Commissioned   string `yaml:"commissioned,omitempty" json:"commissioned,omitempty"`
+	Decommissioned string `yaml:"decommissioned,omitempty" json:"decommissioned,omitempty"`
 }
 
 // Default returns a configuration with defaults and no devices.
@@ -278,6 +295,7 @@ func (c *Config) Validate() error {
 	}
 	errs = append(errs, c.validateRanges()...)
 	errs = append(errs, c.validateCircuits()...)
+	errs = append(errs, c.validateLifecycle()...)
 	return errors.Join(errs...)
 }
 

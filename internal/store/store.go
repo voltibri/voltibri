@@ -44,6 +44,8 @@ type Store struct {
 
 	mu        sync.Mutex
 	listeners []func(version int64)
+
+	ids assetIDs // device id -> number in load_profile
 }
 
 // VersionInfo describes one configuration version.
@@ -89,6 +91,67 @@ var migrations = []string{
 		solar_wh     REAL NOT NULL,
 		cost_ct      REAL NOT NULL
 	)`,
+	`CREATE TABLE imports (
+		id          INTEGER PRIMARY KEY AUTOINCREMENT,
+		created_at  INTEGER NOT NULL,
+		source      TEXT NOT NULL,  -- e.g. evcc
+		kind        TEXT NOT NULL,  -- sessions
+		author      TEXT NOT NULL,
+		description TEXT NOT NULL DEFAULT '',
+		params      TEXT NOT NULL DEFAULT '{}', -- JSON: url, mapping, ...
+		count       INTEGER NOT NULL DEFAULT 0,
+		undone_at   INTEGER         -- set when the import was undone
+	)`,
+	`ALTER TABLE charging_sessions ADD COLUMN source TEXT NOT NULL DEFAULT 'voltibri'`,
+	`ALTER TABLE charging_sessions ADD COLUMN external_id TEXT`,
+	`ALTER TABLE charging_sessions ADD COLUMN import_id INTEGER REFERENCES imports(id)`,
+	`ALTER TABLE charging_sessions ADD COLUMN cost_known INTEGER NOT NULL DEFAULT 1`,
+	`CREATE UNIQUE INDEX charging_sessions_external ON charging_sessions(source, external_id) WHERE external_id IS NOT NULL`,
+	// charging sessions become runs of any asset
+	`CREATE TABLE runs (
+		id           INTEGER PRIMARY KEY AUTOINCREMENT,
+		asset        TEXT NOT NULL,
+		kind         TEXT NOT NULL,
+		vehicle      TEXT NOT NULL DEFAULT '',
+		vehicle_name TEXT NOT NULL DEFAULT '',
+		guest        INTEGER NOT NULL DEFAULT 0,
+		mode         TEXT NOT NULL DEFAULT '',
+		start        INTEGER NOT NULL,
+		end          INTEGER NOT NULL,
+		energy_wh    REAL NOT NULL,
+		pv_wh        REAL NOT NULL DEFAULT 0,
+		battery_wh   REAL NOT NULL DEFAULT 0,
+		grid_wh      REAL NOT NULL DEFAULT 0,
+		cost_ct      REAL NOT NULL DEFAULT 0,
+		cost_known   INTEGER NOT NULL DEFAULT 1,
+		price_note   TEXT NOT NULL DEFAULT '',
+		attrs        TEXT NOT NULL DEFAULT '{}',
+		source       TEXT NOT NULL DEFAULT 'voltibri',
+		external_id  TEXT,
+		import_id    INTEGER REFERENCES imports(id)
+	)`,
+	`INSERT INTO runs (id, asset, kind, vehicle, vehicle_name, guest, mode, start, end, energy_wh, pv_wh, grid_wh, cost_ct, cost_known, source, external_id, import_id)
+		SELECT id, loadpoint, 'charging', vehicle, vehicle_name, guest, mode, start, end, energy_wh, solar_wh, MAX(0, energy_wh - solar_wh), cost_ct, cost_known, source, external_id, import_id
+		FROM charging_sessions`,
+	`DROP TABLE charging_sessions`,
+	`CREATE UNIQUE INDEX runs_external ON runs(source, external_id) WHERE external_id IS NOT NULL`,
+	`CREATE INDEX runs_asset ON runs(asset, start)`,
+	// sessions without energy (plugged in, nothing charged) are no longer stored
+	`DELETE FROM runs WHERE source = 'voltibri' AND kind = 'charging' AND energy_wh < 50`,
+	// load profile: energy per device and 15-minute slot, compact
+	`CREATE TABLE assets (id INTEGER PRIMARY KEY, asset TEXT NOT NULL UNIQUE)`,
+	`CREATE TABLE load_profile (
+		asset_id   INTEGER NOT NULL REFERENCES assets(id),
+		slot       INTEGER NOT NULL, -- unix seconds of slot start
+		import_dwh INTEGER NOT NULL DEFAULT 0, -- energy drawn, 0.1 Wh
+		export_dwh INTEGER NOT NULL DEFAULT 0, -- energy delivered (PV, battery discharge, grid feed-in)
+		pv_dwh     INTEGER NOT NULL DEFAULT 0, -- import share from PV
+		battery_dwh INTEGER NOT NULL DEFAULT 0, -- import share from the home battery
+		grid_dwh   INTEGER NOT NULL DEFAULT 0, -- import share from the grid
+		cost_mct   INTEGER NOT NULL DEFAULT 0, -- cost of the import, 0.001 ct
+		import_id  INTEGER REFERENCES imports(id), -- NULL = measured
+		PRIMARY KEY (asset_id, slot)
+	) WITHOUT ROWID`,
 }
 
 // Open opens (and creates or migrates) the database in dataDir.

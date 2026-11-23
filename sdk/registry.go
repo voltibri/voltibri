@@ -69,6 +69,7 @@ const (
 	CatTariff   Category = "tariff"
 	CatVehicle  Category = "vehicle"
 	CatDemo     Category = "demo"
+	CatNone     Category = "none" // no connection: retired assets, history only
 )
 
 // Driver describes a device driver: metadata for user interfaces, the

@@ -8,7 +8,7 @@
 package api
 
 import (
-	_ "embed"
+	"embed"
 	"encoding/json"
 	"errors"
 	"io"
@@ -36,11 +36,23 @@ var faviconSVG []byte
 //go:embed config.html
 var configHTML []byte
 
+//go:embed reports.html
+var reportsHTML []byte
+
 //go:embed common.js
 var commonJS []byte
 
 //go:embed common.css
 var commonCSS []byte
+
+//go:embed manifest.webmanifest
+var manifest []byte
+
+//go:embed sw.js
+var serviceWorker []byte
+
+//go:embed icons
+var icons embed.FS
 
 // static serves an embedded file.
 func static(ctype string, b []byte) http.HandlerFunc {
@@ -73,6 +85,7 @@ func Handler(rt Runtime, st *store.Store) http.Handler {
 	mux.HandleFunc("GET /api/history", h.history)
 	h.chargingRoutes(mux)
 	h.deviceRoutes(mux)
+	h.importRoutes(mux)
 	mux.HandleFunc("GET /api/drivers", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, sdk.Drivers()) })
 
 	mux.HandleFunc("GET /api/config", h.getConfig)
@@ -89,8 +102,12 @@ func Handler(rt Runtime, st *store.Store) http.Handler {
 		w.Write(indexHTML)
 	})
 	mux.HandleFunc("GET /konfiguration", static("text/html; charset=utf-8", configHTML))
+	mux.HandleFunc("GET /berichte", static("text/html; charset=utf-8", reportsHTML))
 	mux.HandleFunc("GET /common.js", static("text/javascript; charset=utf-8", commonJS))
 	mux.HandleFunc("GET /common.css", static("text/css; charset=utf-8", commonCSS))
+	mux.HandleFunc("GET /manifest.webmanifest", static("application/manifest+json", manifest))
+	mux.HandleFunc("GET /sw.js", static("text/javascript; charset=utf-8", serviceWorker))
+	mux.Handle("GET /icons/", http.FileServerFS(icons))
 	mux.HandleFunc("GET /favicon.svg", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/svg+xml")
 		w.Header().Set("Cache-Control", "public, max-age=86400")

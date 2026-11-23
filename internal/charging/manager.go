@@ -17,6 +17,7 @@ import (
 
 	"github.com/voltibri/voltibri/internal/circuit"
 	"github.com/voltibri/voltibri/internal/config"
+	"github.com/voltibri/voltibri/internal/run"
 	"github.com/voltibri/voltibri/internal/tariff"
 	"github.com/voltibri/voltibri/sdk"
 )
@@ -57,26 +58,13 @@ type Vehicle struct {
 	status    sdk.VehicleStatus
 }
 
-// Session is one charging session (plug-in to unplug).
-type Session struct {
-	ID          int64     `json:"id"`
-	Loadpoint   string    `json:"loadpoint"`
-	Vehicle     string    `json:"vehicle"` // key or "guest"
-	VehicleName string    `json:"vehicleName"`
-	Guest       bool      `json:"guest"`
-	Mode        Mode      `json:"mode"`
-	Start       time.Time `json:"start"`
-	End         time.Time `json:"end,omitzero"`
-	EnergyWh    float64   `json:"energyWh"`
-	SolarWh     float64   `json:"solarWh"` // from PV or the home battery
-	CostCt      float64   `json:"costCt"`
-}
+// MinSessionWh: sessions with less energy (plugged in, nothing charged)
+// are not stored.
+const MinSessionWh = 50.0
 
-// SessionStore persists finished sessions.
-type SessionStore interface {
-	SaveSession(ctx context.Context, s Session) (int64, error)
-	Sessions(ctx context.Context, limit int) ([]Session, error)
-}
+// Session is one charging session (plug-in to unplug): a run of kind
+// "charging" of the loadpoint asset.
+type Session = run.Run
 
 // Loadpoint is the public view of a charge point.
 type Loadpoint struct {
@@ -145,7 +133,7 @@ type Manager struct {
 	cfg       *config.Config
 	providers map[string]sdk.VehicleProvider
 	settings  sdk.Cache
-	sessions  SessionStore
+	sessions  run.Store
 	grid      tariff.Tariff
 	feedin    tariff.Tariff
 	chargingT tariff.Tariff
@@ -165,7 +153,7 @@ type priceCache struct {
 // New creates the manager. devices are all configured devices; ids lists
 // the devices with a site role (grid, pv, battery) which are never
 // loadpoints.
-func New(cfg *config.Config, loc *time.Location, devices map[string]sdk.Device, settings sdk.Cache, sessions SessionStore) (*Manager, error) {
+func New(cfg *config.Config, loc *time.Location, devices map[string]sdk.Device, settings sdk.Cache, sessions run.Store) (*Manager, error) {
 	if settings == nil {
 		settings = sdk.NewMemCache()
 	}
@@ -445,7 +433,7 @@ func (m *Manager) Sessions(ctx context.Context, limit int) ([]Session, error) {
 	if m.sessions == nil {
 		return out, nil
 	}
-	done, err := m.sessions.Sessions(ctx, limit)
+	done, err := m.sessions.Runs(ctx, run.Filter{Kind: config.RunCharging, Limit: limit})
 	return append(out, done...), err
 }
 
@@ -515,9 +503,9 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 				if v.Connected && in.Now.Sub(r.Start) < 48*time.Hour {
 					lp.session, lp.plugged, wasConnected = r, r.Start, true
 					lp.lastTick = in.Now
-				} else if m.sessions != nil {
+				} else if m.sessions != nil && r.EnergyWh >= MinSessionWh {
 					r.End = in.Now
-					if _, err := m.sessions.SaveSession(ctx, *r); err != nil {
+					if _, err := m.sessions.SaveRun(ctx, *r); err != nil {
 						slog.Error("saving charging session failed", "err", err)
 					}
 				}
@@ -561,16 +549,21 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 
 		// session bookkeeping
 		if v.Connected && lp.session == nil {
-			lp.session = &Session{Loadpoint: v.ID, Start: in.Now}
+			lp.session = &Session{Asset: v.ID, Kind: config.RunCharging, Start: in.Now}
 		}
 		if s := lp.session; s != nil {
-			s.Vehicle, s.VehicleName, s.Guest, s.Mode = v.Vehicle, v.VehicleName, guest, v.Mode
+			s.Vehicle, s.VehicleName, s.Guest, s.Mode = v.Vehicle, v.VehicleName, guest, string(v.Mode)
 			if !lp.lastTick.IsZero() {
 				dt := math.Min(in.Now.Sub(lp.lastTick).Hours(), 1.0/60)
 				e := v.PowerW * dt
+				// grid first, then the discharging home battery, the rest is PV
 				fromGrid := math.Min(v.PowerW, math.Max(0, in.GridW)) * dt
+				fromBattery := math.Min(e-fromGrid, math.Max(0, in.BatteryW)*dt)
 				s.EnergyWh += e
-				s.SolarWh += e - fromGrid
+				s.GridWh += fromGrid
+				s.BatteryWh += fromBattery
+				s.PVWh += e - fromGrid - fromBattery
+				s.PriceNote = priceNote(lp.cfg.SeparateMeter, guest)
 				switch {
 				case lp.cfg.SeparateMeter:
 					s.CostCt += nz(chargePrice) * e / 1000
@@ -748,10 +741,10 @@ func (m *Manager) endSession(ctx context.Context, lp *lpRuntime, now time.Time) 
 		return
 	}
 	s.End = now
-	if s.EnergyWh < 1 && now.Sub(s.Start) < time.Minute {
-		return // plug bounce
+	if s.EnergyWh < MinSessionWh {
+		return // plugged in without charging (or a plug bounce): nothing to report
 	}
-	if _, err := m.sessions.SaveSession(ctx, *s); err != nil {
+	if _, err := m.sessions.SaveRun(ctx, *s); err != nil {
 		slog.Error("saving charging session failed", "err", err)
 	}
 }
@@ -825,4 +818,15 @@ func (m *Manager) Prices(ctx context.Context) (grid, feedin float64) {
 	defer m.mu.Unlock()
 	now := time.Now()
 	return m.price(ctx, "grid", m.grid, now), m.price(ctx, "feedin", m.feedin, now)
+}
+
+// priceNote describes the price rule of a charging session.
+func priceNote(separate, guest bool) string {
+	switch {
+	case separate:
+		return "eigener Zähler: Tarif für Ladestrom"
+	case guest:
+		return "Gast: alles zum Netzpreis"
+	}
+	return "PV und Akku zur Einspeisevergütung, Netz zum Tarif"
 }

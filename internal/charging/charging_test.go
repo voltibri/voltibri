@@ -12,6 +12,7 @@ import (
 
 	"github.com/voltibri/voltibri/internal/circuit"
 	"github.com/voltibri/voltibri/internal/config"
+	"github.com/voltibri/voltibri/internal/run"
 	"github.com/voltibri/voltibri/internal/tariff"
 	"github.com/voltibri/voltibri/sdk"
 )
@@ -178,13 +179,13 @@ func (p fakeProvider) VehicleStatus(_ context.Context, id string) (sdk.VehicleSt
 	return p[id], nil
 }
 
-type memSessions []Session
+type memSessions []run.Run
 
-func (m *memSessions) SaveSession(_ context.Context, s Session) (int64, error) {
+func (m *memSessions) SaveRun(_ context.Context, s run.Run) (int64, error) {
 	*m = append(*m, s)
 	return int64(len(*m)), nil
 }
-func (m *memSessions) Sessions(context.Context, int) ([]Session, error) { return *m, nil }
+func (m *memSessions) Runs(context.Context, run.Filter) ([]run.Run, error) { return *m, nil }
 
 func setup(t *testing.T, lp config.Loadpoint, prov fakeProvider) (*Manager, *fakeCharger, *memSessions) {
 	t.Helper()
@@ -235,7 +236,7 @@ func TestManagerDetectsVehicleAndCharges(t *testing.T) {
 		t.Fatalf("sessions: %+v", *ss)
 	}
 	s := (*ss)[0]
-	if math.Abs(s.EnergyWh-11000) > 1 || math.Abs(s.SolarWh-5000) > 1 || math.Abs(s.CostCt-(6*30+5*8)) > 0.5 {
+	if math.Abs(s.EnergyWh-11000) > 1 || math.Abs(s.PVWh-5000) > 1 || math.Abs(s.GridWh-6000) > 1 || s.Asset != "wb" || s.Kind != "charging" || math.Abs(s.CostCt-(6*30+5*8)) > 0.5 {
 		t.Fatalf("session: %+v", s)
 	}
 }
@@ -324,5 +325,18 @@ func TestLoadManagement(t *testing.T) {
 	lp = run(2*time.Minute, 0)
 	if lp.Target.CurrentA != 16 || lp.LimitA != nil {
 		t.Fatalf("free: %+v", lp)
+	}
+}
+
+func TestEmptySessionNotStored(t *testing.T) {
+	m, ch, ss := setup(t, config.Loadpoint{}, fakeProvider{})
+	ch.st = sdk.ChargerStatus{Connected: true}
+	for i := 0; i < 30; i++ { // plugged in for 5 minutes, nothing charged
+		tick(m, time.Duration(i)*10*time.Second, ch, 0, 0, 0, 500)
+	}
+	ch.st = sdk.ChargerStatus{}
+	tick(m, 5*time.Minute, ch, 0, 0, 0, 500)
+	if len(*ss) != 0 {
+		t.Fatalf("empty session stored: %+v", *ss)
 	}
 }
