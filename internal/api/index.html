@@ -95,6 +95,8 @@
   body.no-flow [data-perm=flow], body.no-forecast [data-perm=forecast], body.no-heat [data-perm=heat] { display:none !important; }
   @media (min-width: 900px) { #bhead { flex-wrap:nowrap; } #bhead .right { flex-wrap:nowrap; white-space:nowrap; } }
   .legend i.dash { background:repeating-linear-gradient(90deg, var(--muted) 0 5px, transparent 5px 9px); opacity:.8; }
+  .legend i.bar { width:8px; height:10px; border-radius:1px; background:color-mix(in srgb, var(--home) 50%, transparent); }
+  .legend i.bar.exp { background:color-mix(in srgb, var(--home) 22%, transparent); }
   .chip { font-size:12px; padding:3px 10px; border-radius:99px; background:var(--card-2); border:1px solid var(--line); color:var(--muted); white-space:nowrap; }
   .chip b { color:var(--fg); font-weight:600; }
 
@@ -327,7 +329,8 @@
     <svg class="chart" id="chart" viewBox="0 0 960 300" role="img" aria-label="Soll und Ist: PV, Hausverbrauch und Ladestand"></svg>
     <div class="legend">
       <span><i style="background:var(--solar)"></i>PV</span>
-      <span><i style="background:var(--home)"></i>Hausverbrauch</span>
+      <span><i class="bar"></i>Verbrauch gemessen</span>
+      <span><i class="bar exp"></i>Verbrauch erwartet</span>
       <span><i style="background:var(--battery)"></i>Ladestand</span>
       <span><i style="background:var(--limit);height:10px"></i>Laden erlaubt</span>
       <span><i class="dash"></i>Plan vom Tagesbeginn</span>
@@ -1325,19 +1328,35 @@ function drawChart(planSlots, hist) {
   };
   const line = (d, color, w, extra = '') => d ? `<path d="${d}" fill="none" stroke="${color}" stroke-width="${w}" stroke-linejoin="round"${extra}/>` : '';
   const planned = ' stroke-dasharray="5 4" opacity=".55"';
+  // house consumption as one bar per slot (the 15-minute values jump too
+  // much for a line): measured solid, expected lighter, the day's plan as a
+  // short mark on the measured bar
+  const sw = x(t0 + SLOT_MS) - x(t0), gap = sw > 4 ? 1 : sw > 2 ? 0.5 : 0, bw = Math.max(0.5, sw - gap);
+  const bars = (rows, f, op) => rows.map(s => {
+    const q = f(s);
+    if (q == null || Number.isNaN(q) || q <= 0) return '';
+    const bx = x(ts(s)) + gap / 2, by = y(q);
+    return `<rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(0, y(0) - by).toFixed(1)}" fill="var(--home)" opacity="${op}"/>`;
+  }).join('');
+  const marks = (rows, f) => rows.map(s => {
+    const q = f(s);
+    if (q == null || Number.isNaN(q)) return '';
+    const yq = y(q).toFixed(1);
+    return `<line x1="${(x(ts(s)) + gap / 2).toFixed(1)}" x2="${(x(ts(s)) + gap / 2 + bw).toFixed(1)}" y1="${yq}" y2="${yq}"/>`;
+  }).join('');
+  g += bars(hist, s => v(s, 'loadW'), .5);
+  if (slots.some(s => s.loadW > 0)) g += bars(slots, s => s.loadW, .22);
+  g += `<g stroke="var(--home)" stroke-width="1.6" opacity=".9">${marks(hist, s => v(s, 'planLoadW'))}</g>`;
   // past: the day's plan (dashed, muted) ...
   g += line(path(hist, s => v(s, 'planPvW'), y), 'var(--solar)', 1.6, planned);
-  g += line(path(hist, s => v(s, 'planLoadW'), y), 'var(--home)', 1.6, planned);
   g += line(path(hist, s => v(s, 'planSoC'), ys), 'var(--battery)', 1.8, planned);
   // ... and what was measured, continued by the plan for the future
   const join = slots.length ? [{start: slots[0].start, pvW: slots[0].pvW, loadW: slots[0].loadW, soc: slots[0].expectedSoC}] : [];
   const past = hist.concat(hist.length ? join : []);
   g += line(path(past, s => v(s, 'pvW'), y), 'var(--solar)', 2);
-  g += line(path(past, s => v(s, 'loadW'), y), 'var(--home)', 2);
   g += line(path(past, s => v(s, 'soc'), ys), 'var(--battery)', 2.5);
   if (slots.length) {
     g += line(path(slots, s => s.pvW, y), 'var(--solar)', 2);
-    if (slots.some(s => s.loadW > 0)) g += line(path(slots, s => s.loadW, y), 'var(--home)', 2);
     if (slots.some(s => s.expectedSoC > 0)) g += line(path(slots, s => s.expectedSoC, ys), 'var(--battery)', 2.5);
   }
   // now marker
