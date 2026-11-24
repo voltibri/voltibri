@@ -36,41 +36,23 @@
   /* heat pump: opens into an oval below the circle (energy flow) */
   .hpnode > circle:first-of-type { transition:stroke-width .15s; }
   .hpoval { cursor:pointer; outline:none; }
-  .hpoval > rect { filter:drop-shadow(0 6px 18px rgba(0,0,0,.10)); }
-  .hpoval:focus-visible > rect { stroke-width:3.5; }
+  .hpoval > .ho-bg { filter:drop-shadow(0 6px 18px rgba(0,0,0,.10)); }
+  .hpoval:focus-visible > .ho-bg { stroke-width:3.5; }
   .hpoval.pop { animation:ovalin .28s ease-out; transform-origin:50% 0; transform-box:fill-box; }
   @keyframes ovalin { from { opacity:0; transform:scale(.6); } }
   @media (prefers-reduced-motion: reduce) { .hpoval.pop { animation:none; } }
-  .hpov { box-sizing:border-box; height:100%; padding:12px 24px 10px; justify-content:center; display:flex; flex-direction:column; gap:8px; font:12px/1.3 system-ui, -apple-system, "Segoe UI", sans-serif; color:var(--fg); }
-  .hpo-hd { display:flex; align-items:center; gap:6px; justify-content:center; color:var(--consumer); }
-  .hpo-hd b { color:var(--fg); font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .hpo-hd .st { font-size:10px; font-weight:650; color:var(--muted); background:var(--track); border-radius:99px; padding:1px 7px; white-space:nowrap; }
-  .hpo-hd .cl { color:var(--muted); font-size:15px; margin-left:2px; }
-  .hpo-top { display:grid; grid-template-columns:96px 1fr; gap:10px; align-items:center; }
-  .hpo-top .g { position:relative; height:58px; }
-  .hpo-top .g svg { width:96px; height:58px; display:block; }
-  .hpo-top .g .v { position:absolute; left:0; right:0; bottom:-2px; text-align:center; line-height:1; }
-  .hpo-top .g .v b { display:block; font-size:24px; font-weight:300; letter-spacing:-.04em; font-variant-numeric:tabular-nums; }
-  .hpo-top .g .v span { font-size:9px; font-weight:750; letter-spacing:.1em; color:var(--muted); }
-  .hpo-top .k { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
-  .hpo-top .k div { display:flex; flex-direction:column; }
-  .hpo-top .k span { font-size:9.5px; font-weight:650; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
-  .hpo-top .k b { font-size:20px; font-weight:300; letter-spacing:-.03em; font-variant-numeric:tabular-nums; }
-  .hpo-top .k small { font-size:10px; color:var(--muted); margin-left:2px; font-weight:500; }
-  .hpo-split .bar { display:flex; height:8px; border-radius:4px; overflow:hidden; background:var(--track); }
-  .hpo-split .bar .el { background:var(--grid); }
-  .hpo-split .bar .amb { background:linear-gradient(90deg, var(--accent), var(--battery)); }
-  .hpo-split .lg { display:flex; justify-content:space-between; font-size:10.5px; color:var(--muted); margin-top:3px; }
-  .hpo-split .lg i { display:inline-block; width:7px; height:7px; border-radius:2px; margin-right:4px; }
-  .hpo-temp .scale { position:relative; height:10px; }
-  .hpo-temp .ln { position:absolute; left:0; right:0; top:4px; height:2px; border-radius:1px; background:linear-gradient(90deg, #4a90d9, #e8a317 60%, #d9534f); opacity:.35; }
-  .hpo-temp .band { position:absolute; top:1px; height:8px; border-radius:4px; background:linear-gradient(90deg, #4a90d9, #e8743b); }
-  .hpo-temp .row { display:flex; justify-content:space-between; font-size:10.5px; color:var(--muted); margin-top:3px; font-variant-numeric:tabular-nums; }
-  .hpo-temp .row b { color:var(--fg); }
-  .hpo-temp .sp { color:var(--fg); font-weight:650; }
-  .hpo-chips { display:flex; justify-content:center; gap:6px; }
-  .hpo-chips span { font-size:10.5px; padding:2px 8px; border-radius:99px; background:var(--track); }
-  .hpo-err { font-size:10.5px; color:var(--warn); text-align:center; }
+  .hpoval text { font-family:ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; font-variant-numeric:tabular-nums; }
+  .hpoval .ho-h { font-size:13px; font-weight:650; fill:var(--fg); }
+  .hpoval .ho-st { font-size:11px; font-weight:500; fill:var(--muted); }
+  .hpoval .ho-x { font-size:16px; fill:var(--muted); }
+  .hpoval .ho-cop { font-size:28px; font-weight:300; letter-spacing:-.04em; fill:var(--fg); }
+  .hpoval .ho-lbl { font-size:9px; font-weight:700; letter-spacing:.1em; fill:var(--muted); }
+  .hpoval .ho-big { font-size:26px; font-weight:300; letter-spacing:-.03em; fill:var(--fg); }
+  .hpoval .ho-u { font-size:11px; font-weight:600; letter-spacing:0; fill:var(--muted); }
+  .hpoval .ho-sm { font-size:10.5px; fill:var(--muted); }
+  .hpoval .ho-b { font-weight:650; fill:var(--fg); }
+  .hpoval .ho-sp { font-size:10.5px; font-weight:650; fill:var(--fg); }
+  .hpoval .ho-err { font-size:10.5px; fill:var(--warn); }
   #flow { width:100%; height:auto; display:block; margin:0 auto; overflow:visible; }
   #flow text { font-variant-numeric:tabular-nums; }
   .track { fill:none; stroke:var(--track); stroke-width:2; }
@@ -104,17 +86,10 @@
   @supports (grid-template-rows: subgrid) {
     .lps { row-gap:0; }
     .lp { display:grid; grid-template-rows:subgrid; grid-row:span 6; gap:0; margin-bottom:12px; align-content:start; }
-    .lp > :not(.wbart):not(:empty) ~ :not(:empty) { margin-top:12px; }
+    .lp > :not(:empty) ~ :not(:empty) { margin-top:12px; }
   }
-  /* big wallbox in the background; its light ring shows the state */
-  .wbart { position:absolute; z-index:-1; right:-26px; top:34px; width:150px; height:250px; color:var(--fg); opacity:.06; pointer-events:none; }
-  .wbart .ring { opacity:1; }
-  .lp.st-charging .wbart { opacity:.09; color:var(--accent); }
-  .lp.st-charging .wbart .ring { animation:gpulse 2.4s ease-in-out infinite; }
-  .lp.st-connected .wbart { opacity:.09; color:var(--accent-2); }
-  @media (prefers-reduced-motion: reduce) { .lp.st-charging .wbart .ring { animation:none; } }
   .lphead .lpname { display:flex; flex-direction:column; min-width:0; }
-  .lptop { margin-left:auto; display:flex; flex-direction:column; align-items:flex-end; gap:6px; flex:none; }
+  .lptop { margin-left:auto; display:flex; align-items:center; gap:6px; flex:none; align-self:flex-start; }
   .lpmore { display:inline-flex; align-items:center; gap:5px; font:inherit; font-size:12px; font-weight:600; color:var(--accent); background:var(--card); border:1px solid var(--line); border-radius:99px; padding:3px 10px 3px 8px; cursor:pointer; }
   .lpmore:hover { border-color:color-mix(in srgb, var(--accent) 45%, var(--line)); }
   @media (max-width:420px) { .lpmore span { display:none; } .lpmore { padding:5px 7px; } }
@@ -230,20 +205,20 @@
   .days label { font-size:11px; display:flex; flex-direction:column; align-items:center; gap:1px; }
   .sess { display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--muted); }
   /* wallbox tile: power gauge | phases, vehicle, end of charging */
-  .lpviz { display:grid; grid-template-columns:112px minmax(0, 1fr); gap:16px; align-items:center; }
-  .gauge { position:relative; width:112px; height:112px; }
-  .gauge svg { display:block; width:112px; height:112px; transform:rotate(135deg); }
-  .gauge .trk { fill:none; stroke:var(--track); stroke-width:9; stroke-linecap:round; }
-  .gauge .val { fill:none; stroke:var(--accent); stroke-width:9; stroke-linecap:round; transition:stroke-dasharray .6s ease; }
-  .gauge.idle .val { stroke:var(--muted); opacity:.5; }
-  .gauge.charging .val { animation:gpulse 2.4s ease-in-out infinite; }
-  @keyframes gpulse { 50% { opacity:.65; } }
-  @media (prefers-reduced-motion: reduce) { .gauge.charging .val { animation:none; } }
-  .gauge .mid { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; }
-  .gauge .mid b { font-size:26px; font-weight:300; letter-spacing:-.03em; line-height:1; font-variant-numeric:tabular-nums; }
-  .gauge .mid b small { font-size:12px; font-weight:500; margin-left:2px; color:var(--muted); }
-  .gauge .mid span { font-size:11px; color:var(--muted); margin-top:4px; }
-  .gauge .mid svg { transform:none; width:26px; height:26px; color:var(--muted); }
+  .lpviz { display:grid; grid-template-columns:minmax(0, 1fr) 118px; gap:14px; align-items:center; }
+  .wbviz { width:118px; height:auto; display:block; overflow:visible; }
+  .wbviz .wv-body { fill:var(--card-2); stroke:var(--line); stroke-width:1.5; }
+  .wbviz .wv-trk { fill:none; stroke:var(--track); stroke-width:7; stroke-linecap:round; }
+  .wbviz .wv-val { fill:none; stroke-width:7; stroke-linecap:round; transition:stroke-dasharray .6s ease; }
+  .wbviz .wv-p { font-size:23px; font-weight:300; letter-spacing:-.04em; fill:var(--fg); font-variant-numeric:tabular-nums; }
+  .wbviz .wv-u { font-size:10px; font-weight:600; fill:var(--muted); letter-spacing:0; }
+  .wbviz .wv-m { font-size:8.5px; fill:var(--muted); }
+  .wbviz .wv-s { font-size:11px; font-weight:650; }
+  .wbviz.st-charging .wv-led, .wbviz.st-charging .wv-val { animation:gpulse 2.4s ease-in-out infinite; }
+  .wbviz .wv-flow { stroke-dasharray:6 6; animation:wvflow 1.2s linear infinite; }
+  @keyframes wvflow { to { stroke-dashoffset:-12; } }
+  @keyframes gpulse { 50% { opacity:.6; } }
+  @media (prefers-reduced-motion: reduce) { .wbviz * { animation:none !important; } }
   .lpinfo { display:flex; flex-direction:column; gap:10px; min-width:0; }
   .phases { display:flex; align-items:flex-end; gap:10px; }
   .phases .ph { display:flex; flex-direction:column; align-items:center; gap:3px; font-size:10px; font-weight:600; color:var(--muted); }
@@ -258,7 +233,7 @@
   .eta span { display:block; font-size:12px; color:var(--muted); }
   .eta.muted svg { color:var(--muted); }
   .socbar u { position:absolute; top:-3px; bottom:-3px; width:2px; background:var(--accent-2); text-decoration:none; }
-  @media (max-width: 420px) { .lpviz { grid-template-columns:96px minmax(0, 1fr); gap:12px; } .gauge, .gauge svg { width:96px; height:96px; } .gauge .mid b { font-size:22px; } }
+  @media (max-width: 420px) { .lpviz { grid-template-columns:minmax(0, 1fr) 100px; gap:10px; } .wbviz { width:100px; } }
   .sess b { color:var(--fg); font-variant-numeric:tabular-nums; }
   /* the wallboxes sit on the page itself (no card around the cards) */
   /* law of proximity: the heading sits clearly closer to its wallboxes than to the card above */
@@ -399,7 +374,7 @@ function expanded(items, kind) {
 // the heat pump node (details known) and the heating devices next to it
 const isHP = (c, st) => c.icon === 'heatpump' && (st.heat || []).length && !(c.count > 1);
 const isHeating = c => c.icon === 'heatpump' || c.icon === 'water';
-const OVAL_W = 330, OVAL_H = 196; // the opened heat pump
+const OVAL_W = 330, OVAL_H = 196; // the opened heat pump (drawn in heatOval)
 
 function layout(st) {
   const P = expanded(st.producers, 'producers');
@@ -540,8 +515,8 @@ function drawFlow(st) {
     if (isHP(c, st) && nodes[c.id].oval) {
       const n = nodes[c.id], x = n.x - OVAL_W / 2, y = n.y - OVAL_H / 2;
       g += `<g class="tog hpoval${hpPop ? ' pop' : ''}" data-heat role="button" tabindex="0" aria-expanded="true" aria-label="Wärmepumpe: Details zuklappen">
-        <rect x="${x}" y="${y}" width="${OVAL_W}" height="${OVAL_H}" rx="44" fill="var(--node)" stroke="${COLORS.consumer}" stroke-width="2"/>
-        <foreignObject x="${x}" y="${y}" width="${OVAL_W}" height="${OVAL_H}"><div xmlns="http://www.w3.org/1999/xhtml" class="hpov">${heatDetail(st.heat[0], c)}</div></foreignObject></g>`;
+        <rect class="ho-bg" x="${x}" y="${y}" width="${OVAL_W}" height="${OVAL_H}" rx="44" fill="var(--node)" stroke="${COLORS.consumer}" stroke-width="2"/>
+        ${heatOval(x, y, st.heat[0], c)}</g>`;
     } else g += isHP(c, st)
       ? `<g class="tog hpnode" data-heat role="button" tabindex="0" aria-expanded="false" aria-label="Wärmepumpe: Details anzeigen">${inner}</g>`
       : wrap(c, inner);
@@ -615,29 +590,32 @@ function planText(p) {
   return `${soc} bis ${new Date(p.at).toLocaleString('de-DE', {weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'})}`;
 }
 
-// a wallbox drawn large into the tile background (the ring shows the state)
-const WALLBOX_ART = `<svg class="wbart" viewBox="0 0 150 250" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
-  <rect x="30" y="18" width="78" height="128" rx="20" fill="currentColor" fill-opacity=".35"/>
-  <circle class="ring" cx="69" cy="62" r="17" stroke-width="7"/>
-  <path d="M55 104h28M55 118h20"/>
-  <path d="M69 146v14c0 26 -38 22 -38 50v22"/>
-  <rect x="22" y="226" width="18" height="16" rx="4" fill="currentColor"/>
-  <path d="M69 160v74"/></svg>`;
-
-// power gauge: current power against what the wallbox can deliver now
-// (maximum current, load management included, × the phases in use)
-function gauge(lp) {
+// the wallbox itself: its display shows the charging power (ring against
+// what is possible now) and the state; the cable leads to the car
+function wallboxViz(lp) {
   const maxW = Math.max(1, (lp.limitA != null ? Math.min(lp.limitA, lp.maxCurrent) : lp.maxCurrent) * (lp.activePhases || lp.phases || 3) * 230);
-  const R = 46, C = 2 * Math.PI * R, arc = C * 0.75; // 270° arc, open at the bottom
+  const st = lp.off && !lp.charging ? 'off' : !lp.connected ? 'free' : lp.foreign ? 'busy' : lp.charging ? 'charging' : 'connected';
+  const col = {charging: 'var(--accent)', connected: 'var(--accent-2)', busy: 'var(--accent-2)', free: 'var(--muted)', off: 'var(--muted)'}[st];
+  const label = {charging: 'lädt', connected: 'angesteckt', busy: 'belegt', free: 'frei', off: 'ausgeschaltet'}[st];
+  const R = 34, C = 2 * Math.PI * R, arc = C * 0.75;
   const frac = lp.connected ? Math.max(0, Math.min(1, lp.powerW / maxW)) : 0;
-  const cls = lp.charging ? 'charging' : 'idle';
-  const mid = !lp.connected
-    ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${ICONS.plug}</svg><span>${lp.off ? 'ausgeschaltet' : 'frei'}</span>`
-    : `<b>${(lp.powerW / 1000).toLocaleString('de-DE', {minimumFractionDigits: 1, maximumFractionDigits: 1})}<small>kW</small></b><span>von ${(maxW / 1000).toLocaleString('de-DE', {maximumFractionDigits: 1})} kW</span>`;
-  return `<div class="gauge ${cls}" role="img" aria-label="${lp.connected ? 'Ladeleistung ' + kw(lp.powerW) + ' von ' + kw(maxW) : 'kein Fahrzeug'}">
-    <svg viewBox="0 0 112 112" aria-hidden="true"><circle class="trk" cx="56" cy="56" r="${R}" stroke-dasharray="${arc.toFixed(1)} ${C.toFixed(1)}"/>
-      <circle class="val" cx="56" cy="56" r="${R}" stroke-dasharray="${(arc * frac).toFixed(1)} ${C.toFixed(1)}"/></svg>
-    <div class="mid">${mid}</div></div>`;
+  const kwTxt = (lp.powerW / 1000).toLocaleString('de-DE', {minimumFractionDigits: 1, maximumFractionDigits: 1});
+  const centre = lp.connected
+    ? `<text x="60" y="61" text-anchor="middle" class="wv-p">${kwTxt}<tspan class="wv-u" dx="1">kW</tspan></text>
+       <text x="60" y="76" text-anchor="middle" class="wv-m">von ${(maxW / 1000).toLocaleString('de-DE', {maximumFractionDigits: 1})} kW</text>`
+    : `<g transform="translate(48 49)" fill="none" stroke="var(--muted)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICONS.plug}</g>`;
+  const cable = lp.connected
+    ? `<path d="M60 134v8c0 16 30 12 30 30" fill="none" stroke="${col}" stroke-width="5" stroke-linecap="round"${st === 'charging' ? ' class="wv-flow"' : ''}/>`
+    : `<path d="M60 134v8c0 14 -26 10 -26 24" fill="none" stroke="var(--muted)" stroke-width="5" stroke-linecap="round" opacity=".5"/>
+       <rect x="27" y="164" width="14" height="10" rx="3" fill="var(--muted)" opacity=".5"/>`;
+  return `<svg class="wbviz st-${st}" viewBox="0 0 120 178" role="img" aria-label="${esc(label)}${lp.connected ? ', ' + kw(lp.powerW) + ' von ' + kw(maxW) : ''}">
+    <rect x="12" y="4" width="96" height="130" rx="26" class="wv-body"/>
+    <circle cx="60" cy="60" r="${R}" class="wv-trk" stroke-dasharray="${arc.toFixed(1)} ${C.toFixed(1)}" transform="rotate(135 60 60)"/>
+    <circle cx="60" cy="60" r="${R}" class="wv-val" stroke="${col}" stroke-dasharray="${(arc * frac).toFixed(1)} ${C.toFixed(1)}" transform="rotate(135 60 60)"/>
+    ${centre}
+    <circle cx="${60 - label.length * 3.1 - 6}" cy="113" r="3.5" fill="${col}" class="wv-led"/>
+    <text x="${60 + 4}" y="117" text-anchor="middle" class="wv-s" fill="${col === 'var(--muted)' ? 'var(--muted)' : 'var(--fg)'}">${label}</text>
+    ${cable}</svg>`;
 }
 
 // L1–L3: which phases the car draws on and the current per phase
@@ -716,9 +694,9 @@ function renderLoadpoint(lp) {
     !lp.owned ? '<span class="pill" title="voltibri schreibt nicht auf diese Wallbox (Modus „observed“) und zeigt nur, was es tun würde.">beobachtet</span>' : '', who].join('').trim();
   // vehicle and charge plan: a dialog from the top right of the tile
   const more = (lp.connected && !lp.foreign) || veh ? `<button type="button" class="lpmore" data-lpmore="${esc(lp.id)}" aria-haspopup="dialog" title="Fahrzeug &amp; Ladeplan">${iconSVG('car', 15)}<span>Fahrzeug &amp; Ladeplan</span></button>` : '';
-  return `<div class="lp st-${st}" data-lp="${esc(lp.id)}">${WALLBOX_ART}<div class="lphead"><div class="lpname"><small>${esc(lp.name)}</small>${lp.connected ? `<b>${esc(lp.vehicleName)}</b>` : '<b class="none">kein Fahrzeug</b>'}</div><div class="lptop"><span class="pill${lp.charging ? ' on' : ''}">${status}</span>${more}</div></div>`
+  return `<div class="lp st-${st}" data-lp="${esc(lp.id)}"><div class="lphead"><div class="lpname"><small>${esc(lp.name)}</small>${lp.connected ? `<b>${esc(lp.vehicleName)}</b>` : '<b class="none">kein Fahrzeug</b>'}</div>${more ? `<div class="lptop">${more}</div>` : ''}</div>`
     + (pills ? `<div class="lpsub">${pills}</div>` : '<div></div>')
-    + `<div class="lpviz">${gauge(lp)}<div class="lpinfo">${phasesView(lp)}${etaView(lp, veh)}${soc}</div></div>`
+    + `<div class="lpviz"><div class="lpinfo">${phasesView(lp)}${etaView(lp, veh)}${soc || ''}${!lp.connected ? `<div class="why">${lp.off ? 'Die Wallbox ist ausgeschaltet.' : 'Bereit – Auto anstecken.'}</div>` : ''}</div>${wallboxViz(lp)}</div>`
     + `<div class="modes" role="group" aria-label="Lademodus">${modeBtns}</div>`
     + (lp.connected && lp.reason ? `<div class="why">${esc(lp.reason)}</div>` : '<div></div>')
     + (sess || '<div></div>') + '</div>';
@@ -1018,33 +996,60 @@ $('vehDlg').addEventListener('change', async e => {
 // --- heat pump details: the heat pump node opens into an oval ---
 let hpOpen = false, hpPop = false;
 const num1 = v => v.toLocaleString('de-DE', {minimumFractionDigits: 1, maximumFractionDigits: 1});
-function heatDetail(h, c) {
-  // COP: half ring 1..7, coloured by efficiency
-  const cop = h.cop, frac = cop != null ? Math.max(0, Math.min(1, (cop - 1) / 6)) : 0;
-  const R = 34, C = Math.PI * R, col = cop == null ? 'var(--muted)' : cop < 2.5 ? 'var(--warn)' : cop < 3.5 ? 'var(--solar)' : 'var(--accent)';
-  const gauge = `<svg viewBox="0 0 84 50" aria-hidden="true"><path d="M8 44 A34 34 0 0 1 76 44" fill="none" stroke="var(--track)" stroke-width="8" stroke-linecap="round"/>
-    <path d="M8 44 A34 34 0 0 1 76 44" fill="none" stroke="${col}" stroke-width="8" stroke-linecap="round" stroke-dasharray="${(C * frac).toFixed(1)} ${C.toFixed(1)}"/></svg>`;
-  const th = h.thermalW != null ? Math.max(0, h.thermalW) : null, el = h.electricW != null ? Math.max(0, h.electricW) : c.powerW;
-  let split = '';
-  if (th > 0 && el != null) { // heat = electricity + ambient heat
-    const e = Math.min(el, th), amb = th - e;
-    split = `<div class="hpo-split"><div class="bar"><i class="el" style="width:${(100 * e / th).toFixed(1)}%"></i><i class="amb" style="width:${(100 * amb / th).toFixed(1)}%"></i></div>
-      <div class="lg"><span><i style="background:var(--grid)"></i>Strom ${kw(e)}</span><span><i style="background:var(--accent)"></i>Umwelt ${kw(amb)}</span></div></div>`;
+// the opened heat pump, drawn in plain SVG (no HTML inside SVG: Safari
+// places foreignObject content wrongly). Layout inside the oval:
+//   name · state                                  ×
+//   ( COP half ring )   Wärme 3,9 kW
+//                       [Strom|Umwelt ────────]
+//   RL 30,8°  ▬▬▬ Δ 2,5 K ▬▬▬  VL 33,3°
+//   außen −4,9° · Warmwasser 50,2°
+function heatOval(x, y, h, c) {
+  const W = OVAL_W, cx = x + W / 2, t = (dx, dy, txt, cls, anchor = 'start') => `<text x="${(x + dx).toFixed(1)}" y="${(y + dy).toFixed(1)}" class="${cls}" text-anchor="${anchor}">${txt}</text>`;
+  const cop = h.cop, th = h.thermalW != null ? Math.max(0, h.thermalW) : null;
+  const el = h.electricW != null ? Math.max(0, h.electricW) : c.powerW;
+  const col = cop == null ? 'var(--muted)' : cop < 2.5 ? 'var(--warn)' : cop < 3.5 ? 'var(--solar)' : 'var(--accent)';
+  let g = '';
+  // header
+  g += `<text x="${cx}" y="${y + 30}" text-anchor="middle" class="ho-h">${esc(c.name || h.name || 'Wärmepumpe')}${h.state ? `<tspan class="ho-st" dx="6">· ${esc(h.state)}</tspan>` : ''}</text>`;
+  g += t(W - 34, 31, '×', 'ho-x', 'middle');
+  // COP: half ring
+  const gx = x + 84, gy = y + 112, R = 40, C = Math.PI * R, frac = cop != null ? Math.max(0, Math.min(1, (cop - 1) / 6)) : 0;
+  const arcD = `M${gx - R} ${gy} A${R} ${R} 0 0 1 ${gx + R} ${gy}`;
+  g += `<path d="${arcD}" fill="none" stroke="var(--track)" stroke-width="9" stroke-linecap="round"/>`;
+  g += `<path d="${arcD}" fill="none" stroke="${col}" stroke-width="9" stroke-linecap="round" stroke-dasharray="${(C * frac).toFixed(1)} ${C.toFixed(1)}"/>`;
+  g += `<text x="${gx}" y="${gy - 6}" text-anchor="middle" class="ho-cop">${cop != null ? num1(cop) : '–'}</text>`;
+  g += `<text x="${gx}" y="${gy + 9}" text-anchor="middle" class="ho-lbl">COP</text>`;
+  // heat output and where it comes from
+  const rx = 150, rw = W - rx - 36;
+  g += t(rx, 66, 'WÄRMELEISTUNG', 'ho-lbl');
+  g += t(rx, 92, th != null ? `${num1(th / 1000)}<tspan class="ho-u" dx="2">kW</tspan>` : '–', 'ho-big');
+  if (th > 0 && el != null) {
+    const e = Math.min(el, th), ew = rw * e / th;
+    g += `<rect x="${x + rx}" y="${y + 101}" width="${rw}" height="7" rx="3.5" fill="var(--track)"/>`;
+    g += `<rect x="${x + rx}" y="${y + 101}" width="${(rw - ew).toFixed(1)}" height="7" rx="3.5" fill="var(--accent)" transform="translate(${ew.toFixed(1)} 0)"/>`;
+    g += `<rect x="${x + rx}" y="${y + 101}" width="${ew.toFixed(1)}" height="7" rx="3.5" fill="var(--grid)"/>`;
+    g += t(rx, 121, `Strom ${kw(e)} + Umwelt ${kw(th - e)}`, 'ho-sm');
   }
-  let temp = '';
-  if (h.flowC != null && h.returnC != null) { // scale zoomed around flow and return
+  // flow / return: a scale zoomed around both, the band is the spread
+  if (h.flowC != null && h.returnC != null) {
     const a = Math.min(h.returnC, h.flowC), b = Math.max(h.returnC, h.flowC);
     const mid = (a + b) / 2, half = Math.max(10, (b - a) / 2 + 5);
     const lo = Math.floor((mid - half) / 5) * 5, hi = Math.ceil((mid + half) / 5) * 5;
-    const x = v => Math.max(0, Math.min(100, 100 * (v - lo) / (hi - lo)));
-    temp = `<div class="hpo-temp"><div class="scale"><span class="ln"></span><span class="band" style="left:${x(a).toFixed(1)}%;width:${Math.max(2, x(b) - x(a)).toFixed(1)}%"></span></div>
-      <div class="row"><span>R <b>${num1(h.returnC)}°</b></span><span class="sp">Δ ${num1(h.flowC - h.returnC)} K</span><span>V <b>${num1(h.flowC)}°</b></span></div></div>`;
+    const sx = 92, sw = W - 2 * sx, px = v => x + sx + sw * Math.max(0, Math.min(1, (v - lo) / (hi - lo)));
+    const ly = y + 150;
+    // rects, not lines: a gradient on a line has a zero-height box and stays invisible
+    g += `<rect x="${x + sx}" y="${ly - 1.5}" width="${sw}" height="3" rx="1.5" fill="url(#hoTemp)" opacity=".4"/>`;
+    const bw = Math.max(9, px(b) - px(a) + 9);
+    g += `<rect x="${(px(a) - 4.5).toFixed(1)}" y="${ly - 4.5}" width="${bw.toFixed(1)}" height="9" rx="4.5" fill="url(#hoBand)"/>`;
+    g += t(sx - 10, 154, `RL <tspan class="ho-b">${num1(h.returnC)}°</tspan>`, 'ho-sm', 'end');
+    g += t(W - sx + 10, 154, `VL <tspan class="ho-b">${num1(h.flowC)}°</tspan>`, 'ho-sm');
+    g += `<text x="${cx}" y="${ly - 9}" text-anchor="middle" class="ho-sp">Spreizung ${num1(h.flowC - h.returnC)} K</text>`;
   }
-  const chips = [h.outdoorC != null ? `<span>außen <b>${num1(h.outdoorC)}°</b></span>` : '', h.hotWaterC != null ? `<span>Warmwasser <b>${num1(h.hotWaterC)}°</b></span>` : ''].join('');
-  return `<div class="hpo-hd">${iconSVG('heatpump', 15)}<b>${esc(c.name || h.name)}</b>${h.state ? `<span class="st">${esc(h.state)}</span>` : ''}<span class="cl" aria-hidden="true">×</span></div>
-    <div class="hpo-top"><div class="g">${gauge}<div class="v"><b>${cop != null ? num1(cop) : '–'}</b><span>COP</span></div></div>
-      <div class="k"><div><span>Wärme</span><b>${th != null ? num1(th / 1000) : '–'}<small>kW</small></b></div><div><span>Strom</span><b>${el != null ? num1(el / 1000) : '–'}<small>kW</small></b></div></div></div>
-    ${split}${temp}${chips ? `<div class="hpo-chips">${chips}</div>` : ''}${h.error ? `<div class="hpo-err">${esc(h.error)}</div>` : ''}`;
+  const foot = [h.outdoorC != null ? `außen ${num1(h.outdoorC)}°` : '', h.hotWaterC != null ? `Warmwasser ${num1(h.hotWaterC)}°` : ''].filter(Boolean).join('  ·  ');
+  if (foot) g += `<text x="${cx}" y="${y + 178}" text-anchor="middle" class="ho-sm">${foot}</text>`;
+  if (h.error) g += `<text x="${cx}" y="${y + 178}" text-anchor="middle" class="ho-err">${esc(h.error)}</text>`;
+  return `<defs><linearGradient id="hoTemp"><stop offset="0" stop-color="#4a90d9"/><stop offset=".6" stop-color="#e8a317"/><stop offset="1" stop-color="#d9534f"/></linearGradient>
+    <linearGradient id="hoBand"><stop offset="0" stop-color="#4a90d9"/><stop offset="1" stop-color="#e8743b"/></linearGradient></defs>${g}`;
 }
 function toggleHeat(e) {
   const n = e.target.closest('[data-heat]');
@@ -1158,7 +1163,8 @@ async function refresh() {
     const [st, plan, hist] = await Promise.all([fetch('api/state').then(r => r.json()),
       can.forecast ? fetch('api/plan').then(r => r.json()) : null, can.forecast ? loadHistory() : []]);
     if (can.flow) { drawFlow(st); refreshToday(); }
-    if (can.heat) renderHeat(st);
+    // the heat pump details live in the energy flow (click); the card is for users without it
+    if (can.heat && !can.flow) renderHeat(st); else $('heat').hidden = true;
     if (plan) {
       $('bTitle').textContent = PLAN_TITLE[plan.mode] || modes[plan.mode] || 'Ladeplanung';
       $('limit').innerHTML = 'Ladegrenze <b>' + esc(!st.controlled ? 'nur Empfehlung' : (st.chargeLimitW < 0 ? 'keine' : kw(st.chargeLimitW))) + '</b>';
