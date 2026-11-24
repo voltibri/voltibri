@@ -24,7 +24,9 @@ type level int
 const (
 	levelPublic   level = iota
 	levelUser           // any signed-in user
-	levelOverview       // energy flow, battery, heating
+	levelOverview       // any of energy flow, forecast, heat pump (the answer is filtered)
+	levelFlow           // energy flow and day totals
+	levelForecast       // battery plan and forecast
 	levelReports        // reports (filtered to the user's vehicles)
 	levelAdmin          // administrator
 	levelElevated       // administrator with a recent login (configuration)
@@ -38,8 +40,12 @@ func levelFor(method, path string) level {
 		return levelPublic
 	case "/", "/konto", "/api/status", "/api/drivers", "/api/auth/logout", "/api/auth/reauth", "/api/charging":
 		return levelUser
-	case "/api/state", "/api/plan", "/api/history", "/api/today":
+	case "/api/state":
 		return levelOverview
+	case "/api/today":
+		return levelFlow
+	case "/api/plan", "/api/history":
+		return levelForecast
 	case "/berichte", "/api/assets", "/api/sessions":
 		return levelReports
 	case "/konfiguration", "/api/oauth/callback":
@@ -89,6 +95,10 @@ func (h *handler) authenticate(next http.Handler) http.Handler {
 		switch lv {
 		case levelOverview:
 			ok = p.Overview()
+		case levelFlow:
+			ok = p.Flow()
+		case levelForecast:
+			ok = p.Forecast()
 		case levelReports:
 			ok = p.Reports()
 		case levelAdmin, levelElevated:
@@ -303,7 +313,10 @@ type meResponse struct {
 	Admin         bool            `json:"admin"`
 	Elevated      bool            `json:"elevated"`
 	ElevatedUntil time.Time       `json:"elevatedUntil,omitzero"`
-	Overview      bool            `json:"overview"`
+	Overview      bool            `json:"overview"` // any of flow, forecast, heat
+	Flow          bool            `json:"flow"`
+	Forecast      bool            `json:"forecast"`
+	Heat          bool            `json:"heat"`
 	Reports       bool            `json:"reports"`
 	Loadpoints    []string        `json:"loadpoints"` // nil: all
 	Vehicles      []string        `json:"vehicles"`   // nil: all
@@ -319,7 +332,7 @@ type sessionView struct {
 func (h *handler) me(w http.ResponseWriter, r *http.Request) {
 	p := auth.From(r.Context())
 	now := time.Now()
-	out := meResponse{User: p.User, Admin: p.Admin(), Elevated: p.Elevated(now), Overview: p.Overview(), Reports: p.Reports(),
+	out := meResponse{User: p.User, Admin: p.Admin(), Elevated: p.Elevated(now), Overview: p.Overview(), Flow: p.Flow(), Forecast: p.Forecast(), Heat: p.Heat(), Reports: p.Reports(),
 		Loadpoints: p.Loadpoints(), Vehicles: p.Vehicles()}
 	if out.Elevated {
 		out.ElevatedUntil = p.Session.ElevatedUntil

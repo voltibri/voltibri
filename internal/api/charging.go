@@ -322,7 +322,7 @@ func visibleCharging(p *auth.Principal, res *chargingResponse) {
 		}
 		if foreign(p, lp) {
 			lp.Foreign = true
-			lp.Vehicle, lp.VehicleName, lp.Manual, lp.Card, lp.Reason, lp.Plan = "", "belegt", false, "", "", nil
+			lp.Vehicle, lp.VehicleName, lp.Manual, lp.Card, lp.Reason, lp.Plan, lp.Finish = "", "belegt", false, "", "", nil, nil
 			if lp.Session != nil {
 				lp.Session = &charging.Session{Start: lp.Session.Start, EnergyWh: lp.Session.EnergyWh}
 			}

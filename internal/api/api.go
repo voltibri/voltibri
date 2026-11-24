@@ -91,7 +91,7 @@ func Handler(rt Runtime, st *store.Store) http.Handler {
 		slog.Warn("no user yet: create the first administrator on this machine or open /login?setup=" + h.setupToken)
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/state", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, rt.State()) })
+	mux.HandleFunc("GET /api/state", h.state)
 	mux.HandleFunc("GET /api/plan", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, rt.Plan()) })
 	mux.HandleFunc("GET /api/status", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, rt.Status()) })
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {

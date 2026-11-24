@@ -510,3 +510,32 @@ func setupVehicle(t *testing.T, dev config.Device, capWh float64, prov fakeProvi
 	m.refreshVehicles(context.Background())
 	return m, ch
 }
+
+func TestFinishAndPhases(t *testing.T) {
+	now := t0
+	nan := math.NaN()
+	// 40 % -> limit 80 % of 60 kWh = 24 kWh / 0.85 at 11 kW: about 2 h 34 min
+	f := finish(sdk.VehicleStatus{SoC: 0.4, LimitSoC: 0.8}, 60000, nil, true, 11000, now)
+	if f == nil || f.Basis != "limit" || f.At.Sub(now) < 2*time.Hour+30*time.Minute || f.At.Sub(now) > 2*time.Hour+40*time.Minute {
+		t.Fatalf("limit: %+v", f)
+	}
+	// plan wins; not charging: no time, but the need
+	if f := finish(sdk.VehicleStatus{SoC: 0.4, LimitSoC: 0.8}, 60000, &Schedule{SoC: 0.6}, false, 0, now); f.Basis != "plan" || !f.At.IsZero() || f.NeedWh < 13000 {
+		t.Fatalf("plan: %+v", f)
+	}
+	if f := finish(sdk.VehicleStatus{SoC: 0.8, LimitSoC: 0.8}, 60000, nil, false, 0, now); !f.Reached {
+		t.Fatalf("reached: %+v", f)
+	}
+	if f := finish(sdk.VehicleStatus{SoC: nan, LimitSoC: nan}, 60000, nil, true, 11000, now); f != nil {
+		t.Fatalf("unknown SoC: %+v", f)
+	}
+	for _, c := range []struct {
+		st   sdk.ChargerStatus
+		on   bool
+		want int
+	}{{sdk.ChargerStatus{PowerW: 11000, Phases: 3}, true, 3}, {sdk.ChargerStatus{PowerW: 3600}, true, 1}, {sdk.ChargerStatus{PowerW: 9000}, true, 3}, {sdk.ChargerStatus{PowerW: 5000, Phases: 1}, false, 0}} {
+		if got := livePhases(c.st, c.on); got != c.want {
+			t.Errorf("phases %+v: %d", c.st, got)
+		}
+	}
+}

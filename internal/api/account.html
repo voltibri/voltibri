@@ -59,7 +59,7 @@ function agentName(a) {
 function render() {
   const u = acct.user;
   const rights = acct.admin ? 'Administrator – alles, auch die Konfiguration' :
-    [acct.overview ? 'Übersicht' : '', acct.reports ? 'Berichte deiner Fahrzeuge' : '', (acct.loadpoints || []).length ? `${acct.loadpoints.length} Wallbox${acct.loadpoints.length === 1 ? '' : 'en'}` : '',
+    [acct.flow ? 'Energiefluss' : '', acct.forecast ? 'Prognose' : '', acct.heat ? 'Wärmepumpe' : '', acct.reports ? 'Berichte deiner Fahrzeuge' : '', (acct.loadpoints || []).length ? `${acct.loadpoints.length} Wallbox${acct.loadpoints.length === 1 ? '' : 'en'}` : '',
      (acct.vehicles || []).length ? `${acct.vehicles.length} Fahrzeug${acct.vehicles.length === 1 ? '' : 'e'}` : ''].filter(Boolean).join(' · ') || 'noch keine Freigaben – bitte an den Administrator wenden';
   $('profile').innerHTML = `<form class="inner" id="pf">
     <h2>${iconSVG('user', 20)} ${esc(u.name || u.login)}<span class="chip">${acct.admin ? 'Administrator' : 'Benutzer'}</span></h2>

@@ -825,7 +825,9 @@ const wallboxes = () => (D.cfg.devices || []).filter(d => assetOf(d.id).kind ===
 const ownVehicles = () => (D.cfg.devices || []).filter(d => d.type === 'vehicle' && !assetOf(d.id).retired);
 function groupRights(g) {
   const out = [];
-  if (g.overview) out.push('Übersicht');
+  if (g.flow) out.push('Energiefluss');
+  if (g.forecast) out.push('Prognose');
+  if (g.heat) out.push('Wärmepumpe');
   if (g.reports) out.push('Berichte');
   if ((g.loadpoints || []).length) out.push('Wallbox: ' + g.loadpoints.map(devName).join(', '));
   if ((g.vehicles || []).length) out.push('Fahrzeug: ' + g.vehicles.map(devName).join(', '));
@@ -893,8 +895,8 @@ function openUser(id) {
   const self = window.ME && window.ME.user.id === id;
   $('udTitle').textContent = id ? (u.name || u.login) + ' bearbeiten' : 'Benutzer anlegen';
   $('udBody').innerHTML = `<div class="stack">
-    <div class="row2"><label class="f" for="u_name">Name<input type="text" id="u_name" value="${esc(u.name)}" placeholder="z. B. Josi" autocomplete="off"></label>
-      <label class="f" for="u_login">Benutzername *<input type="text" id="u_login" value="${esc(u.login)}" placeholder="z. B. josi" autocomplete="off" autocapitalize="none"></label></div>
+    <div class="row2"><label class="f" for="u_name">Name<input type="text" id="u_name" value="${esc(u.name)}" placeholder="z. B. Maria Muster" autocomplete="off"></label>
+      <label class="f" for="u_login">Benutzername *<input type="text" id="u_login" value="${esc(u.login)}" placeholder="z. B. maria" autocomplete="off" autocapitalize="none"></label></div>
     <label class="f" for="u_mail">E-Mail<input type="text" id="u_mail" value="${esc(u.email || '')}" autocomplete="off" inputmode="email"></label>
     <label class="f" for="u_role">Rolle<select id="u_role"${self ? ' disabled' : ''}><option value="user"${u.role !== 'admin' ? ' selected' : ''}>Benutzer – sieht nur, was die Gruppen freigeben</option>
       <option value="admin"${u.role === 'admin' ? ' selected' : ''}>Administrator – alles, auch Konfiguration und Benutzer</option></select></label>
@@ -916,18 +918,21 @@ function openUser(id) {
 }
 
 function openGroup(id) {
-  const g = id ? D.groups.find(x => x.id === id) : {name: '', overview: false, reports: true, loadpoints: [], vehicles: []};
+  const g = id ? D.groups.find(x => x.id === id) : {name: '', flow: false, forecast: false, heat: false, reports: true, loadpoints: [], vehicles: []};
   const box = (attr, list, sel) => list.map(d => `<label class="f cb"><input type="checkbox" ${attr}="${esc(d.id)}"${sel.includes(d.id) ? ' checked' : ''}> ${esc(d.name || d.id)}</label>`).join('');
   $('udTitle').textContent = id ? 'Gruppe ' + g.name : 'Gruppe anlegen';
   $('udBody').innerHTML = `<div class="stack">
-    <label class="f" for="g_name">Name *<input type="text" id="g_name" value="${esc(g.name)}" placeholder="z. B. Dräger" autocomplete="off"></label>
+    <label class="f" for="g_name">Name *<input type="text" id="g_name" value="${esc(g.name)}" placeholder="z. B. Familie oder Nachbarn" autocomplete="off"></label>
     <fieldset class="roles"><legend>Wallboxen</legend>${box('data-glp', wallboxes(), g.loadpoints) || '<span class="why">Keine Wallboxen.</span>'}
       <span class="why">Mitglieder sehen und steuern diese Wallboxen – solange kein fremdes Fahrzeug lädt (dann sehen sie nur „belegt“).</span></fieldset>
     <fieldset class="roles"><legend>Fahrzeuge</legend>${box('data-gveh', ownVehicles(), g.vehicles) || '<span class="why">Keine Fahrzeuge.</span>'}
       <span class="why">Lademodus und Ladeplan dieser Fahrzeuge; an den Wallboxen auswählbar.</span></fieldset>
     <fieldset class="roles"><legend>Weitere Freigaben</legend>
       <label class="f cb"><input type="checkbox" id="g_rep"${g.reports ? ' checked' : ''}> Berichte – Ladevorgänge, kWh und Kosten der Fahrzeuge oben</label>
-      <label class="f cb"><input type="checkbox" id="g_ov"${g.overview ? ' checked' : ''}> Übersicht – Energiefluss, Hausbatterie, Heizung</label></fieldset>
+      <label class="f cb"><input type="checkbox" id="g_flow"${g.flow ? ' checked' : ''}> Energiefluss – aktuelle Leistungen und Tageswerte (Autarkie, Erzeugung)</label>
+      <label class="f cb"><input type="checkbox" id="g_fc"${g.forecast ? ' checked' : ''}> Prognose – Batterieplanung, PV-Prognose, Soll und Ist</label>
+      <label class="f cb"><input type="checkbox" id="g_heat"${g.heat ? ' checked' : ''}> Wärmepumpe – Wärmeleistung, COP, Temperaturen</label>
+      <span class="why">Ohne „Wärmepumpe“ zeigt der Energiefluss die Heizung nur als Summe: ohne COP und ohne Aufklappen der einzelnen Geräte.</span></fieldset>
   </div>`;
   $('udErr').textContent = '';
   $('udActions').innerHTML = `${id ? '<button type="button" class="btn danger" data-gdel>Löschen</button><span class="spacer"></span>' : ''}
@@ -961,7 +966,7 @@ $('udForm').addEventListener('submit', async e => {
       await sendJSON(id ? 'PUT' : 'POST', 'api/auth/providers' + (id ? '/' + encodeURIComponent(id) : ''),
         {name: $('p_name').value, issuer: $('p_iss').value, clientId: $('p_cid').value, clientSecret: $('p_sec').value});
     } else {
-      await sendJSON(id ? 'PUT' : 'POST', 'api/groups' + (id ? '/' + encodeURIComponent(id) : ''), {name: $('g_name').value, overview: $('g_ov').checked, reports: $('g_rep').checked,
+      await sendJSON(id ? 'PUT' : 'POST', 'api/groups' + (id ? '/' + encodeURIComponent(id) : ''), {name: $('g_name').value, flow: $('g_flow').checked, forecast: $('g_fc').checked, heat: $('g_heat').checked, reports: $('g_rep').checked,
         loadpoints: [...d.querySelectorAll('[data-glp]:checked')].map(x => x.dataset.glp), vehicles: [...d.querySelectorAll('[data-gveh]:checked')].map(x => x.dataset.gveh)});
     }
     d.close();

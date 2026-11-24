@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"text/tabwriter"
 	"time"
+	_ "time/tzdata" // time zones also in minimal container images
 
 	"github.com/voltibri/voltibri/internal/api"
 	"github.com/voltibri/voltibri/internal/calendar"

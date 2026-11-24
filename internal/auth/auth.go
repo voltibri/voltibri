@@ -5,7 +5,7 @@
 // decides what a signed-in user may see and do.
 //
 // Roles: an administrator may do everything; a user only what the groups
-// grant (overview, reports, wallboxes, vehicles). Without a session nothing
+// grant (energy flow, forecast, heat pump, reports, wallboxes, vehicles). Without a session nothing
 // but the login page is reachable.
 //
 // Sessions run long (everyday use: switching a wallbox from the phone), but
@@ -66,7 +66,9 @@ func (u User) DisplayName() string {
 type Group struct {
 	ID         string   `json:"id"`
 	Name       string   `json:"name"`
-	Overview   bool     `json:"overview"`   // energy flow, battery, heating, today
+	Flow       bool     `json:"flow"`       // energy flow and day totals
+	Forecast   bool     `json:"forecast"`   // battery plan and forecast chart
+	Heat       bool     `json:"heat"`       // heat pump details (COP, temperatures, heating devices one by one)
 	Reports    bool     `json:"reports"`    // charging reports of the group's vehicles
 	Loadpoints []string `json:"loadpoints"` // wallboxes (charger device ids)
 	Vehicles   []string `json:"vehicles"`   // vehicle asset ids
@@ -133,7 +135,9 @@ var ErrNotFound = errors.New("not found")
 type Principal struct {
 	User       User
 	Session    Session
-	overview   bool
+	flow       bool
+	forecast   bool
+	heat       bool
 	reports    bool
 	loadpoints map[string]bool
 	vehicles   map[string]bool
@@ -146,7 +150,9 @@ func NewPrincipal(u User, s Session, groups []Group) *Principal {
 		if !slices.Contains(u.Groups, g.ID) {
 			continue
 		}
-		p.overview = p.overview || g.Overview
+		p.flow = p.flow || g.Flow
+		p.forecast = p.forecast || g.Forecast
+		p.heat = p.heat || g.Heat
 		p.reports = p.reports || g.Reports
 		for _, l := range g.Loadpoints {
 			p.loadpoints[l] = true
@@ -166,8 +172,17 @@ func (p *Principal) Elevated(now time.Time) bool {
 	return p.Admin() && now.Before(p.Session.ElevatedUntil)
 }
 
-// Overview: energy flow, battery plan, heating.
-func (p *Principal) Overview() bool { return p.Admin() || (p != nil && p.overview) }
+// Flow: energy flow and day totals.
+func (p *Principal) Flow() bool { return p.Admin() || (p != nil && p.flow) }
+
+// Forecast: battery plan, forecast and plan/actual chart.
+func (p *Principal) Forecast() bool { return p.Admin() || (p != nil && p.forecast) }
+
+// Heat: heat pump details (COP, temperatures, heating devices one by one).
+func (p *Principal) Heat() bool { return p.Admin() || (p != nil && p.heat) }
+
+// Overview: any part of the overview beyond the wallboxes.
+func (p *Principal) Overview() bool { return p.Flow() || p.Forecast() || p.Heat() }
 
 // Reports: charging reports (admins: all, users: their vehicles).
 func (p *Principal) Reports() bool { return p.Admin() || (p != nil && p.reports) }

@@ -103,6 +103,20 @@ type Loadpoint struct {
 	LimitBy         string    `json:"limitBy,omitempty"`         // circuit that limits
 	BatteryExcluded bool      `json:"batteryExcluded,omitempty"` // the home battery is held back for this charging
 	Foreign         bool      `json:"foreign,omitempty"`         // set by the API: another user's vehicle is connected (details hidden)
+	ActivePhases    int       `json:"activePhases"`              // phases the car draws on right now (0 = not charging)
+	PhaseCurrentA   float64   `json:"phaseCurrentA"`             // current per active phase right now
+	Finish          *Finish   `json:"finish,omitempty"`          // expected end of charging (own vehicle with state of charge)
+}
+
+// Finish is the expected end of a charging session: when the vehicle reaches
+// its target at the current power. Basis says where the target comes from:
+// "plan" (charge plan), "limit" (charge limit set in the car) or "full".
+type Finish struct {
+	At        time.Time `json:"at,omitzero"` // zero while not charging
+	TargetSoC float64   `json:"targetSoc"`
+	Basis     string    `json:"basis"`
+	NeedWh    float64   `json:"needWh"`
+	Reached   bool      `json:"reached,omitempty"`
 }
 
 // SiteInput is the site state for one control tick.
@@ -798,6 +812,13 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 		}
 		lp.state = d.State
 		v.Target, v.Reason = d.State, d.Reason
+		v.ActivePhases, v.PhaseCurrentA, v.Finish = livePhases(st, v.Charging), 0, nil
+		if v.ActivePhases > 0 {
+			v.PhaseCurrentA = v.PowerW / Voltage / float64(v.ActivePhases)
+		}
+		if veh, ok := m.vehicles[v.Vehicle]; ok && v.Connected {
+			v.Finish = finish(veh.status, vs.CapacityWh, v.Plan, v.Charging, v.PowerW, in.Now)
+		}
 		if in.Circuits != nil {
 			next := own // observed or external: the charger keeps drawing what it draws
 			if lp.ctl != nil && mode != ModeExternal {
@@ -1022,4 +1043,41 @@ func (m *Manager) Cards(ctx context.Context) []string {
 		}
 	}
 	return out
+}
+
+// livePhases are the phases the car draws on: as reported by the charger,
+// else estimated from the power.
+func livePhases(st sdk.ChargerStatus, charging bool) int {
+	switch {
+	case !charging || st.PowerW < 100:
+		return 0
+	case st.Phases > 0:
+		return st.Phases
+	case st.PowerW > 1.15*Voltage*16: // more than one phase can carry
+		return 3
+	}
+	return 1
+}
+
+// finish estimates the end of charging at the current power. The target is
+// the plan, else the charge limit in the car, else full.
+func finish(st sdk.VehicleStatus, capacityWh float64, plan *Schedule, charging bool, powerW float64, now time.Time) *Finish {
+	if math.IsNaN(st.SoC) || capacityWh <= 0 {
+		return nil
+	}
+	f := &Finish{TargetSoC: 1, Basis: "full"}
+	switch {
+	case plan != nil:
+		f.TargetSoC, f.Basis = plan.SoC, "plan"
+	case !math.IsNaN(st.LimitSoC) && st.LimitSoC > 0:
+		f.TargetSoC, f.Basis = st.LimitSoC, "limit"
+	}
+	f.NeedWh = NeedWh(st.SoC, f.TargetSoC, capacityWh)
+	switch {
+	case f.NeedWh < 50:
+		f.Reached = true
+	case charging && powerW >= 300:
+		f.At = now.Add(time.Duration(f.NeedWh / powerW * float64(time.Hour))).Truncate(time.Minute)
+	}
+	return f
 }

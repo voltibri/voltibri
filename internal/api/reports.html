@@ -196,34 +196,36 @@ async function init() {
     F.kind = 'charging';
     $('kinds').hidden = true;
   }
-  const [as, all] =await Promise.all([fetch('api/assets').then(r => r.json()), fetch('api/runs/summary').then(r => r.json())]);
+  const as = await fetch('api/assets').then(r => r.json());
   as.forEach(a => assets[a.id] = a);
-  fillAssets(all);
   sync();
   load();
 }
 
+// devices with runs or consumption in the selected period; the chosen one
+// stays selectable, so paging through periods keeps it
 function fillAssets(all) {
-  const ids = [...new Set(all.filter(s => !F.kind || s.kind === F.kind).map(s => s.asset))];
+  const ids = [...new Set(all.filter(s => (!F.kind || s.kind === F.kind) && (s.count > 0 || s.energyWh > 0)).map(s => s.asset))];
+  if (F.asset && !ids.includes(F.asset)) ids.push(F.asset);
   ids.sort((a, b) => name(a).localeCompare(name(b), 'de'));
   $('asset').innerHTML = '<option value="">Alle Geräte</option>' + ids.map(id =>
     `<option value="${esc(id)}">${esc(name(id))}${assets[id] && assets[id].retired ? ' (stillgelegt)' : ''}</option>`).join('');
-  if (!ids.includes(F.asset)) F.asset = '';
+  $('asset').value = F.asset;
   window._summary = all;
 }
 const name = id => (assets[id] && assets[id].name) || id;
 
-// vehicles of the selected kind and device (all periods, so switching the
-// period keeps the choice); only where runs have vehicles
+// vehicles with runs of the selected kind and device in the selected period
+// (the chosen one stays selectable); only where runs have vehicles
 async function fillVehicles() {
-  const sel = $('vehicle');
+  const sel = $('vehicle'), r = range();
   const vs = F.kind === 'charging' || F.kind === ''
-    ? await fetch('api/runs/vehicles?' + new URLSearchParams(Object.entries({kind: F.kind, asset: F.asset}).filter(([, v]) => v))).then(r => r.json()).catch(() => [])
+    ? await fetch('api/runs/vehicles?' + new URLSearchParams(Object.entries({kind: F.kind, asset: F.asset, from: r.from, to: r.to}).filter(([, v]) => v))).then(r => r.json()).catch(() => [])
     : [];
+  if (F.vehicle && !vs.some(v => v.name === F.vehicle)) vs.push({name: F.vehicle, count: 0});
   sel.hidden = !vs.length;
   sel.innerHTML = '<option value="">Alle Fahrzeuge</option>' + vs.map(v =>
     `<option value="${esc(v.name)}">${esc(v.guest ? 'Gastfahrzeuge' : v.name)} (${v.count})</option>`).join('');
-  if (!vs.some(v => v.name === F.vehicle)) F.vehicle = '';
   sel.value = F.vehicle;
 }
 
@@ -244,7 +246,10 @@ function sync() {
 }
 
 async function load() {
-  await fillVehicles();
+  // the filter lists follow the period (all kinds, without device/vehicle filter)
+  const r0 = range();
+  const [avail] = await Promise.all([fetch('api/runs/summary?' + new URLSearchParams({from: r0.from, to: r0.to})).then(x => x.json()).catch(() => []), fillVehicles()]);
+  fillAssets(avail);
   sync();
   const r = range();
   const [series, per] = await Promise.all([fetch(`api/runs/series?bucket=${r.bucket}&` + query()).then(x => x.json()), fetch('api/runs/summary?' + query()).then(x => x.json())]);

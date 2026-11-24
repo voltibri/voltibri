@@ -33,6 +33,44 @@
     .stat .big { font-size:22px; } .stat .big small { font-size:11px; }
     .stat .eyebrow { font-size:9.5px; letter-spacing:.04em; } .stat .sub { font-size:10.5px; line-height:1.3; }
   }
+  /* heat pump: opens into an oval below the circle (energy flow) */
+  .hpnode > circle:first-of-type { transition:stroke-width .15s; }
+  .hpoval { cursor:pointer; outline:none; }
+  .hpoval > rect { filter:drop-shadow(0 6px 18px rgba(0,0,0,.10)); }
+  .hpoval:focus-visible > rect { stroke-width:3.5; }
+  .hpoval.pop { animation:ovalin .28s ease-out; transform-origin:50% 0; transform-box:fill-box; }
+  @keyframes ovalin { from { opacity:0; transform:scale(.6); } }
+  @media (prefers-reduced-motion: reduce) { .hpoval.pop { animation:none; } }
+  .hpov { box-sizing:border-box; height:100%; padding:12px 24px 10px; justify-content:center; display:flex; flex-direction:column; gap:8px; font:12px/1.3 system-ui, -apple-system, "Segoe UI", sans-serif; color:var(--fg); }
+  .hpo-hd { display:flex; align-items:center; gap:6px; justify-content:center; color:var(--consumer); }
+  .hpo-hd b { color:var(--fg); font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .hpo-hd .st { font-size:10px; font-weight:650; color:var(--muted); background:var(--track); border-radius:99px; padding:1px 7px; white-space:nowrap; }
+  .hpo-hd .cl { color:var(--muted); font-size:15px; margin-left:2px; }
+  .hpo-top { display:grid; grid-template-columns:96px 1fr; gap:10px; align-items:center; }
+  .hpo-top .g { position:relative; height:58px; }
+  .hpo-top .g svg { width:96px; height:58px; display:block; }
+  .hpo-top .g .v { position:absolute; left:0; right:0; bottom:-2px; text-align:center; line-height:1; }
+  .hpo-top .g .v b { display:block; font-size:24px; font-weight:300; letter-spacing:-.04em; font-variant-numeric:tabular-nums; }
+  .hpo-top .g .v span { font-size:9px; font-weight:750; letter-spacing:.1em; color:var(--muted); }
+  .hpo-top .k { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  .hpo-top .k div { display:flex; flex-direction:column; }
+  .hpo-top .k span { font-size:9.5px; font-weight:650; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
+  .hpo-top .k b { font-size:20px; font-weight:300; letter-spacing:-.03em; font-variant-numeric:tabular-nums; }
+  .hpo-top .k small { font-size:10px; color:var(--muted); margin-left:2px; font-weight:500; }
+  .hpo-split .bar { display:flex; height:8px; border-radius:4px; overflow:hidden; background:var(--track); }
+  .hpo-split .bar .el { background:var(--grid); }
+  .hpo-split .bar .amb { background:linear-gradient(90deg, var(--accent), var(--battery)); }
+  .hpo-split .lg { display:flex; justify-content:space-between; font-size:10.5px; color:var(--muted); margin-top:3px; }
+  .hpo-split .lg i { display:inline-block; width:7px; height:7px; border-radius:2px; margin-right:4px; }
+  .hpo-temp .scale { position:relative; height:10px; }
+  .hpo-temp .ln { position:absolute; left:0; right:0; top:4px; height:2px; border-radius:1px; background:linear-gradient(90deg, #4a90d9, #e8a317 60%, #d9534f); opacity:.35; }
+  .hpo-temp .band { position:absolute; top:1px; height:8px; border-radius:4px; background:linear-gradient(90deg, #4a90d9, #e8743b); }
+  .hpo-temp .row { display:flex; justify-content:space-between; font-size:10.5px; color:var(--muted); margin-top:3px; font-variant-numeric:tabular-nums; }
+  .hpo-temp .row b { color:var(--fg); }
+  .hpo-temp .sp { color:var(--fg); font-weight:650; }
+  .hpo-chips { display:flex; justify-content:center; gap:6px; }
+  .hpo-chips span { font-size:10.5px; padding:2px 8px; border-radius:99px; background:var(--track); }
+  .hpo-err { font-size:10.5px; color:var(--warn); text-align:center; }
   #flow { width:100%; height:auto; display:block; margin:0 auto; overflow:visible; }
   #flow text { font-variant-numeric:tabular-nums; }
   .track { fill:none; stroke:var(--track); stroke-width:2; }
@@ -52,7 +90,7 @@
   .cardhead h2 { margin:2px 0 0; }
   .cardhead .right { margin-left:auto; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
   /* users without the overview only see their wallboxes */
-  body.restricted [data-overview] { display:none !important; }
+  body.no-flow [data-perm=flow], body.no-forecast [data-perm=forecast], body.no-heat [data-perm=heat] { display:none !important; }
   @media (min-width: 900px) { #bhead { flex-wrap:nowrap; } #bhead .right { flex-wrap:nowrap; white-space:nowrap; } }
   .legend i.dash { background:repeating-linear-gradient(90deg, var(--muted) 0 5px, transparent 5px 9px); opacity:.8; }
   .chip { font-size:12px; padding:3px 10px; border-radius:99px; background:var(--card-2); border:1px solid var(--line); color:var(--muted); white-space:nowrap; }
@@ -61,14 +99,31 @@
   /* wallboxes */
   #laden[hidden] { display:none; }
   .lps { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:12px; }
-  .lp { background:var(--card-2); border:1px solid var(--line); border-radius:18px; padding:16px; display:flex; flex-direction:column; gap:12px; }
+  .lp { position:relative; overflow:hidden; isolation:isolate; background:var(--card-2); border:1px solid var(--line); border-radius:18px; padding:16px; display:flex; flex-direction:column; gap:12px; }
+  /* tiles side by side: the same parts on the same height (rows shared via subgrid) */
+  @supports (grid-template-rows: subgrid) {
+    .lps { row-gap:0; }
+    .lp { display:grid; grid-template-rows:subgrid; grid-row:span 7; gap:0; margin-bottom:12px; align-content:start; }
+    .lp > :not(.wbart):not(:empty) ~ :not(:empty) { margin-top:12px; }
+  }
+  /* big wallbox in the background; its light ring shows the state */
+  .wbart { position:absolute; z-index:-1; right:-26px; top:34px; width:150px; height:250px; color:var(--fg); opacity:.06; pointer-events:none; }
+  .wbart .ring { opacity:1; }
+  .lp.st-charging .wbart { opacity:.09; color:var(--accent); }
+  .lp.st-charging .wbart .ring { animation:gpulse 2.4s ease-in-out infinite; }
+  .lp.st-connected .wbart { opacity:.09; color:var(--accent-2); }
+  @media (prefers-reduced-motion: reduce) { .lp.st-charging .wbart .ring { animation:none; } }
+  .lphead .lpname { display:flex; flex-direction:column; min-width:0; }
+  .lphead .lpname small { font-size:11px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .lphead .lpname b { font-size:18px; font-weight:650; letter-spacing:-.015em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .lphead .lpname b.none { color:var(--muted); font-weight:500; }
   .lphead { display:flex; align-items:center; gap:8px; min-width:0; }
   .lphead h3 { margin:0; font-size:15px; font-weight:650; letter-spacing:-.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
   .lphead .pill { flex:none; }
   .lphead .pw { margin-left:auto; flex:none; white-space:nowrap; font-size:22px; font-weight:300; letter-spacing:-.03em; font-variant-numeric:tabular-nums; }
   .pill { font-size:11px; font-weight:550; padding:2px 9px; border-radius:99px; background:var(--track); color:var(--muted); }
   .pill.on { background:var(--accent-soft); color:var(--accent); }
-  .lpsub { font-size:13px; color:var(--muted); margin-top:-6px; display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  .lpsub { font-size:13px; color:var(--muted); display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
   .vrow { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
   select, input[type=time], input[type=datetime-local], input[type=number] {
     font:inherit; font-size:13px; color:var(--fg); background:var(--card); border:1px solid var(--line); border-radius:9px; padding:5px 8px; }
@@ -98,6 +153,70 @@
   .modes button:disabled { cursor:default; }
   .modes button:disabled:not(.sel) { opacity:.6; }
   .lp details.more > div { display:flex; flex-direction:column; gap:10px; margin-top:10px; }
+  /* charge plan dialog */
+  dialog.plans-dlg { border:0; padding:0; border-radius:24px; background:var(--card); color:var(--fg); width:min(560px, calc(100vw - 24px)); max-height:calc(100dvh - 24px); box-shadow:0 24px 60px rgba(0,0,0,.28); }
+  dialog.plans-dlg::backdrop { background:rgba(10,15,12,.5); backdrop-filter:blur(3px); }
+  .pd { display:flex; flex-direction:column; max-height:calc(100dvh - 24px); }
+  .pd-head { padding:20px 22px 16px; background:linear-gradient(135deg, var(--accent-soft), transparent 70%); border-bottom:1px solid var(--line); }
+  .pd-head .top { display:flex; align-items:flex-start; gap:12px; }
+  .pd-head .ic { width:42px; height:42px; border-radius:13px; background:var(--accent); color:#fff; display:grid; place-items:center; flex:none; }
+  .pd-head h2 { margin:0; font-size:19px; letter-spacing:-.015em; }
+  .pd-head .sub { font-size:13px; color:var(--muted); margin-top:2px; }
+  .pd-head .x { margin-left:auto; border:0; background:transparent; color:var(--muted); font-size:22px; line-height:1; cursor:pointer; padding:4px 6px; border-radius:8px; }
+  .pd-head .x:hover { background:var(--track); color:var(--fg); }
+  .pd-batt { margin-top:14px; }
+  .pd-batt .bar { position:relative; height:12px; border-radius:6px; background:var(--track); overflow:hidden; }
+  .pd-batt .bar i { position:absolute; inset:0 auto 0 0; border-radius:6px; background:linear-gradient(90deg, var(--accent), var(--battery)); }
+  .pd-batt .bar em { position:absolute; top:0; bottom:0; background:repeating-linear-gradient(135deg, color-mix(in srgb, var(--accent-2) 55%, transparent) 0 4px, transparent 4px 8px); }
+  .pd-batt .lbl { display:flex; justify-content:space-between; font-size:12px; color:var(--muted); margin-top:5px; font-variant-numeric:tabular-nums; }
+  .pd-body { padding:18px 22px; overflow:auto; display:flex; flex-direction:column; gap:12px; }
+  .pd-body .hint { font-size:12px; color:var(--muted); line-height:1.45; }
+  .pcard { display:grid; grid-template-columns:auto minmax(0, 1fr) auto; gap:4px 14px; align-items:center; padding:14px 16px; border:1px solid var(--line); border-radius:16px; background:var(--card-2); }
+  .pcard.off { opacity:.55; }
+  .pcard .t { font-size:26px; font-weight:300; letter-spacing:-.03em; font-variant-numeric:tabular-nums; line-height:1; }
+  .pcard .t small { display:block; font-size:11px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); margin-top:4px; }
+  .pcard .mid { min-width:0; }
+  .pcard .soc { font-size:15px; font-weight:650; }
+  .pcard .dchips { display:flex; gap:3px; margin-top:5px; flex-wrap:wrap; }
+  .pcard .dchips span { font-size:10px; font-weight:650; width:22px; height:20px; border-radius:6px; display:grid; place-items:center; background:var(--track); color:var(--muted); }
+  .pcard .dchips span.on { background:var(--accent-soft); color:var(--accent); }
+  .pcard .next { font-size:12px; color:var(--muted); margin-top:5px; }
+  .pcard .acts { display:flex; align-items:center; gap:4px; }
+  .iconbtn { border:0; background:transparent; color:var(--muted); padding:6px; border-radius:9px; cursor:pointer; display:grid; place-items:center; }
+  .iconbtn:hover { background:var(--track); color:var(--fg); }
+  .switch { position:relative; width:38px; height:22px; flex:none; }
+  .switch input { position:absolute; inset:0; opacity:0; margin:0; cursor:pointer; }
+  .switch i { position:absolute; inset:0; border-radius:11px; background:var(--line); transition:background .2s; pointer-events:none; }
+  .switch i::after { content:""; position:absolute; top:3px; left:3px; width:16px; height:16px; border-radius:50%; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.25); transition:transform .2s; }
+  .switch input:checked + i { background:var(--accent); }
+  .switch input:checked + i::after { transform:translateX(16px); }
+  .switch input:focus-visible + i { outline:2px solid var(--accent); outline-offset:2px; }
+  .pempty { text-align:center; padding:18px 10px; color:var(--muted); font-size:13px; border:1px dashed var(--line); border-radius:16px; }
+  .pform { border:1px solid var(--line); border-radius:18px; padding:16px; display:flex; flex-direction:column; gap:16px; background:var(--card-2); }
+  .pform h3 { margin:0; font-size:15px; }
+  .pform .lab { font-size:12px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; margin-bottom:8px; display:flex; justify-content:space-between; align-items:baseline; }
+  .pform .socval { font-size:28px; font-weight:300; letter-spacing:-.03em; color:var(--fg); text-transform:none; font-variant-numeric:tabular-nums; }
+  .pform input[type=range] { width:100%; accent-color:var(--accent); height:28px; }
+  .pform .need { font-size:12px; color:var(--muted); margin-top:2px; }
+  .pform .seg { width:max-content; }
+  .pform .wd { display:grid; grid-template-columns:repeat(7, 1fr); gap:5px; }
+  .pform .wd label { position:relative; }
+  .pform .wd input { position:absolute; opacity:0; inset:0; margin:0; cursor:pointer; }
+  .pform .wd span { display:grid; place-items:center; height:36px; border-radius:10px; background:var(--track); font-size:13px; font-weight:600; color:var(--muted); transition:background .15s, color .15s; }
+  .pform .wd input:checked + span { background:var(--accent); color:#fff; }
+  .pform .wd input:focus-visible + span { outline:2px solid var(--accent); outline-offset:2px; }
+  .pform .presets { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+  .pform .presets button { font:inherit; font-size:12px; border:1px solid var(--line); background:var(--card); color:var(--muted); border-radius:99px; padding:3px 10px; cursor:pointer; }
+  .pform .presets button:hover { color:var(--fg); }
+  .pform .timein { font:inherit; font-size:22px; font-weight:300; padding:6px 10px; border:1px solid var(--line); border-radius:12px; background:var(--card); color:var(--fg); font-variant-numeric:tabular-nums; }
+  .pform .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .pd-foot { padding:14px 22px 18px; border-top:1px solid var(--line); display:flex; gap:8px; justify-content:flex-end; align-items:center; }
+  .pd-foot .err { color:var(--warn); font-size:13px; margin-right:auto; }
+  .pd-foot .btn { padding:8px 14px; font-size:14px; }
+  .planline { display:flex; align-items:center; gap:10px; font-size:13px; }
+  .planline .txt { flex:1; min-width:0; }
+  .planline .txt b { display:block; }
+  .planline .txt span { color:var(--muted); font-size:12px; }
   .planbox { display:flex; flex-direction:column; gap:8px; font-size:13px; }
   .planbox .ttl { font-weight:600; font-size:13px; }
   .plans { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:4px; }
@@ -106,9 +225,56 @@
   .days { display:flex; gap:3px; }
   .days label { font-size:11px; display:flex; flex-direction:column; align-items:center; gap:1px; }
   .sess { display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--muted); }
+  /* wallbox tile: power gauge | phases, vehicle, end of charging */
+  .lpviz { display:grid; grid-template-columns:112px minmax(0, 1fr); gap:16px; align-items:center; }
+  .gauge { position:relative; width:112px; height:112px; }
+  .gauge svg { display:block; width:112px; height:112px; transform:rotate(135deg); }
+  .gauge .trk { fill:none; stroke:var(--track); stroke-width:9; stroke-linecap:round; }
+  .gauge .val { fill:none; stroke:var(--accent); stroke-width:9; stroke-linecap:round; transition:stroke-dasharray .6s ease; }
+  .gauge.idle .val { stroke:var(--muted); opacity:.5; }
+  .gauge.charging .val { animation:gpulse 2.4s ease-in-out infinite; }
+  @keyframes gpulse { 50% { opacity:.65; } }
+  @media (prefers-reduced-motion: reduce) { .gauge.charging .val { animation:none; } }
+  .gauge .mid { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; }
+  .gauge .mid b { font-size:26px; font-weight:300; letter-spacing:-.03em; line-height:1; font-variant-numeric:tabular-nums; }
+  .gauge .mid b small { font-size:12px; font-weight:500; margin-left:2px; color:var(--muted); }
+  .gauge .mid span { font-size:11px; color:var(--muted); margin-top:4px; }
+  .gauge .mid svg { transform:none; width:26px; height:26px; color:var(--muted); }
+  .lpinfo { display:flex; flex-direction:column; gap:10px; min-width:0; }
+  .phases { display:flex; align-items:flex-end; gap:10px; }
+  .phases .ph { display:flex; flex-direction:column; align-items:center; gap:3px; font-size:10px; font-weight:600; color:var(--muted); }
+  .phases .bar { width:10px; height:30px; border-radius:5px; background:var(--track); position:relative; overflow:hidden; }
+  .phases .bar i { position:absolute; left:0; right:0; bottom:0; background:var(--accent); border-radius:5px; transition:height .6s ease; }
+  .phases .ph.on { color:var(--fg); }
+  .phases .txt { font-size:12px; color:var(--muted); line-height:1.35; margin-left:2px; }
+  .phases .txt b { color:var(--fg); font-weight:600; }
+  .eta { display:flex; gap:9px; align-items:flex-start; font-size:13px; line-height:1.3; }
+  .eta svg { flex:none; color:var(--accent); margin-top:1px; }
+  .eta b { font-size:15px; font-weight:650; font-variant-numeric:tabular-nums; }
+  .eta span { display:block; font-size:12px; color:var(--muted); }
+  .eta.muted svg { color:var(--muted); }
+  .socbar u { position:absolute; top:-3px; bottom:-3px; width:2px; background:var(--accent-2); text-decoration:none; }
+  @media (max-width: 420px) { .lpviz { grid-template-columns:96px minmax(0, 1fr); gap:12px; } .gauge, .gauge svg { width:96px; height:96px; } .gauge .mid b { font-size:22px; } }
   .sess b { color:var(--fg); font-variant-numeric:tabular-nums; }
-  #lveh:not(:empty) { margin-top:14px; }
-  #lveh details.more > div { margin-top:10px; display:flex; flex-direction:column; gap:8px; }
+  /* the wallboxes sit on the page itself (no card around the cards) */
+  /* law of proximity: the heading sits clearly closer to its wallboxes than to the card above */
+  section.bare { padding:0 2px; margin-top:28px; }
+  section.bare + .card { margin-top:16px; }
+  section.bare .cardhead { padding:0 4px; margin-bottom:10px; }
+  section.bare .lp { background:var(--card); border-color:transparent; box-shadow:var(--shadow); }
+  #vehNote { margin-bottom:12px; }
+  .hbtn { display:inline-flex; align-items:center; gap:6px; font:inherit; font-size:13px; font-weight:600; color:var(--fg); background:var(--card); border:1px solid var(--line); border-radius:99px; padding:5px 12px 5px 9px; cursor:pointer; box-shadow:var(--shadow); }
+  .hbtn:hover { border-color:color-mix(in srgb, var(--accent) 45%, var(--line)); }
+  .hbtn .n { font-size:11px; font-weight:700; background:var(--accent-soft); color:var(--accent); border-radius:99px; padding:1px 7px; }
+  /* vehicles dialog */
+  .vcard { display:grid; grid-template-columns:44px minmax(0, 1fr) auto; gap:4px 14px; align-items:center; padding:14px 16px; border:1px solid var(--line); border-radius:16px; background:var(--card-2); }
+  .vcard .vic { width:44px; height:44px; border-radius:13px; display:grid; place-items:center; background:var(--accent-soft); color:var(--accent); grid-row:span 2; }
+  .vcard .vn { font-size:16px; font-weight:650; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .vcard .vm { font-size:12px; color:var(--muted); }
+  .vcard .vsoc { grid-column:2 / -1; }
+  .vcard .vctl { grid-column:1 / -1; display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:6px; }
+  .vcard .vctl label { font-size:12px; color:var(--muted); display:flex; align-items:center; gap:6px; }
+  .vcard .vctl .spacer { flex:1; }
 
   /* heat pump */
   #heat[hidden] { display:none; }
@@ -128,31 +294,31 @@
 <main>
   <header class="top"></header>
 
-  <section class="card hero" aria-label="Jetzt" data-overview>
+  <section class="card hero" aria-label="Jetzt" data-perm="flow">
     <svg id="flow" role="img" aria-label="Energiefluss zwischen Erzeugern, Netz, Batterie und Verbrauchern"></svg>
     <!-- the day so far (the flow shows the current values): right of the flow on desktop, below on phones -->
     <div class="stats">
       <div class="stat"><span class="eyebrow"><i class="dot" style="background:var(--accent)"></i>Autarkie heute</span><span class="big num" id="tAut">–</span><span class="sub" id="tAutSub"></span></div>
       <div class="stat"><span class="eyebrow"><i class="dot" style="background:var(--solar)"></i>Erzeugt heute</span><span class="big num" id="tPV">–</span><span class="sub" id="tPVSub"></span></div>
-      <div class="stat"><span class="eyebrow"><i class="dot" style="background:var(--solar);opacity:.45"></i>Prognose Rest</span><span class="big num" id="tRest">–</span><span class="sub">bis Mitternacht</span></div>
+      <div class="stat" data-perm="forecast"><span class="eyebrow"><i class="dot" style="background:var(--solar);opacity:.45"></i>Prognose Rest</span><span class="big num" id="tRest">–</span><span class="sub">bis Mitternacht</span></div>
     </div>
     <div class="err" id="errors"></div>
   </section>
 
-  <section class="card" id="laden" hidden>
+  <section class="bare" id="laden" hidden>
     <div class="cardhead"><div><div class="eyebrow">Laden</div><h2>Wallboxen</h2></div>
-      <div class="right"><span class="sub" id="ltariff"></span><a class="navlink" href="berichte" id="allRuns">Alle Ladevorgänge →</a></div></div>
+      <div class="right"><span class="sub" id="ltariff"></span><button type="button" class="hbtn" id="vehBtn" data-vehicles hidden></button><a class="navlink" href="berichte" id="allRuns">Alle Ladevorgänge →</a></div></div>
     <div class="flash" id="lflash" hidden></div>
+    <div class="note" id="vehNote" hidden></div>
     <div class="lps" id="lps"></div>
-    <div id="lveh"></div>
   </section>
 
-  <section class="card" id="heat" hidden data-overview>
+  <section class="card" id="heat" hidden data-perm="heat">
     <div class="cardhead"><div><div class="eyebrow">Heizung</div><h2>Wärmepumpe</h2></div><div class="right"><span class="chip" id="hState"></span></div></div>
     <div id="heatBody"></div>
   </section>
 
-  <section class="card" data-overview>
+  <section class="card" data-perm="forecast">
     <div class="cardhead" id="bhead"><div><div class="eyebrow">Batterie</div><h2 id="bTitle">Ladeplanung</h2></div>
       <div class="right"><span class="chip" id="discharge" hidden></span><span class="chip" id="limit">–</span><span class="chip" id="target">–</span>
         <div class="seg" role="group" aria-label="Zeitraum" id="range">
@@ -170,6 +336,8 @@
     <details class="more" data-k="why"><summary>Warum so?</summary><ul id="reasons"></ul></details>
   </section>
 </main>
+<dialog class="plans-dlg" id="plansDlg" aria-labelledby="pdTitle"><div class="pd" id="pdInner"></div></dialog>
+<dialog class="plans-dlg" id="vehDlg" aria-labelledby="vdTitle"><div class="pd" id="vehInner"></div></dialog>
 <script src="common.js"></script>
 <script>
 const kw = w => (Math.abs(w) >= 1000 ? (w/1000).toFixed(1).replace('.', ',') + ' kW' : Math.round(w) + ' W');
@@ -223,9 +391,20 @@ function expanded(items, kind) {
       : [it]);
 }
 
+// the heat pump node (details known) and the heating devices next to it
+const isHP = (c, st) => c.icon === 'heatpump' && (st.heat || []).length && !(c.count > 1);
+const isHeating = c => c.icon === 'heatpump' || c.icon === 'water';
+const OVAL_W = 330, OVAL_H = 196; // the opened heat pump
+
 function layout(st) {
   const P = expanded(st.producers, 'producers');
-  const C = expanded(st.consumers, 'consumers').concat([{id:'_rest', name:'Übriges Haus', icon:'house', powerW: st.restW, rest:true}]);
+  // consumers: heating in the bottom centre (heat pump first, heating rods
+  // right next to it), the others split to both sides, "rest" at the end
+  let C = expanded(st.consumers, 'consumers');
+  const heat = C.filter(isHeating).sort((a, b) => (b.icon === 'heatpump') - (a.icon === 'heatpump'));
+  const other = C.filter(c => !isHeating(c));
+  const left = other.slice(0, Math.ceil(other.length / 2)), right = other.slice(left.length);
+  C = [...left, ...heat, ...right, {id:'_rest', name:'Übriges Haus', icon:'house', powerW: st.restW, rest:true}];
   const S = [...P.map(p => p.id), '_grid', ...(st.hasBattery ? ['_battery'] : [])];
   const N = S.length + C.length;
   const step = 2 * Math.PI / Math.max(N, 4);
@@ -238,7 +417,21 @@ function layout(st) {
     nodes[id] = {x: W / 2 + R * Math.cos(a), y: H / 2 + R * Math.sin(a), a};
   });
   arc(S, -Math.PI / 2, 1);
-  arc(C.map(c => c.id), Math.PI / 2, -1);
+  // the arc runs right to left: put the heat pump on the bottom centre
+  const ids = C.map(c => c.id), hpi = C.findIndex(c => isHP(c, st));
+  let centre = Math.PI / 2;
+  if (hpi >= 0) centre += (hpi - (ids.length - 1) / 2) * step;
+  arc(ids, centre, -1);
+  let Hh = H, Ww = W;
+  const hp = hpi >= 0 ? C[hpi] : null;
+  if (hp && hpOpen) { // the opened heat pump leaves the circle downwards as an oval
+    Ww = Math.max(W, OVAL_W + 24);
+    const dx = (Ww - W) / 2;
+    for (const k in nodes) nodes[k].x += dx;
+    // below the circle, clear of the nodes on its lower arc
+    nodes[hp.id] = {x: Ww / 2, y: H / 2 + R + NODE_R + 16 + OVAL_H / 2, a: Math.PI / 2, oval: true};
+    Hh = nodes[hp.id].y + OVAL_H / 2 + 8;
+  }
 
   P.forEach(p => links.push({a: p.id, b: '_home', w: p.powerW, color: COLORS.producer}));
   C.forEach(c => links.push({a: '_home', b: c.id, w: c.powerW, color: COLORS.consumer}));
@@ -247,7 +440,7 @@ function layout(st) {
   if (st.hasBattery)
     links.push(st.batteryW >= 0 ? {a:'_battery', b:'_home', w: st.batteryW, color: COLORS.battery}
                                 : {a:'_home', b:'_battery', w: -st.batteryW, color: COLORS.battery});
-  return {W, H, R, nodes, links, P, C};
+  return {W: Ww, H: Hh, R, nodes, links, P, C};
 }
 
 // straight line between the rims of two circles
@@ -300,10 +493,11 @@ function drawFlow(st) {
   const svg = $('flow');
   const {W, H, R, nodes, links, P, C} = layout(st);
   svg.setAttribute('viewBox', `0 0 ${W.toFixed(0)} ${H.toFixed(0)}`);
+  svg.classList.toggle('hpopen', hpOpen);
   svg.style.maxWidth = (W * SCALE).toFixed(0) + 'px'; // same node size for any number of nodes
   const maxW = Math.max(1500, ...links.map(l => l.w));
   const home = nodes._home;
-  const rOf = id => id === '_home' ? HOME_R + 4 : (id === '_battery' ? NODE_R + 8 : NODE_R + 4);
+  const rOf = id => id === '_home' ? HOME_R + 4 : nodes[id].oval ? OVAL_H / 2 + 4 : (id === '_battery' ? NODE_R + 8 : NODE_R + 4);
   let g = '';
   // the members of an open group are joined by an arc on the circle
   const mem = [...P, ...C].filter(x => x.member).map(x => nodes[x.id].a);
@@ -334,9 +528,18 @@ function drawFlow(st) {
     // heat pump: show the COP under the power (from a heat source, e.g. ESPHome)
     const hp = c.icon === 'heatpump' && (st.heat || []).find(h => h.cop != null);
     const extra = cl ? cl.extra : hp ? 'COP ' + hp.cop.toFixed(1).replace('.', ',') : undefined;
-    g += wrap(c, node(nodes[c.id], {r: NODE_R, ic: c.icon || 'plug', color: c.rest ? 'var(--muted)' : COLORS.consumer,
-      value: kw(c.powerW), title: tip(c, st) + (cl ? ' · ' + cl.text : '') + (hp && hp.thermalW != null ? ` · Wärme ${kw(hp.thermalW)}` : ''), count: c.count,
-      ring: cl ? cl.ring : undefined, ringColor: cl ? cl.color : undefined, extra}));
+    const inner = node(nodes[c.id], {r: NODE_R, ic: c.icon || 'plug', color: c.rest ? 'var(--muted)' : COLORS.consumer,
+      value: kw(c.powerW), title: tip(c, st) + (cl ? ' · ' + cl.text : '') + (hp ? ' · Klick für Details' : ''), count: c.count,
+      ring: cl ? cl.ring : undefined, ringColor: cl ? cl.color : undefined, extra});
+    // the heat pump opens into an oval with its details (COP, heat output, temperatures)
+    if (isHP(c, st) && nodes[c.id].oval) {
+      const n = nodes[c.id], x = n.x - OVAL_W / 2, y = n.y - OVAL_H / 2;
+      g += `<g class="tog hpoval${hpPop ? ' pop' : ''}" data-heat role="button" tabindex="0" aria-expanded="true" aria-label="Wärmepumpe: Details zuklappen">
+        <rect x="${x}" y="${y}" width="${OVAL_W}" height="${OVAL_H}" rx="44" fill="var(--node)" stroke="${COLORS.consumer}" stroke-width="2"/>
+        <foreignObject x="${x}" y="${y}" width="${OVAL_W}" height="${OVAL_H}"><div xmlns="http://www.w3.org/1999/xhtml" class="hpov">${heatDetail(st.heat[0], c)}</div></foreignObject></g>`;
+    } else g += isHP(c, st)
+      ? `<g class="tog hpnode" data-heat role="button" tabindex="0" aria-expanded="false" aria-label="Wärmepumpe: Details anzeigen">${inner}</g>`
+      : wrap(c, inner);
   });
   const gridState = Math.abs(st.gridW) < 15 ? 'ausgeglichen' : (st.gridW > 0 ? 'Bezug' : 'Einspeisung');
   const gl = circuitLoad('grid', st);
@@ -350,7 +553,7 @@ function drawFlow(st) {
   }
   g += `<g>${node(home, {r: HOME_R, ic: 'house', color: COLORS.home, value: kw(st.loadW), title: `Hausverbrauch · ${kw(st.loadW)}`})}</g>`;
   svg.innerHTML = g;
-  popOpen = false;
+  popOpen = false; hpPop = false;
 }
 
 // click on a group expands it (and closes any other), click on one of its
@@ -407,6 +610,66 @@ function planText(p) {
   return `${soc} bis ${new Date(p.at).toLocaleString('de-DE', {weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'})}`;
 }
 
+// a wallbox drawn large into the tile background (the ring shows the state)
+const WALLBOX_ART = `<svg class="wbart" viewBox="0 0 150 250" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="30" y="18" width="78" height="128" rx="20" fill="currentColor" fill-opacity=".35"/>
+  <circle class="ring" cx="69" cy="62" r="17" stroke-width="7"/>
+  <path d="M55 104h28M55 118h20"/>
+  <path d="M69 146v14c0 26 -38 22 -38 50v22"/>
+  <rect x="22" y="226" width="18" height="16" rx="4" fill="currentColor"/>
+  <path d="M69 160v74"/></svg>`;
+
+// power gauge: current power against what the wallbox can deliver now
+// (maximum current, load management included, × the phases in use)
+function gauge(lp) {
+  const maxW = Math.max(1, (lp.limitA != null ? Math.min(lp.limitA, lp.maxCurrent) : lp.maxCurrent) * (lp.activePhases || lp.phases || 3) * 230);
+  const R = 46, C = 2 * Math.PI * R, arc = C * 0.75; // 270° arc, open at the bottom
+  const frac = lp.connected ? Math.max(0, Math.min(1, lp.powerW / maxW)) : 0;
+  const cls = lp.charging ? 'charging' : 'idle';
+  const mid = !lp.connected
+    ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${ICONS.plug}</svg><span>${lp.off ? 'ausgeschaltet' : 'frei'}</span>`
+    : `<b>${(lp.powerW / 1000).toLocaleString('de-DE', {minimumFractionDigits: 1, maximumFractionDigits: 1})}<small>kW</small></b><span>von ${(maxW / 1000).toLocaleString('de-DE', {maximumFractionDigits: 1})} kW</span>`;
+  return `<div class="gauge ${cls}" role="img" aria-label="${lp.connected ? 'Ladeleistung ' + kw(lp.powerW) + ' von ' + kw(maxW) : 'kein Fahrzeug'}">
+    <svg viewBox="0 0 112 112" aria-hidden="true"><circle class="trk" cx="56" cy="56" r="${R}" stroke-dasharray="${arc.toFixed(1)} ${C.toFixed(1)}"/>
+      <circle class="val" cx="56" cy="56" r="${R}" stroke-dasharray="${(arc * frac).toFixed(1)} ${C.toFixed(1)}"/></svg>
+    <div class="mid">${mid}</div></div>`;
+}
+
+// L1–L3: which phases the car draws on and the current per phase
+function phasesView(lp) {
+  if (!lp.connected || !lp.activePhases) return ''; // not charging: the status says it
+  const n = lp.activePhases, a = lp.phaseCurrentA || 0;
+  const h = n ? Math.max(8, Math.min(100, 100 * a / (lp.maxCurrent || 16))) : 0;
+  const bars = [1, 2, 3].map(i => `<span class="ph${i <= n ? ' on' : ''}"><span class="bar"><i style="height:${i <= n ? h.toFixed(0) : 0}%"></i></span>L${i}</span>`).join('');
+  const txt = `<b>${n}-phasig</b><br>${a.toLocaleString('de-DE', {maximumFractionDigits: 1})} A je Phase`;
+  return `<div class="phases" aria-label="Phasen">${bars}<span class="txt">${txt}</span></div>`;
+}
+
+// end of charging (at the current power) or the start of the charge plan
+function etaView(lp, veh) {
+  if (!lp.connected || lp.foreign) return '';
+  const f = lp.finish, sch = lp.plan, clock = iconSVG('clock', 18);
+  const target = f ? (f.basis === 'plan' ? `bis ${pct(f.targetSoc)} laut Plan` : f.basis === 'limit' ? `bis ${pct(f.targetSoc)} (Limit im Auto)` : 'bis 100 %') : '';
+  if (f && f.reached) return `<div class="eta">${iconSVG('target', 18)}<div><b>Ziel erreicht</b><span>${pct(f.targetSoc)} geladen</span></div></div>`;
+  if (lp.charging && f && f.at) {
+    const mins = Math.max(0, Math.round((new Date(f.at) - Date.now()) / 60000));
+    const left = mins >= 60 ? `${Math.floor(mins / 60)} h ${mins % 60} min` : `${mins} min`;
+    return `<div class="eta">${clock}<div><b>fertig ca. ${etaTime(f.at)}</b><span>noch ${left} · ${kwh(f.needWh)} ${target}</span></div></div>`;
+  }
+  if (sch && sch.start && !lp.charging && new Date(sch.start) > Date.now()) {
+    return `<div class="eta">${iconSVG('calendar', 18)}<div><b>Start ${etaTime(sch.start)}</b><span>laut Plan: ${pct(sch.soc)} bis ${etaTime(sch.target)}${sch.needWh ? ' · ' + kwh(sch.needWh) : ''}</span></div></div>`;
+  }
+  if (lp.charging && !f) return `<div class="eta muted">${clock}<div><b>Ladeende unbekannt</b><span>${veh ? 'Ladestand oder Akkugröße fehlt' : 'Gastfahrzeug – Ladestand unbekannt'}</span></div></div>`;
+  if (f && !lp.charging) return `<div class="eta muted">${clock}<div><b>wartet</b><span>noch ${kwh(f.needWh)} ${target}</span></div></div>`;
+  return '';
+}
+// today: "14:35"; later: "Mi 07:00"
+function etaTime(t) {
+  const d = new Date(t), now = new Date();
+  const hm = d.toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'});
+  return d.toDateString() === now.toDateString() ? hm : d.toLocaleDateString('de-DE', {weekday: 'short'}) + ' ' + hm;
+}
+
 function renderLoadpoint(lp) {
   const veh = vehicleOf(lp.vehicle);
   const guest = lp.vehicle === 'guest';
@@ -418,7 +681,7 @@ function renderLoadpoint(lp) {
     ...(charging.vehicles || []).map(v => `<option value="${esc(v.key)}"${lp.manual && lp.vehicle === v.key ? ' selected' : ''}>${esc(v.name)}</option>`)];
   let soc = '';
   if (veh && veh.soc != null) {
-    soc = `<div><div class="socbar"><i style="width:${(veh.soc * 100).toFixed(0)}%"></i>${veh.limitSoc != null ? `<b style="left:${(veh.limitSoc * 100).toFixed(0)}%" title="Ladelimit im Auto"></b>` : ''}</div>
+    soc = `<div><div class="socbar"><i style="width:${(veh.soc * 100).toFixed(0)}%"></i>${veh.limitSoc != null ? `<b style="left:${(veh.limitSoc * 100).toFixed(0)}%" title="Ladelimit im Auto"></b>` : ''}${lp.finish && lp.finish.basis === 'plan' ? `<u style="left:${(lp.finish.targetSoc * 100).toFixed(0)}%" title="Ziel laut Ladeplan"></u>` : ''}</div>
       <div class="socline"><span>${pct(veh.soc)}${veh.rangeKm != null ? ' · ' + Math.round(veh.rangeKm) + ' km' : ''}</span>
       <span>${veh.limitSoc != null ? 'Limit ' + pct(veh.limitSoc) : ''}</span></div></div>`;
   }
@@ -437,70 +700,59 @@ function renderLoadpoint(lp) {
     <span class="split${SMART.includes(mode) ? ' sel' : ''}"><button data-mode="${smart}" title="${esc(MODE_HELP[smart])}"${dis}>Smart <small>${MODE_LABEL[smart]}</small></button><button class="caret" data-smartmenu aria-haspopup="menu" aria-expanded="${smartOpen === lp.id}" aria-label="Strategie wählen"${dis}>▾</button></span>
     <button data-mode="fast" class="${mode === 'fast' ? 'sel' : ''}" title="${esc(MODE_HELP.fast)}"${dis}>Schnell</button>${menu}`;
   let plan = '';
-  if (veh) {
-    const s = veh.settings, sch = lp.plan;
-    plan = `<div class="planbox"><div class="ttl">Ladeplan</div>
-      ${sch ? `<div class="why">${esc(sch.reason)}${sch.slots && sch.slots.length ? ` · Start ${dayhm(sch.start)}, ${kwh(sch.needWh)}${sch.costCt ? ', ca. ' + money(sch.costCt, charging.currency) : ''}` : ''}</div>` : ''}
-      ${(s.plans || []).length ? `<ul class="plans">${s.plans.map(p => `<li><span>${esc(planText(p))}</span>${canEdit ? `<button class="linkbtn" data-delplan="${esc(p.id)}">entfernen</button>` : ''}</li>`).join('')}</ul>` : '<div class="why">Kein Plan. Ein Plan lädt das Auto bis zur Abfahrt auf den Ziel-Ladestand (in PV und Min+PV).</div>'}
-      ${!s.capacityWh ? '<div class="note">Für Pläne die Akkukapazität beim Fahrzeug eintragen.</div>' : ''}
-      ${canEdit ? `<form class="vrow planform" data-veh="${esc(veh.key)}">
-        <input type="number" name="soc" min="10" max="100" step="5" value="80" style="width:64px" aria-label="Ziel-Ladestand in Prozent"> %
-        <input type="time" name="time" value="07:00" required aria-label="Uhrzeit">
-        <span class="days">${DAYS.map((d, i) => `<label>${d}<input type="checkbox" name="d${i}"></label>`).join('')}</span>
-        <button class="btn" type="submit">Plan hinzufügen</button></form>
-        <div class="why" style="font-size:11px">Ohne Wochentage gilt der Plan einmalig zum nächsten Zeitpunkt.</div>` : ''}
-    </div>`;
-  }
+  if (veh) plan = planSummary(veh, lp.plan, canEdit);
   const s = lp.session;
   const sess = s ? `<div class="sess"><span>Dieser Ladevorgang <b>${kwh(s.energyWh)}</b></span>
       <span>PV/Akku <b>${s.energyWh > 0 ? Math.round(100 * (s.pvWh + s.batteryWh) / s.energyWh) : 0} %</b></span>
       <span>${guest ? 'Verrechnung' : 'Kosten'} <b>${money(s.costCt, charging.currency)}</b></span></div>` : '';
-  const who = (lp.connected ? esc(lp.vehicleName) : 'kein Fahrzeug') +
-    (lp.card ? ` <span class="pill" title="Ladekarte dieses Ladevorgangs">${iconSVG('device', 11)} ${esc(lp.card)}</span>` : '') +
+  const who = (lp.card ? ` <span class="pill" title="Ladekarte dieses Ladevorgangs">${iconSVG('device', 11)} ${esc(lp.card)}</span>` : '') +
     (lp.connected && lp.sessionMode ? ' <span class="pill" title="Gilt nur für diesen Ladevorgang, bis zum Abstecken">nur jetzt</span>' : '');
-  return `<div class="lp" data-lp="${esc(lp.id)}">
-    <div class="lphead"><h3>${esc(lp.name)}</h3><span class="pw">${lp.connected ? kw(lp.powerW) : ''}</span></div>
-    <div class="lpsub"><span class="pill${lp.charging ? ' on' : ''}">${status}</span>
-      ${lp.batteryExcluded ? '<span class="pill" title="Die Hausbatterie wird für diesen Ladevorgang zurückgehalten – Laden aus PV und Netz.">ohne Hausbatterie</span>' : ''}
-      ${!lp.owned ? '<span class="pill" title="voltibri schreibt nicht auf diese Wallbox (Modus „observed“) und zeigt nur, was es tun würde.">beobachtet</span>' : ''}<span>${who}</span></div>
-    ${soc}
-    <div class="modes" role="group" aria-label="Lademodus">${modeBtns}</div>
-    ${lp.connected ? `<div class="why">${esc(lp.reason)}</div>` : ''}
-    ${sess}
-    ${lp.connected || veh ? `<details class="more" data-k="lp:${esc(lp.id)}"><summary>Fahrzeug &amp; Ladeplan</summary><div>
+  // exactly 7 parts (empty ones too), so tiles side by side share the rows
+  const st = !lp.connected ? 'free' : lp.charging ? 'charging' : 'connected';
+  const pills = [lp.batteryExcluded ? '<span class="pill" title="Die Hausbatterie wird für diesen Ladevorgang zurückgehalten – Laden aus PV und Netz.">ohne Hausbatterie</span>' : '',
+    !lp.owned ? '<span class="pill" title="voltibri schreibt nicht auf diese Wallbox (Modus „observed“) und zeigt nur, was es tun würde.">beobachtet</span>' : '', who].join('').trim();
+  const details = lp.connected || veh ? `<details class="more" data-k="lp:${esc(lp.id)}"><summary>Fahrzeug &amp; Ladeplan</summary><div>
       ${lp.connected && !lp.foreign ? `<div class="vrow"><select data-vehsel aria-label="Fahrzeug" ${canEdit ? '' : 'disabled'}>${opts.join('')}</select>
         ${guest && !lp.detecting ? `<span class="why">${esc(GUEST_POLICY[lp.guestPolicy] || '')}</span>` : ''}</div>` : ''}
-      ${plan}</div></details>` : ''}
-  </div>`;
+      ${plan}</div></details>` : '';
+  return `<div class="lp st-${st}" data-lp="${esc(lp.id)}">${WALLBOX_ART}<div class="lphead"><div class="lpname"><small>${esc(lp.name)}</small>${lp.connected ? `<b>${esc(lp.vehicleName)}</b>` : '<b class="none">kein Fahrzeug</b>'}</div><span class="pill${lp.charging ? ' on' : ''}" style="margin-left:auto">${status}</span></div>`
+    + (pills ? `<div class="lpsub">${pills}</div>` : '<div></div>')
+    + `<div class="lpviz">${gauge(lp)}<div class="lpinfo">${phasesView(lp)}${etaView(lp, veh)}${soc}</div></div>`
+    + `<div class="modes" role="group" aria-label="Lademodus">${modeBtns}</div>`
+    + (lp.connected && lp.reason ? `<div class="why">${esc(lp.reason)}</div>` : '<div></div>')
+    + (sess || '<div></div>')
+    + (details || '<div></div>') + '</div>';
 }
 
-function renderVehicles() {
-  const prov = charging.providers || [];
-  const vs = charging.vehicles || [];
-  // vehicle drivers that are not configured yet can be connected from here
+// vehicles dialog: state of charge, default mode and charge plan per vehicle
+function renderVehiclesDlg() {
+  const prov = charging.providers || [], vs = charging.vehicles || [];
   const configured = new Set(prov.map(p => p.type));
   const connect = charging.admin ? voltibri.drivers().filter(d => d.category === 'vehicle' && !configured.has(d.type)) : [];
-  if (!prov.length && !vs.length) {
-    if (!connect.length) return '';
-    return `<div class="note">Ladestand und Abfahrtszeiten kommen aus einem Fahrzeugkonto.
-      ${connect.map(d => `<button type="button" class="btn primary" data-setup-new="${esc(d.type)}">${esc(d.name.replace(/ \(.*\)$/, ''))} verbinden</button>`).join(' ')}</div>`;
-  }
   const login = prov.map(p => {
     const edit = charging.admin ? ` <button type="button" class="linkbtn" data-setup-edit="${esc(p.id)}">Zugangsdaten ändern</button>` : '';
-    if (!p.needsLogin || p.authorized) return `<div class="note">${esc(p.name)}: verbunden, ${p.vehicles} Fahrzeug${p.vehicles === 1 ? '' : 'e'}.${edit}</div>`;
-    return `<div class="note">${esc(p.name)}: noch nicht angemeldet. ${charging.local ? `<a class="btn primary" href="api/oauth/${encodeURIComponent(p.id)}/login">Bei ${esc(p.name)} anmelden</a>` : 'Anmeldung nur vom lokalen Rechner.'}${edit}</div>`;
+    if (!p.needsLogin || p.authorized) return `<div class="hint">${esc(p.name)}: verbunden, ${p.vehicles} Fahrzeug${p.vehicles === 1 ? '' : 'e'}.${edit}</div>`;
+    return `<div class="note">${esc(p.name)}: noch nicht angemeldet. ${charging.admin ? `<a class="btn primary" href="api/oauth/${encodeURIComponent(p.id)}/login">Bei ${esc(p.name)} anmelden</a>` : ''}${edit}</div>`;
   }).join('');
-  const rows = vs.map(v => `<tr data-veh="${esc(v.key)}">
-      <td>${esc(v.name)}<div class="why" style="font-size:11px">${esc([[v.info.brand, v.info.model].filter(Boolean).join(' '), v.settings.capacityWh ? kwh(v.settings.capacityWh) : '',
-        batKey(v.settings.noBatteryModes) !== 'allow' ? 'Hausbatterie ' + BAT_OPTS[batKey(v.settings.noBatteryModes)].label : ''].filter(Boolean).join(' · '))}</div></td>
-      <td class="r">${v.soc != null ? pct(v.soc) : '–'}</td>
-      <td>${v.charging ? 'lädt' : v.connected ? 'angesteckt' : 'unterwegs/frei'}</td>
-      <td><select data-vmode ${charging.local ? '' : 'disabled'}>${Object.keys(MODE_LABEL).map(m => `<option value="${m}"${m === v.settings.mode ? ' selected' : ''}>${MODE_LABEL[m]}</option>`).join('')}</select></td>
-    </tr>`).join('');
-  const needLogin = prov.some(p => p.needsLogin && !p.authorized);
-  return `<details class="more" data-k="veh"${needLogin ? ' open' : ''}><summary>Fahrzeuge (${vs.length})</summary><div>${login}
-    ${vs.length ? `<div class="tablewrap"><table class="list"><thead><tr><th>Fahrzeug</th><th class="r">Ladestand</th><th>Status</th><th>Standardmodus</th></tr></thead><tbody>${rows}</tbody></table></div>` :
-      (prov.some(p => p.authorized) ? '<div class="why">Keine Fahrzeuge gefunden. Ist das Auto in der Tibber-App verbunden?</div>' : '')}</div></details>`;
+  const cards = vs.map(v => {
+    const st = v.charging ? '<span class="pill on">lädt</span>' : v.connected ? '<span class="pill">angesteckt</span>' : '<span class="pill">unterwegs</span>';
+    const meta = [[v.info.brand, v.info.model].filter(Boolean).join(' '), v.settings.capacityWh ? 'Akku ' + kwh(v.settings.capacityWh) : '',
+      batKey(v.settings.noBatteryModes) !== 'allow' ? 'Hausbatterie ' + BAT_OPTS[batKey(v.settings.noBatteryModes)].label : ''].filter(Boolean).join(' · ');
+    const soc = v.soc != null ? `<div class="vsoc"><div class="socbar"><i style="width:${(v.soc * 100).toFixed(0)}%"></i>${v.limitSoc != null ? `<b style="left:${(v.limitSoc * 100).toFixed(0)}%" title="Ladelimit im Auto"></b>` : ''}</div>
+      <div class="socline"><span>${pct(v.soc)}${v.rangeKm != null ? ' · ' + Math.round(v.rangeKm) + ' km' : ''}</span><span>${v.limitSoc != null ? 'Limit ' + pct(v.limitSoc) : ''}</span></div></div>` : '';
+    const plans = (v.settings.plans || []).filter(p => !p.off).length;
+    return `<div class="vcard" data-veh="${esc(v.key)}"><span class="vic">${iconSVG('car', 22)}</span>
+      <div><div class="vn">${esc(v.name)} ${st}</div><div class="vm">${esc(meta || (v.soc == null ? 'ohne Ladestand' : ''))}</div></div><span></span>
+      ${soc}
+      <div class="vctl"><label>Standardmodus <select data-vmode ${charging.local ? '' : 'disabled'}>${Object.keys(MODE_LABEL).map(m => `<option value="${m}"${m === v.settings.mode ? ' selected' : ''}>${MODE_LABEL[m]}</option>`).join('')}</select></label>
+        <span class="spacer"></span><button type="button" class="btn" data-plans="${esc(v.key)}">${iconSVG('calendar', 14)} ${plans ? nextPlanShort(v) : 'Ladeplan'}</button></div></div>`;
+  }).join('');
+  $('vehInner').innerHTML = `<div class="pd-head"><div class="top"><span class="ic">${iconSVG('car', 22)}</span>
+      <div><h2 id="vdTitle">Fahrzeuge</h2><div class="sub">Standardmodus beim Anstecken und Ladepläne</div></div>
+      <button type="button" class="x" data-vclose aria-label="Schließen">×</button></div></div>
+    <div class="pd-body">${login}${cards || '<div class="pempty">Noch keine Fahrzeuge.</div>'}
+      ${connect.length ? `<div class="hint">Ladestand und Abfahrtszeiten kommen aus einem Fahrzeugkonto: ${connect.map(d => `<button type="button" class="btn" data-setup-new="${esc(d.type)}">${esc(d.name.replace(/ \(.*\)$/, ''))} verbinden</button>`).join(' ')}</div>` : ''}</div>
+    <div class="pd-foot"><button type="button" class="btn" data-vclose>Fertig</button></div>`;
 }
 
 // re-rendering every 5 s must not close what the user opened
@@ -520,7 +772,7 @@ async function refreshCharging(force) {
     charging = await fetch('api/charging').then(r => r.json());
   } catch (e) { return; }
   box.hidden = !charging.loadpoints.length && !charging.providers.length;
-  if (box.hidden && document.body.classList.contains('restricted')) { // a user without wallboxes
+  if (box.hidden && window.ME && !window.ME.admin) { // a user without wallboxes
     box.hidden = false;
     $('lps').innerHTML = '<div class="note">Für dich ist noch keine Wallbox freigegeben. Ein Administrator kann dich einer Gruppe zuordnen.</div>';
     return;
@@ -529,7 +781,13 @@ async function refreshCharging(force) {
   $('ltariff').textContent = [charging.gridCt != null ? 'Netz ' + charging.gridCt.toFixed(1).replace('.', ',') + ' ct' : '',
     charging.feedinCt != null ? 'Einspeisung ' + charging.feedinCt.toFixed(1).replace('.', ',') + ' ct' : ''].filter(Boolean).join(' · ');
   $('lps').innerHTML = charging.loadpoints.map(renderLoadpoint).join('');
-  $('lveh').innerHTML = renderVehicles();
+  const vs = charging.vehicles || [], prov = charging.providers || [];
+  $('vehBtn').hidden = !vs.length && !prov.length;
+  $('vehBtn').innerHTML = `${iconSVG('car', 16)} Fahrzeuge <span class="n">${vs.length}</span>`;
+  const needLogin = prov.filter(p => p.needsLogin && !p.authorized);
+  $('vehNote').hidden = !needLogin.length;
+  $('vehNote').innerHTML = needLogin.map(p => `${esc(p.name)}: noch nicht angemeldet – Ladestand fehlt. ${charging.admin ? `<a class="btn primary" href="api/oauth/${encodeURIComponent(p.id)}/login">Bei ${esc(p.name)} anmelden</a>` : ''}`).join('<br>');
+  if ($('vehDlg').open) renderVehiclesDlg();
   restoreDetails(box);
 }
 function vehicleSettings(key) { return JSON.parse(JSON.stringify(vehicleOf(key).settings)); }
@@ -557,13 +815,6 @@ $('laden').addEventListener('click', async e => {
     await send('PUT', `api/loadpoints/${encodeURIComponent(lp.id)}/mode`, {mode: mb.dataset.mode});
     return;
   }
-  const del = e.target.closest('[data-delplan]');
-  if (del) {
-    const key = del.closest('[data-lp]') && charging.loadpoints.find(l => l.id === del.closest('[data-lp]').dataset.lp).vehicle;
-    const s = vehicleSettings(key);
-    s.plans = (s.plans || []).filter(p => p.id !== del.dataset.delplan);
-    await send('PUT', 'api/vehicles/' + key, s);
-  }
 });
 $('laden').addEventListener('change', async e => {
   const t = e.target;
@@ -578,22 +829,233 @@ $('laden').addEventListener('change', async e => {
     await send('PUT', 'api/vehicles/' + row.dataset.veh, s);
   }
 });
-$('laden').addEventListener('submit', async e => {
-  if (!e.target.matches('.planform')) return;
-  e.preventDefault();
-  const f = e.target, key = f.dataset.veh, s = vehicleSettings(key);
-  const days = DAYS.map((_, i) => f.elements['d' + i].checked ? i : -1).filter(i => i >= 0);
-  const soc = Math.min(100, Math.max(1, parseInt(f.elements.soc.value, 10))) / 100, time = f.elements.time.value;
-  const plan = {soc};
-  if (days.length) { plan.days = days; plan.time = time; }
-  else { // next occurrence of that time
-    const [h, m] = time.split(':').map(Number), at = new Date(); at.setHours(h, m, 0, 0);
-    if (at <= new Date()) at.setDate(at.getDate() + 1);
-    plan.at = at.toISOString();
+
+// --- charge plans (dialog) ---
+const WD_ORDER = [1, 2, 3, 4, 5, 6, 0]; // Mo..So
+const dayList = days => { const d = [...days].sort((a, b) => WD_ORDER.indexOf(a) - WD_ORDER.indexOf(b));
+  const k = d.join(); return k === '1,2,3,4,5' ? 'werktags' : k === '1,2,3,4,5,6,0' ? 'täglich' : k === '6,0' ? 'am Wochenende' : d.map(x => DAYS[x]).join(', '); };
+const hm2 = t => new Date(t).toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'});
+// next time a plan is due (like charging.Plan.Next)
+function planNext(p, now = new Date()) {
+  if (p.off) return null;
+  if (!p.days || !p.days.length) { const t = new Date(p.at); return t > now ? t : null; }
+  const [h, m] = (p.time || '07:00').split(':').map(Number);
+  for (let i = 0; i <= 7; i++) {
+    const t = new Date(now); t.setDate(t.getDate() + i); t.setHours(h, m, 0, 0);
+    if (t > now && p.days.includes(t.getDay())) return t;
   }
-  s.plans = (s.plans || []).concat([plan]);
-  await send('PUT', 'api/vehicles/' + key, s);
+  return null;
+}
+// the car stops at its own charge limit, whatever the plan says
+const limitNote = (v, x) => v.limitSoc != null && x > v.limitSoc + 0.001 ? ` · Achtung: das Auto stoppt bei seinem Limit von ${pct(v.limitSoc)} (in der Fahrzeug-App ändern)` : '';
+function nextPlanShort(v) {
+  const n = (v.settings.plans || []).map(p => [p, planNext(p)]).filter(x => x[1]).sort((a, b) => a[1] - b[1])[0];
+  return n ? `${pct(n[0].soc)} bis ${etaTime(n[1])}` : 'Ladeplan';
+}
+// summary on the wallbox tile
+function planSummary(veh, sch, canEdit) {
+  const n = (veh.settings.plans || []).map(p => [p, planNext(p)]).filter(x => x[1]).sort((a, b) => a[1] - b[1])[0];
+  const txt = n ? `<b>${pct(n[0].soc)} bis ${etaTime(n[1])}</b><span>${sch ? esc(sch.reason) : (n[0].days && n[0].days.length ? dayList(n[0].days) + ' ' + n[0].time : 'einmalig')}</span>`
+    : '<b>Kein Ladeplan</b><span>Ziel-Ladestand zur Abfahrt festlegen</span>';
+  return `<div class="planline">${iconSVG('calendar', 18)}<div class="txt">${txt}</div>${canEdit ? `<button type="button" class="btn" data-plans="${esc(veh.key)}">${n ? 'Bearbeiten' : 'Planen'}</button>` : ''}</div>`;
+}
+
+const PD = {key: null, edit: null, err: ''}; // edit: null | plan being edited (new: {id: ''})
+function openPlans(key) {
+  PD.key = key; PD.edit = null; PD.err = '';
+  renderPlans();
+  if (!$('plansDlg').open) $('plansDlg').showModal();
+}
+function renderPlans() {
+  const v = vehicleOf(PD.key);
+  if (!v) { $('plansDlg').close(); return; }
+  const s = v.settings, cap = s.capacityWh || 0, plans = s.plans || [];
+  const soc = v.soc != null ? v.soc : null;
+  const edit = PD.edit, tgt = edit ? edit.soc : null;
+  const ro = !charging.local;
+  const batt = `<div class="pd-batt"><div class="bar">${soc != null ? `<i style="width:${(soc * 100).toFixed(0)}%"></i>` : ''}${tgt != null && soc != null && tgt > soc ? `<em style="left:${(soc * 100).toFixed(0)}%;width:${((tgt - soc) * 100).toFixed(0)}%"></em>` : ''}</div>
+    <div class="lbl"><span>${soc != null ? 'jetzt ' + pct(soc) : 'Ladestand unbekannt'}${v.rangeKm != null ? ' · ' + Math.round(v.rangeKm) + ' km' : ''}</span><span>${cap ? 'Akku ' + kwh(cap) : 'Akkugröße fehlt'}${v.limitSoc != null ? ' · Limit im Auto ' + pct(v.limitSoc) : ''}</span></div></div>`;
+  const cards = plans.length ? plans.map(p => {
+    const rep = p.days && p.days.length, nx = planNext(p);
+    const t = rep ? p.time : hm2(p.at);
+    return `<div class="pcard${p.off ? ' off' : ''}">
+      <div class="t">${esc(t)}<small>${rep ? 'Abfahrt' : new Date(p.at).toLocaleDateString('de-DE', {weekday: 'short', day: '2-digit', month: '2-digit'})}</small></div>
+      <div class="mid"><div class="soc">${pct(p.soc)} geladen</div>
+        ${rep ? `<div class="dchips">${WD_ORDER.map(d => `<span class="${p.days.includes(d) ? 'on' : ''}">${DAYS[d]}</span>`).join('')}</div>` : ''}
+        <div class="next">${p.off ? 'pausiert' : nx ? 'nächste Abfahrt ' + etaTime(nx) : 'abgelaufen'}</div></div>
+      ${ro ? '<span></span>' : `<div class="acts"><label class="switch" title="${p.off ? 'Plan einschalten' : 'Plan pausieren'}"><input type="checkbox" data-ptoggle="${esc(p.id)}"${p.off ? '' : ' checked'} aria-label="Plan aktiv"><i></i></label>
+        <button type="button" class="iconbtn" data-pedit="${esc(p.id)}" aria-label="Plan bearbeiten" title="Bearbeiten">${iconSVG('gear', 17)}</button>
+        <button type="button" class="iconbtn" data-pdel="${esc(p.id)}" aria-label="Plan löschen" title="Löschen"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button></div>`}
+    </div>`;
+  }).join('') : '<div class="pempty">Noch kein Ladeplan. Mit einem Plan ist das Auto zur Abfahrt geladen – voltibri nutzt bis dahin PV-Überschuss und die günstigsten Stunden.</div>';
+  let form = '';
+  if (edit) {
+    const rep = !!(edit.days && edit.days.length) || edit.mode === 'rep';
+    const need = cap && soc != null ? Math.max(0, (edit.soc - soc) * cap / 0.85) : null;
+    const atLocal = (() => { const d = edit.at ? new Date(edit.at) : (() => { const t = new Date(); t.setDate(t.getDate() + 1); t.setHours(7, 0, 0, 0); return t; })();
+      const z = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}T${z(d.getHours())}:${z(d.getMinutes())}`; })();
+    form = `<form class="pform" id="pform" novalidate>
+      <h3>${edit.id ? 'Plan bearbeiten' : 'Neuer Plan'}</h3>
+      <div><div class="lab">Ziel-Ladestand <span class="socval" id="pfSocVal">${pct(edit.soc)}</span></div>
+        <input type="range" id="pfSoc" min="20" max="100" step="5" value="${Math.round(edit.soc * 100)}" aria-label="Ziel-Ladestand">
+        <div class="need" id="pfNeed">${(need != null ? (need > 0 ? `noch ca. ${kwh(need)} zu laden` : 'schon erreicht') : 'Für eine Schätzung fehlen Ladestand oder Akkugröße.') + limitNote(v, edit.soc)}</div></div>
+      <div><div class="lab">Abfahrt</div>
+        <div class="seg" role="group" aria-label="Wiederholung"><button type="button" data-prep="1" aria-pressed="${rep}">Wiederkehrend</button><button type="button" data-prep="0" aria-pressed="${!rep}">Einmalig</button></div></div>
+      ${rep ? `<div class="row"><input type="time" class="timein" id="pfTime" value="${esc(edit.time || '07:00')}" required aria-label="Uhrzeit"></div>
+        <div><div class="wd">${WD_ORDER.map(d => `<label><input type="checkbox" data-wd="${d}"${(edit.days || []).includes(d) ? ' checked' : ''} aria-label="${DAYS[d]}"><span>${DAYS[d]}</span></label>`).join('')}</div>
+          <div class="presets"><button type="button" data-preset="1,2,3,4,5">Werktags</button><button type="button" data-preset="1,2,3,4,5,6,0">Täglich</button><button type="button" data-preset="6,0">Wochenende</button></div></div>`
+        : `<div class="row"><input type="datetime-local" class="timein" id="pfAt" value="${atLocal}" required aria-label="Datum und Uhrzeit"></div>`}
+    </form>`;
+  }
+  $('pdInner').innerHTML = `<div class="pd-head"><div class="top"><span class="ic">${iconSVG('car', 22)}</span>
+      <div><h2 id="pdTitle">Ladeplan · ${esc(v.name)}</h2><div class="sub">Gilt in den Modi Überschuss und Min+PV · Standardmodus ${esc(MODE_LABEL[s.mode] || s.mode)}</div></div>
+      <button type="button" class="x" data-pclose aria-label="Schließen">×</button></div>${batt}</div>
+    <div class="pd-body">${edit ? form : cards}
+      ${!cap ? '<div class="note">Ohne Akkugröße kann voltibri nicht ausrechnen, wann es losgehen muss. Ein Administrator trägt sie unter Konfiguration → Fahrzeuge ein.</div>' : ''}
+      ${!edit && plans.length ? '<div class="hint">Gibt es mehrere Pläne, zählt der nächste. Ist das Ziel knapp, lädt voltibri auch aus dem Netz – zu den günstigsten Zeiten.</div>' : ''}</div>
+    <div class="pd-foot"><span class="err" id="pdErr">${esc(PD.err)}</span>
+      ${edit ? '<button type="button" class="btn" data-pcancel>Abbrechen</button><button type="button" class="btn primary" data-psave>Speichern</button>'
+        : `<button type="button" class="btn" data-pclose>Fertig</button>${ro ? '' : `<button type="button" class="btn primary" data-pnew>${iconSVG('plus', 15)} Neuer Plan</button>`}`}</div>`;
+}
+// form values into PD.edit (keeps them across re-renders)
+function readPlanForm() {
+  const e = PD.edit, f = $('pform');
+  if (!e || !f) return;
+  e.soc = Number($('pfSoc').value) / 100;
+  if ($('pfTime')) { e.time = $('pfTime').value; e.days = [...f.querySelectorAll('[data-wd]:checked')].map(x => Number(x.dataset.wd)); e.mode = 'rep'; }
+  if ($('pfAt')) { e.at = $('pfAt').value ? new Date($('pfAt').value).toISOString() : ''; e.mode = 'once'; }
+}
+async function savePlans(plans) {
+  const s = vehicleSettings(PD.key);
+  s.plans = plans;
+  const r = await fetch('api/vehicles/' + PD.key, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(s)});
+  if (!r.ok) { const j = await r.json().catch(() => ({})); PD.err = j.error || 'Fehler ' + r.status; renderPlans(); return false; }
+  PD.err = '';
+  await refreshCharging(true);
+  return true;
+}
+$('plansDlg').addEventListener('click', async e => {
+  const d = $('plansDlg');
+  if (e.target === d || e.target.closest('[data-pclose]')) return d.close();
+  const v = vehicleOf(PD.key), plans = JSON.parse(JSON.stringify((v && v.settings.plans) || []));
+  if (e.target.closest('[data-pnew]')) { PD.edit = {id: '', soc: 0.8, time: '07:00', days: [1, 2, 3, 4, 5], mode: 'rep'}; return renderPlans(); }
+  if (e.target.closest('[data-pcancel]')) { PD.edit = null; PD.err = ''; return renderPlans(); }
+  const ed = e.target.closest('[data-pedit]');
+  if (ed) { const p = plans.find(x => x.id === ed.dataset.pedit); PD.edit = {...p, mode: p.days && p.days.length ? 'rep' : 'once'}; return renderPlans(); }
+  const del = e.target.closest('[data-pdel]');
+  if (del && confirm('Diesen Ladeplan löschen?')) { await savePlans(plans.filter(p => p.id !== del.dataset.pdel)); return renderPlans(); }
+  const rep = e.target.closest('[data-prep]');
+  if (rep) {
+    readPlanForm();
+    if (rep.dataset.prep === '1') { PD.edit.mode = 'rep'; if (!PD.edit.days || !PD.edit.days.length) PD.edit.days = [1, 2, 3, 4, 5]; }
+    else { PD.edit.mode = 'once'; PD.edit.days = []; }
+    return renderPlans();
+  }
+  const pre = e.target.closest('[data-preset]');
+  if (pre) { const on = pre.dataset.preset.split(',').map(Number); $('pform').querySelectorAll('[data-wd]').forEach(x => { x.checked = on.includes(Number(x.dataset.wd)); }); return; }
+  if (e.target.closest('[data-psave]')) {
+    readPlanForm();
+    const ed2 = PD.edit, p = {id: ed2.id || undefined, soc: ed2.soc};
+    if (ed2.mode === 'rep') {
+      if (!ed2.days.length) { PD.err = 'Bitte mindestens einen Wochentag wählen.'; return renderPlans(); }
+      if (!ed2.time) { PD.err = 'Bitte eine Uhrzeit wählen.'; return renderPlans(); }
+      p.days = ed2.days; p.time = ed2.time;
+    } else {
+      if (!ed2.at || new Date(ed2.at) <= new Date()) { PD.err = 'Der Zeitpunkt muss in der Zukunft liegen.'; return renderPlans(); }
+      p.at = ed2.at;
+    }
+    const old = ed2.id ? plans.find(x => x.id === ed2.id) : null;
+    if (old) p.off = old.off;
+    const next = ed2.id ? plans.map(x => x.id === ed2.id ? p : x) : plans.concat([p]);
+    if (await savePlans(next)) { PD.edit = null; renderPlans(); }
+  }
 });
+$('plansDlg').addEventListener('change', async e => {
+  const t = e.target.closest('[data-ptoggle]');
+  if (!t) return;
+  const plans = JSON.parse(JSON.stringify(vehicleOf(PD.key).settings.plans || []));
+  plans.forEach(p => { if (p.id === t.dataset.ptoggle) p.off = !t.checked; });
+  await savePlans(plans);
+  renderPlans();
+});
+$('plansDlg').addEventListener('input', e => {
+  if (e.target.id !== 'pfSoc') return;
+  const v = vehicleOf(PD.key), soc = v && v.soc, cap = v && v.settings.capacityWh, x = Number(e.target.value) / 100;
+  $('pfSocVal').textContent = pct(x);
+  if (soc != null && cap) $('pfNeed').textContent = (x > soc ? `noch ca. ${kwh((x - soc) * cap / 0.85)} zu laden` : 'schon erreicht') + limitNote(v, x);
+  const em = document.querySelector('.pd-batt em');
+  if (soc != null) {
+    const bar = document.querySelector('.pd-batt .bar');
+    let m = em;
+    if (!m) { m = document.createElement('em'); bar.appendChild(m); }
+    m.style.left = (soc * 100).toFixed(0) + '%'; m.style.width = (Math.max(0, x - soc) * 100).toFixed(0) + '%';
+  }
+});
+$('laden').addEventListener('click', e => {
+  const b = e.target.closest('[data-plans]');
+  if (b) openPlans(b.dataset.plans);
+  if (e.target.closest('[data-vehicles]')) { renderVehiclesDlg(); $('vehDlg').showModal(); }
+});
+$('vehDlg').addEventListener('click', e => {
+  const d = $('vehDlg');
+  if (e.target === d || e.target.closest('[data-vclose]')) return d.close();
+  const b = e.target.closest('[data-plans]');
+  if (b) { d.close(); openPlans(b.dataset.plans); }
+  const n = e.target.closest('[data-setup-new]');
+  if (n) { d.close(); voltibri.open({type: n.dataset.setupNew, onDone: () => refreshCharging(true)}); }
+  const ed = e.target.closest('[data-setup-edit]');
+  if (ed) { d.close(); voltibri.open({id: ed.dataset.setupEdit, onDone: () => refreshCharging(true)}); }
+});
+$('vehDlg').addEventListener('change', async e => {
+  const t = e.target, card = t.closest('[data-veh]');
+  if (!card || !t.matches('[data-vmode]')) return;
+  const s = vehicleSettings(card.dataset.veh);
+  s.mode = t.value;
+  await send('PUT', 'api/vehicles/' + card.dataset.veh, s);
+});
+
+// --- heat pump details: the heat pump node opens into an oval ---
+let hpOpen = false, hpPop = false;
+const num1 = v => v.toLocaleString('de-DE', {minimumFractionDigits: 1, maximumFractionDigits: 1});
+function heatDetail(h, c) {
+  // COP: half ring 1..7, coloured by efficiency
+  const cop = h.cop, frac = cop != null ? Math.max(0, Math.min(1, (cop - 1) / 6)) : 0;
+  const R = 34, C = Math.PI * R, col = cop == null ? 'var(--muted)' : cop < 2.5 ? 'var(--warn)' : cop < 3.5 ? 'var(--solar)' : 'var(--accent)';
+  const gauge = `<svg viewBox="0 0 84 50" aria-hidden="true"><path d="M8 44 A34 34 0 0 1 76 44" fill="none" stroke="var(--track)" stroke-width="8" stroke-linecap="round"/>
+    <path d="M8 44 A34 34 0 0 1 76 44" fill="none" stroke="${col}" stroke-width="8" stroke-linecap="round" stroke-dasharray="${(C * frac).toFixed(1)} ${C.toFixed(1)}"/></svg>`;
+  const th = h.thermalW != null ? Math.max(0, h.thermalW) : null, el = h.electricW != null ? Math.max(0, h.electricW) : c.powerW;
+  let split = '';
+  if (th > 0 && el != null) { // heat = electricity + ambient heat
+    const e = Math.min(el, th), amb = th - e;
+    split = `<div class="hpo-split"><div class="bar"><i class="el" style="width:${(100 * e / th).toFixed(1)}%"></i><i class="amb" style="width:${(100 * amb / th).toFixed(1)}%"></i></div>
+      <div class="lg"><span><i style="background:var(--grid)"></i>Strom ${kw(e)}</span><span><i style="background:var(--accent)"></i>Umwelt ${kw(amb)}</span></div></div>`;
+  }
+  let temp = '';
+  if (h.flowC != null && h.returnC != null) { // scale zoomed around flow and return
+    const a = Math.min(h.returnC, h.flowC), b = Math.max(h.returnC, h.flowC);
+    const mid = (a + b) / 2, half = Math.max(10, (b - a) / 2 + 5);
+    const lo = Math.floor((mid - half) / 5) * 5, hi = Math.ceil((mid + half) / 5) * 5;
+    const x = v => Math.max(0, Math.min(100, 100 * (v - lo) / (hi - lo)));
+    temp = `<div class="hpo-temp"><div class="scale"><span class="ln"></span><span class="band" style="left:${x(a).toFixed(1)}%;width:${Math.max(2, x(b) - x(a)).toFixed(1)}%"></span></div>
+      <div class="row"><span>R <b>${num1(h.returnC)}°</b></span><span class="sp">Δ ${num1(h.flowC - h.returnC)} K</span><span>V <b>${num1(h.flowC)}°</b></span></div></div>`;
+  }
+  const chips = [h.outdoorC != null ? `<span>außen <b>${num1(h.outdoorC)}°</b></span>` : '', h.hotWaterC != null ? `<span>Warmwasser <b>${num1(h.hotWaterC)}°</b></span>` : ''].join('');
+  return `<div class="hpo-hd">${iconSVG('heatpump', 15)}<b>${esc(c.name || h.name)}</b>${h.state ? `<span class="st">${esc(h.state)}</span>` : ''}<span class="cl" aria-hidden="true">×</span></div>
+    <div class="hpo-top"><div class="g">${gauge}<div class="v"><b>${cop != null ? num1(cop) : '–'}</b><span>COP</span></div></div>
+      <div class="k"><div><span>Wärme</span><b>${th != null ? num1(th / 1000) : '–'}<small>kW</small></b></div><div><span>Strom</span><b>${el != null ? num1(el / 1000) : '–'}<small>kW</small></b></div></div></div>
+    ${split}${temp}${chips ? `<div class="hpo-chips">${chips}</div>` : ''}${h.error ? `<div class="hpo-err">${esc(h.error)}</div>` : ''}`;
+}
+function toggleHeat(e) {
+  const n = e.target.closest('[data-heat]');
+  if (!n || (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ')) return;
+  e.preventDefault(); e.stopPropagation();
+  hpOpen = !hpOpen; hpPop = hpOpen;
+  if (window._last) drawFlow(window._last);
+  const f = $('flow').querySelector('[data-heat]'); if (f) f.focus();
+}
+$('flow').addEventListener('click', toggleHeat, true);
+$('flow').addEventListener('keydown', toggleHeat, true);
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && hpOpen) { hpOpen = false; if (window._last) drawFlow(window._last); } });
 (() => { // result of an OAuth login
   const msg = new URLSearchParams(location.search).get('oauth');
   if (!msg) return;
@@ -643,32 +1105,32 @@ function renderHeat(st) {
 
 async function refresh() {
   const me = await voltibri.me;
-  if (me && !me.overview) { // only the wallboxes
-    document.body.classList.add('restricted');
-    $('allRuns').hidden = !me.reports;
-    refreshCharging();
-    return;
-  }
+  // what this user may see (administrators: everything)
+  const can = {flow: !me || me.flow, forecast: !me || me.forecast, heat: !me || me.heat};
+  document.body.classList.toggle('no-flow', !can.flow);
+  document.body.classList.toggle('no-forecast', !can.forecast);
+  document.body.classList.toggle('no-heat', !can.heat);
+  document.body.classList.toggle('restricted', !!me && !me.admin);
+  if (me && !me.admin) $('allRuns').hidden = !me.reports;
+  if (me && !me.overview) { refreshCharging(); return; } // only the wallboxes
   try {
-    const [st, plan, hist] = await Promise.all([fetch('api/state').then(r => r.json()), fetch('api/plan').then(r => r.json()),
-      loadHistory()]);
-    drawFlow(st);
-    renderHeat(st);
-    refreshToday();
-    $('bTitle').textContent = PLAN_TITLE[plan.mode] || modes[plan.mode] || 'Ladeplanung';
-    $('limit').innerHTML = 'Ladegrenze <b>' + esc(!st.controlled ? 'nur Empfehlung' : (st.chargeLimitW < 0 ? 'keine' : kw(st.chargeLimitW))) + '</b>';
-    $('discharge').hidden = !(st.dischargeLimitW >= 0);
-    $('discharge').innerHTML = 'Entladung max. <b>' + kw(st.dischargeLimitW || 0) + '</b>';
-    $('discharge').title = (st.excluded || []).length ? 'Ohne Hausbatterie: ' + st.excluded.join(', ') + (st.controlled ? '' : ' (nur Empfehlung – Batterie nicht gesteuert)') : '';
-    $('target').innerHTML = 'Ziel am Abend <b>' + (plan.targetSoC ? pct(plan.targetSoC) : '–') + '</b>';
-    $('discharge').hidden = !(st.dischargeLimitW >= 0);
-    $('discharge').innerHTML = 'Entladung max. <b>' + kw(st.dischargeLimitW || 0) + '</b>';
-    $('discharge').title = (st.excluded || []).length ? 'Ohne Hausbatterie: ' + st.excluded.join(', ') + (st.controlled ? '' : ' (nur Empfehlung – Batterie nicht gesteuert)') : '';
-    $('hstatus').innerHTML = (st.dryRun ? '<span class="badge warn" title="voltibri schreibt nichts auf Geräte, sondern protokolliert nur">Testmodus</span>' : '') +
+    const [st, plan, hist] = await Promise.all([fetch('api/state').then(r => r.json()),
+      can.forecast ? fetch('api/plan').then(r => r.json()) : null, can.forecast ? loadHistory() : []]);
+    if (can.flow) { drawFlow(st); refreshToday(); }
+    if (can.heat) renderHeat(st);
+    if (plan) {
+      $('bTitle').textContent = PLAN_TITLE[plan.mode] || modes[plan.mode] || 'Ladeplanung';
+      $('limit').innerHTML = 'Ladegrenze <b>' + esc(!st.controlled ? 'nur Empfehlung' : (st.chargeLimitW < 0 ? 'keine' : kw(st.chargeLimitW))) + '</b>';
+      $('target').innerHTML = 'Ziel am Abend <b>' + (plan.targetSoC ? pct(plan.targetSoC) : '–') + '</b>';
+      $('discharge').hidden = !(st.dischargeLimitW >= 0);
+      $('discharge').innerHTML = 'Entladung max. <b>' + kw(st.dischargeLimitW || 0) + '</b>';
+      $('discharge').title = (st.excluded || []).length ? 'Ohne Hausbatterie: ' + st.excluded.join(', ') + (st.controlled ? '' : ' (nur Empfehlung – Batterie nicht gesteuert)') : '';
+      $('reasons').innerHTML = (plan.reasons || []).map(r => `<li>${esc(r)}</li>`).join('');
+      drawChart(plan.slots || [], hist || []);
+    }
+    $('hstatus').innerHTML = (st.dryRun && (!me || me.admin) ? '<span class="badge warn" title="voltibri schreibt nichts auf Geräte, sondern protokolliert nur">Testmodus</span>' : '') +
       `<span class="live" title="letzte Messung">${new Date(st.time).toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit', second: '2-digit'})}</span>`;
     $('errors').textContent = (st.errors || []).join(' · ');
-    $('reasons').innerHTML = (plan.reasons || []).map(r => `<li>${esc(r)}</li>`).join('');
-    drawChart(plan.slots || [], hist || []);
     window._last = st;
     refreshCharging();
   } catch (e) {

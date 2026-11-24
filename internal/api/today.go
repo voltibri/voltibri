@@ -7,6 +7,8 @@ import (
 	"math"
 	"net/http"
 	"time"
+
+	"github.com/voltibri/voltibri/internal/auth"
 )
 
 // todayInfo are the day totals for the overview (from the load profile).
@@ -82,6 +84,9 @@ func (h *handler) today(w http.ResponseWriter, r *http.Request) {
 			}
 			t.ForecastRestWh += s.PVW * 0.25 * frac
 		}
+	}
+	if !auth.From(r.Context()).Forecast() {
+		t.ForecastRestWh = 0 // the forecast is a permission of its own
 	}
 	writeJSON(w, http.StatusOK, t)
 }

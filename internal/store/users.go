@@ -167,7 +167,10 @@ func (s *Store) DeleteUser(ctx context.Context, id string) error {
 }
 
 type groupPerms struct {
-	Overview   bool     `json:"overview"`
+	Overview   bool     `json:"overview,omitempty"` // before the split: flow, forecast and heat
+	Flow       bool     `json:"flow"`
+	Forecast   bool     `json:"forecast"`
+	Heat       bool     `json:"heat"`
 	Reports    bool     `json:"reports"`
 	Loadpoints []string `json:"loadpoints"`
 	Vehicles   []string `json:"vehicles"`
@@ -189,7 +192,8 @@ func (s *Store) Groups(ctx context.Context) ([]auth.Group, error) {
 		}
 		var p groupPerms
 		_ = json.Unmarshal([]byte(perms), &p)
-		g.Overview, g.Reports, g.Loadpoints, g.Vehicles = p.Overview, p.Reports, p.Loadpoints, p.Vehicles
+		g.Flow, g.Forecast, g.Heat = p.Flow || p.Overview, p.Forecast || p.Overview, p.Heat || p.Overview
+		g.Reports, g.Loadpoints, g.Vehicles = p.Reports, p.Loadpoints, p.Vehicles
 		if g.Loadpoints == nil {
 			g.Loadpoints = []string{}
 		}
@@ -203,7 +207,7 @@ func (s *Store) Groups(ctx context.Context) ([]auth.Group, error) {
 
 // SaveGroup creates or updates a group.
 func (s *Store) SaveGroup(ctx context.Context, g auth.Group) error {
-	b, _ := json.Marshal(groupPerms{Overview: g.Overview, Reports: g.Reports, Loadpoints: g.Loadpoints, Vehicles: g.Vehicles})
+	b, _ := json.Marshal(groupPerms{Flow: g.Flow, Forecast: g.Forecast, Heat: g.Heat, Reports: g.Reports, Loadpoints: g.Loadpoints, Vehicles: g.Vehicles})
 	_, err := s.db.ExecContext(ctx, `INSERT INTO groups (id, name, perms) VALUES (?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET name = excluded.name, perms = excluded.perms`, g.ID, g.Name, string(b))
 	return err
