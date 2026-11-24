@@ -145,3 +145,22 @@ func TestSunspecLimits(t *testing.T) {
 		t.Fatalf("none: mode %d", f.m[base+offStorCtlMod])
 	}
 }
+
+func TestSunspecForceCharge(t *testing.T) {
+	f := newFake()
+	s := &sunspec{regs: f}
+	// 2000 of 5000 W = 40 % -> OutWRte raw -4000 with SF -2
+	if err := s.forceCharge(2000, 2*time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	base := s.base
+	if got := int16(f.m[base+offOutWRte]); got != -4000 {
+		t.Errorf("OutWRte = %d, want -4000", got)
+	}
+	if got := f.m[base+offInWRte]; got != 10000 {
+		t.Errorf("InWRte = %d, want 10000", got)
+	}
+	if f.m[base+offChaGriSet] != chaGriSetGrid || f.m[base+offStorCtlMod] != storCtlCharge|storCtlDischarge || f.m[base+offRvrtTms] != 120 {
+		t.Errorf("ChaGriSet %d mode %d revert %d", f.m[base+offChaGriSet], f.m[base+offStorCtlMod], f.m[base+offRvrtTms])
+	}
+}

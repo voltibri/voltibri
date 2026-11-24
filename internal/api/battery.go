@@ -1,0 +1,82 @@
+// Copyright 2026 The voltibri Authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
+package api
+
+import (
+	"net/http"
+
+	"github.com/voltibri/voltibri/internal/site"
+)
+
+// Battery settings (charge targets, max. discharge power) and the boost are
+// runtime settings for administrators, like the charging settings: they do
+// not create configuration versions. What can be set depends on the
+// capabilities of the battery driver (features in GET /api/battery).
+
+func (h *handler) batteryRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/battery", h.getBattery)
+	mux.HandleFunc("PUT /api/battery", h.putBattery)
+	mux.HandleFunc("POST /api/battery/boost", h.postBoost)
+	mux.HandleFunc("DELETE /api/battery/boost", h.deleteBoost)
+}
+
+func (h *handler) battery(w http.ResponseWriter) *site.Site {
+	s := h.rt.Battery()
+	if s == nil {
+		writeErr(w, http.StatusServiceUnavailable, "voltibri läuft gerade nicht (Konfiguration prüfen).", nil)
+	}
+	return s
+}
+
+func (h *handler) getBattery(w http.ResponseWriter, r *http.Request) {
+	if s := h.battery(w); s != nil {
+		writeJSON(w, http.StatusOK, s.BatteryInfo())
+	}
+}
+
+func (h *handler) putBattery(w http.ResponseWriter, r *http.Request) {
+	s := h.battery(w)
+	if s == nil {
+		return
+	}
+	var bs site.BatterySettings
+	if !decode(w, r, &bs) {
+		return
+	}
+	if err := s.SetBatterySettings(bs); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.BatteryInfo())
+}
+
+func (h *handler) postBoost(w http.ResponseWriter, r *http.Request) {
+	s := h.battery(w)
+	if s == nil {
+		return
+	}
+	var req struct {
+		TargetSoC float64 `json:"targetSoc"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	if err := s.StartBoost(req.TargetSoC); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.BatteryInfo())
+}
+
+func (h *handler) deleteBoost(w http.ResponseWriter, r *http.Request) {
+	s := h.battery(w)
+	if s == nil {
+		return
+	}
+	if err := s.StopBoost(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "Boost konnte nicht beendet werden", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.BatteryInfo())
+}

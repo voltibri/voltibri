@@ -60,6 +60,19 @@
   .drow b { font-weight:600; font-variant-numeric:tabular-nums; }
   .drow em { font-style:normal; color:var(--muted); font-size:12px; width:64px; text-align:right; font-variant-numeric:tabular-nums; }
   @media (max-width:760px) { .dtiles { grid-template-columns:1fr 1fr; } .dtile .dv { font-size:22px; } }
+  /* battery: charge targets on the SoC bar, settings and boost below the tiles */
+  .dsoc { position:relative; overflow:visible; }
+  .dsoc i { border-radius:4px; }
+  .dsoc .dmark { position:absolute; top:-3px; bottom:-3px; width:2px; margin-left:-1px; background:var(--fg); opacity:.55; border-radius:1px; }
+  .bctl { margin-top:12px; }
+  .bctl .pform { gap:18px; }
+  .bctl .bnote { margin:0; font-size:13px; color:var(--muted); }
+  .bbox { display:flex; flex-direction:column; gap:10px; padding-bottom:16px; border-bottom:1px solid var(--line); }
+  .bbox.on { flex-direction:row; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  .bbox.on div { display:flex; flex-direction:column; gap:2px; }
+  .bbox.on span { font-size:12px; color:var(--muted); }
+  .bbox .btn, .bact .btn { align-self:flex-start; display:inline-flex; align-items:center; gap:6px; }
+  .bctl .pform .err { margin:0; }
   #flow { width:100%; height:auto; display:block; margin:0 auto; overflow:visible; }
   #flow text { font-variant-numeric:tabular-nums; }
   .track { fill:none; stroke:var(--track); stroke-width:2; }
@@ -1023,11 +1036,14 @@ function detailTiles(st) {
   }
   case 'battery': {
     const w = st.batteryW, state = Math.abs(w) < 15 ? 'Ruhe' : w < 0 ? 'lädt' : 'entlädt';
-    const ring = `<span class="dbar"><i style="width:${(st.soc * 100).toFixed(0)}%;background:linear-gradient(90deg, var(--accent), var(--battery))"></i></span>`;
-    return [tile('Ladestand', unit(Math.round(st.soc * 100), '%'), '', ring),
+    const bs = (batInfo && batInfo.settings) || {}, mark = (v, t) => v > 0 && v < 1 ? `<b class="dmark" style="left:${(v * 100).toFixed(0)}%" title="${t} ${pct(v)}"></b>` : '';
+    const ring = `<span class="dbar dsoc"><i style="width:${(st.soc * 100).toFixed(0)}%;background:linear-gradient(90deg, var(--accent), var(--battery))"></i>${mark(bs.minSoc, 'Unteres Ladeziel')}${mark(bs.maxSoc, 'Oberes Ladeziel')}${st.boost ? mark(st.boost.targetSoc, 'Boost bis') : ''}</span>`;
+    const targets = [bs.minSoc > 0 ? pct(bs.minSoc) : '', bs.maxSoc > 0 ? pct(bs.maxSoc) : ''];
+    return [tile('Ladestand', unit(Math.round(st.soc * 100), '%'), bs.minSoc > 0 || bs.maxSoc > 0 ? `Ladeziele ${targets[0] || '0 %'} – ${targets[1] || '100 %'}` : '', ring),
       tile(state === 'Ruhe' ? 'Leistung' : state === 'lädt' ? 'Lädt mit' : 'Entlädt mit', unit(num1(Math.abs(w) / 1000), 'kW'), state === 'Ruhe' ? 'in Ruhe' : ''),
       tile('Heute', `${kwhS(t.batteryInWh || 0)}<small>kWh geladen</small>`, `${kwh(t.batteryOutWh || 0)} entladen`),
-      tile('Steuerung', st.controlled ? (st.chargeLimitW < 0 ? 'frei' : unit(num1(st.chargeLimitW / 1000), 'kW')) : 'Empfehlung',
+      st.boost ? tile('Steuerung', 'Boost', `lädt bis ${pct(st.boost.targetSoc)} · seit ${hm(st.boost.since)}`)
+      : tile('Steuerung', st.controlled ? (st.chargeLimitW < 0 ? 'frei' : unit(num1(st.chargeLimitW / 1000), 'kW')) : 'Empfehlung',
         [st.controlled ? 'Ladegrenze' : 'voltibri steuert die Batterie nicht', st.dischargeLimitW >= 0 ? 'Entladung max. ' + kw(st.dischargeLimitW) : ''].filter(Boolean).join(' · '))].join('');
   }
   case 'pv': {
@@ -1054,10 +1070,74 @@ function renderDetails(st) {
   if (!html) return;
   const [ic, name] = SEL_TITLE[sel];
   el.innerHTML = `<div class="dhead">${iconSVG(ic, 16)}<b>${name}</b></div><div class="dtiles">${html}</div>`;
+  // the battery settings live in one element that survives the refresh
+  // (sliders keep their position while being moved)
+  if (sel === 'battery' && batEl) el.appendChild(batEl);
+  if (sel === 'battery' && batInfo && !!st.boost !== !!batInfo.boost) loadBattery(); // boost ended (target reached)
+}
+
+// --- battery settings and boost (administrators; only what the battery supports) ---
+let batInfo = null, batEl = null;
+async function loadBattery() {
+  const me = await voltibri.me;
+  if (me && !me.admin) return;
+  const r = await fetch('api/battery').catch(() => null);
+  batInfo = r && r.ok ? await r.json() : null;
+  buildBatCtl();
+}
+async function batSend(method, url, body) {
+  const r = await fetch(url, {method, headers: {'Content-Type': 'application/json'}, body: body ? JSON.stringify(body) : undefined}).catch(() => null);
+  const res = r ? await r.json().catch(() => ({})) : {};
+  if (!r || !r.ok) { const e = batEl && batEl.querySelector('.err'); if (e) e.textContent = res.error || 'Keine Verbindung.'; return false; }
+  batInfo = res;
+  buildBatCtl();
+  if (window._last) renderDetails(window._last);
+  refresh();
+  return true;
+}
+function buildBatCtl() {
+  const i = batInfo, f = (i && i.features) || {};
+  if (!i || !i.hasBattery) { batEl = null; return; }
+  batEl = batEl || document.createElement('div');
+  batEl.className = 'bctl';
+  if (!(f.maxSoc || f.minSoc || f.maxDischarge || f.boost)) {
+    batEl.innerHTML = `<p class="bnote">${esc(i.note || 'Diese Batterie unterstützt keine Einstellungen durch voltibri.')}</p>`;
+    return;
+  }
+  const s = i.settings || {}, b = i.boost;
+  const maxP = Math.round((s.maxSoc || 1) * 100), minP = Math.round((s.minSoc || 0) * 100);
+  const capW = i.maxDischargeW > 0 ? i.maxDischargeW : 10000, step = 250;
+  const disW = s.maxDischargeW > 0 ? Math.min(s.maxDischargeW, capW) : capW;
+  const disTxt = w => w >= capW ? 'unbegrenzt' : kw(w);
+  const range = (id, lab, val, min, max, st, txt, why) => `<div><div class="lab">${lab} <span class="socval" id="${id}V">${txt(val)}</span></div>
+    <input type="range" id="${id}" min="${min}" max="${max}" step="${st}" value="${val}" aria-label="${lab}"><div class="need">${why}</div></div>`;
+  const pctTxt = (off, word) => v => +v === off ? word : v + ' %';
+  const boost = !f.boost ? '' : b
+    ? `<div class="bbox on"><div><b>Boost läuft</b><span>lädt bis ${pct(b.targetSoc)} – auch aus dem Netz · seit ${hm(b.since)}</span></div><button class="btn danger" id="bStop">Boost beenden</button></div>`
+    : `<div class="bbox">${range('bBoost', 'Boost bis', Math.max(maxP, 50), 20, 100, 5, v => v + ' %', 'Lädt die Batterie sofort mit voller Leistung, notfalls aus dem Netz, bis zu diesem Ladestand – unabhängig vom Plan.')}
+      <button class="btn primary" id="bStart">${iconSVG('bolt', 14)} Boost starten</button></div>`;
+  const sets = [
+    f.maxSoc ? range('bMax', 'Oberes Ladeziel', maxP, 50, 100, 5, pctTxt(100, 'aus (100 %)'), 'Darüber lädt die Batterie nicht weiter – schont die Zellen.') : '',
+    f.minSoc ? range('bMin', 'Unteres Ladeziel', minP, 0, 50, 5, pctTxt(0, 'aus'), 'Darunter entlädt voltibri die Batterie nicht – Reserve für Stromausfall oder den Morgen.') : '',
+    f.maxDischarge ? range('bDis', 'Max. Entladeleistung', disW, Math.min(500, capW), capW, step, disTxt, 'Höchstens so viel gibt die Batterie ans Haus ab.') : ''].filter(Boolean).join('');
+  batEl.innerHTML = `<div class="pform">${boost}${sets ? `<h3>Einstellungen</h3>${sets}<div class="bact"><button class="btn primary" id="bSave" disabled>Speichern</button></div>` : ''}<p class="err"></p></div>`;
+  const q = id => batEl.querySelector('#' + id);
+  const txts = {bBoost: v => v + ' %', bMax: pctTxt(100, 'aus (100 %)'), bMin: pctTxt(0, 'aus'), bDis: disTxt};
+  batEl.querySelectorAll('input[type=range]').forEach(r => r.addEventListener('input', () => {
+    q(r.id + 'V').textContent = txts[r.id](+r.value);
+    if (r.id !== 'bBoost' && q('bSave')) q('bSave').disabled = false;
+  }));
+  if (q('bStart')) q('bStart').onclick = () => batSend('POST', 'api/battery/boost', {targetSoc: +q('bBoost').value / 100});
+  if (q('bStop')) q('bStop').onclick = () => batSend('DELETE', 'api/battery/boost');
+  if (q('bSave')) q('bSave').onclick = () => batSend('PUT', 'api/battery', {
+    maxSoc: q('bMax') && +q('bMax').value < 100 ? +q('bMax').value / 100 : 0,
+    minSoc: q('bMin') ? +q('bMin').value / 100 : 0,
+    maxDischargeW: q('bDis') && +q('bDis').value < capW ? +q('bDis').value : 0});
 }
 async function select(key) {
   sel = sel === key ? null : key;
   if (sel && open) open = null; // one opened thing at a time
+  if (sel === 'battery') await loadBattery();
   if (sel) { todayAt = 0; await refreshToday(); }
   if (window._last) { drawFlow(window._last); renderDetails(window._last); }
 }

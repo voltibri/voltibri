@@ -32,7 +32,7 @@ func init() {
 	sdk.RegisterDriver(sdk.Driver{
 		Type: "demo", Name: "Demo-Anlage", Category: sdk.CatDemo,
 		Description:  "Simulierte Anlage mit PV, Hausverbrauch, Batterie, Netz, PV-Prognose und Börsenpreisen.",
-		Capabilities: []sdk.Capability{sdk.CapGrid, sdk.CapPV, sdk.CapBattery, sdk.CapBatteryControl, sdk.CapPVForecast, sdk.CapTariff},
+		Capabilities: []sdk.Capability{sdk.CapGrid, sdk.CapPV, sdk.CapBattery, sdk.CapBatteryControl, sdk.CapBatteryLimits, sdk.CapBatteryForce, sdk.CapPVForecast, sdk.CapTariff},
 		Params: []sdk.Param{
 			{Name: "capacityWh", Label: "Batteriekapazität", Type: sdk.TypeFloat, Unit: "Wh", Default: 13800.0},
 			{Name: "kwp", Label: "PV-Leistung", Type: sdk.TypeFloat, Unit: "kWp", Default: 10.0},
@@ -82,6 +82,8 @@ type Device struct {
 	pvShare  float64 // share of PV reported by the site itself
 	soc      float64
 	limit    float64
+	disLimit float64 // discharge limit, -1 = none
+	force    float64 // > 0: charge with this power (also from the grid)
 	last     time.Time
 	batteryW float64
 	wallbox  []*Consumer
@@ -101,7 +103,7 @@ func New(cfg sdk.DeviceConfig) (sdk.Device, error) {
 		id: cfg.ID, synth: sc, cal: cal, loc: loc,
 		cap: cfg.FloatOr("capacityWh", 13800), maxW: cfg.FloatOr("maxChargeW", 6000),
 		pvShare: cfg.FloatOr("pvShare", 1),
-		soc:     0.4, limit: planner.Unlimited,
+		soc:     0.4, limit: planner.Unlimited, disLimit: -1,
 	}
 	// 60 days of history plus 3 days of "future" for forecasts. shiftDays
 	// moves the season (e.g. 200 shows June data in November).
@@ -143,6 +145,9 @@ func (d *Device) flows(now time.Time) (pv, load, battery float64) {
 	for _, w := range d.wallbox {
 		load += w.wallboxPower(pv, load, now)
 	}
+	if d.force > 0 && d.soc < 0.999 {
+		return pv, load, -math.Min(d.force, d.maxW)
+	}
 	net := pv - load
 	if net >= 0 {
 		c := math.Min(net, d.maxW)
@@ -155,6 +160,9 @@ func (d *Device) flows(now time.Time) (pv, load, battery float64) {
 		return pv, load, -c
 	}
 	dis := math.Min(-net, d.maxW)
+	if d.disLimit >= 0 {
+		dis = math.Min(dis, d.disLimit)
+	}
 	if d.soc <= 0.05 {
 		dis = 0
 	}
@@ -211,12 +219,13 @@ func (d *Device) SetChargeLimit(ctx context.Context, w float64) error {
 	defer d.mu.Unlock()
 	d.step()
 	d.limit = w
+	d.force = 0
 	d.step()
 	return nil
 }
 
 func (d *Device) ResetLimits(ctx context.Context) error {
-	return d.SetChargeLimit(ctx, planner.Unlimited)
+	return d.SetLimits(ctx, -1, -1)
 }
 
 func (d *Device) PVForecast(ctx context.Context, from, to time.Time) ([]sdk.Slot, error) {
@@ -324,4 +333,27 @@ func (c *Consumer) ConsumerPower(ctx context.Context) (float64, error) {
 		return c.wallboxPower(r.PVW, r.LoadW, now), nil
 	}
 	return r.LoadW * c.share, nil
+}
+
+// SetLimits implements sdk.BatteryLimiter.
+func (d *Device) SetLimits(ctx context.Context, chargeW, dischargeW float64) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.step()
+	d.limit, d.disLimit, d.force = chargeW, dischargeW, 0
+	if chargeW < 0 {
+		d.limit = planner.Unlimited
+	}
+	d.step()
+	return nil
+}
+
+// ForceCharge implements sdk.BatteryForceCharger.
+func (d *Device) ForceCharge(ctx context.Context, w float64) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.step()
+	d.force = w
+	d.step()
+	return nil
 }

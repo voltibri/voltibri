@@ -48,6 +48,8 @@ func levelFor(method, path string) level {
 		return levelForecast
 	case "/berichte", "/api/assets", "/api/sessions":
 		return levelReports
+	case "/api/battery", "/api/battery/boost":
+		return levelAdmin // runtime settings: no re-authentication like the configuration
 	case "/konfiguration", "/api/oauth/callback":
 		return levelAdmin
 	}

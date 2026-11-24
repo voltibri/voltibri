@@ -35,6 +35,7 @@ func (f fakeRuntime) Status() server.Status {
 }
 func (f fakeRuntime) ReadOnly() bool              { return f.readOnly }
 func (f fakeRuntime) Charging() *charging.Manager { return f.charge }
+func (f fakeRuntime) Battery() *site.Site         { return nil }
 
 func setup(t *testing.T, readOnly bool) (http.Handler, *store.Store) {
 	st, err := store.Open(t.TempDir())

@@ -182,7 +182,8 @@ type OAuthAuthorizer interface {
 
 // BatteryLimiter sets charge and discharge limits at once (negative = no
 // limit; both negative = autonomous operation). Used to keep the battery
-// from feeding excluded loads (e.g. an EV charging from the grid).
+// from feeding excluded loads (e.g. an EV charging from the grid), for the
+// maximum discharge power and the lower charge target (discharge 0).
 type BatteryLimiter interface {
 	SetLimits(ctx context.Context, chargeW, dischargeW float64) error
 }
@@ -210,7 +211,9 @@ type HeatSource interface {
 
 // BatteryForceCharger can make the battery charge with a given power even
 // if that power has to come from the grid. Used for metering concepts where
-// a charger sits behind a separate (cascaded) meter.
+// a charger sits behind a separate (cascaded) meter, and for the boost
+// (charge now up to a target). Like the limits it MUST revert on the device
+// side after a timeout; voltibri refreshes it as long as it is wanted.
 type BatteryForceCharger interface {
 	ForceCharge(ctx context.Context, w float64) error
 }

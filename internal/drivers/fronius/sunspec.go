@@ -22,6 +22,8 @@ const (
 	offOutWRte       = 10
 	offInWRte        = 11
 	offRvrtTms       = 13
+	offChaGriSet     = 15 // 0 = charge from PV only, 1 = from the grid too
+	chaGriSetGrid    = 1
 	offWChaMaxSF     = 16
 	offInOutWRteSF   = 23
 	storCtlCharge    = 1 // bit 0: limit charging by InWRte
@@ -205,4 +207,38 @@ func (s *sunspec) setLimits(chargeW, dischargeW float64, revert time.Duration) e
 		return err
 	}
 	return s.regs.write(s.base+offStorCtlMod, []uint16{mode})
+}
+
+// forceCharge makes the battery charge with w watts, from the grid if
+// needed: a negative discharge rate (OutWRte) forces charging, ChaGriSet
+// allows charging from the grid. Reverts after the timeout like the limits.
+func (s *sunspec) forceCharge(w float64, revert time.Duration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.discover(); err != nil {
+		return err
+	}
+	pts, err := s.regs.read(s.base, offInOutWRteSF+1)
+	if err != nil {
+		return err
+	}
+	wChaMax := float64(pts[offWChaMax]) * scale(pts[offWChaMaxSF])
+	if wChaMax <= 0 {
+		return errors.New("sunspec: WChaMax is zero")
+	}
+	sf := scale(pts[offInOutWRteSF])
+	pct := math.Max(0, math.Min(100, w/wChaMax*100))
+	if err := s.regs.write(s.base+offChaGriSet, []uint16{chaGriSetGrid}); err != nil {
+		return err
+	}
+	if err := s.regs.write(s.base+offInWRte, []uint16{uint16(int16(math.Round(100 / sf)))}); err != nil {
+		return err // charging itself not limited
+	}
+	if err := s.regs.write(s.base+offOutWRte, []uint16{uint16(int16(math.Round(-pct / sf)))}); err != nil {
+		return err
+	}
+	if err := s.regs.write(s.base+offRvrtTms, []uint16{uint16(revert.Seconds())}); err != nil {
+		return err
+	}
+	return s.regs.write(s.base+offStorCtlMod, []uint16{storCtlCharge | storCtlDischarge})
 }

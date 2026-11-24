@@ -76,6 +76,13 @@ func (r *Runtime) Charging() *charging.Manager {
 	return r.site.Charging()
 }
 
+// Battery returns the battery control of the running site (nil if none).
+func (r *Runtime) Battery() *site.Site {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.site
+}
+
 // Plan implements api.Source.
 func (r *Runtime) Plan() planner.Plan {
 	r.mu.RLock()

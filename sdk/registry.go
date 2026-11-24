@@ -45,6 +45,8 @@ const (
 	CapPV             Capability = "pv"              // PVProducer
 	CapBattery        Capability = "battery"         // Battery
 	CapBatteryControl Capability = "battery-control" // BatteryController
+	CapBatteryLimits  Capability = "battery-limits"  // BatteryLimiter (charge and discharge limit)
+	CapBatteryForce   Capability = "battery-force"   // BatteryForceCharger (charge from the grid, boost)
 	CapCharger        Capability = "charger"         // Charger
 	CapChargerControl Capability = "charger-control" // ChargerController
 	CapSwitch         Capability = "switch"          // Switch

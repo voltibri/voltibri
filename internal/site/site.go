@@ -60,6 +60,7 @@ type State struct {
 	Excluded        []string             `json:"excluded,omitempty"` // devices held back from the battery
 	Heat            []HeatReading        `json:"heat,omitempty"`     // heat pumps: heat output, COP, temperatures
 	Controlled      bool                 `json:"controlled"`         // voltibri actively controls the battery
+	Boost           *Boost               `json:"boost,omitempty"`    // the battery charges now up to a target
 	DryRun          bool                 `json:"dryRun"`
 	Producers       []Reading            `json:"producers"`
 	Consumers       []Reading            `json:"consumers"`
@@ -109,6 +110,10 @@ type Site struct {
 	forceCh  sdk.BatteryForceCharger // battery can be force-charged (guest policy forceBattery)
 	forcing  bool
 	forceErr bool
+	batCache sdk.Cache       // battery settings and boost (nil without store)
+	batSet   BatterySettings // runtime settings (targets, max. discharge)
+	boost    *Boost          // running boost
+	guard    socGuard        // charge targets with hysteresis
 
 	model     *forecast.LoadModel
 	hist      History
@@ -207,7 +212,9 @@ func New(cfg *config.Config, hist History) (*Site, error) {
 	var settings sdk.Cache
 	if cp, ok := hist.(CacheProvider); ok {
 		settings = cp.Cache("charging")
+		s.batCache = cp.Cache(batNS)
 	}
+	s.loadBattery()
 	sessions, _ := hist.(run.Store)
 	if s.charge, err = charging.New(cfg, loc, s.devices, settings, sessions); err != nil {
 		return nil, err
@@ -459,7 +466,13 @@ func (s *Site) measure(ctx context.Context) bool {
 			}
 		}
 	}
-	guestW, excludedW := s.updateCharging(ctx, st, chargers, tree)
+	guestW, excludedW, forceW := s.updateCharging(ctx, st, chargers, tree)
+	if s.bat != nil {
+		s.updateForce(ctx, st.SoC, forceW)
+		s.mu.RLock()
+		st.Boost = s.boost
+		s.mu.RUnlock()
+	}
 	st.Heat = s.readHeat(ctx)
 	st.Loadpoints = s.charge.Loadpoints()
 	s.updateDischargeLimit(ctx, &st, excludedW)
@@ -513,14 +526,21 @@ func (s *Site) replan(ctx context.Context) {
 	to := from.Add(48 * time.Hour)
 
 	s.mu.RLock()
-	soc := s.state.SoC
+	soc, bs := s.state.SoC, s.batSet
 	s.mu.RUnlock()
 
 	b := s.cfg.Battery
 	in := planner.Input{Now: now, TempC: math.NaN(), Battery: planner.Battery{
 		CapacityWh: b.CapacityWh, SoC: soc, MaxChargeW: b.MaxChargeW, MaxDischargeW: b.MaxDischargeW,
-		ChargeEff: b.ChargeEff, DischargeEff: b.DischargeEff, MinSoC: b.MinSoC, MaxSoC: 1,
+		ChargeEff: b.ChargeEff, DischargeEff: b.DischargeEff, MinSoC: math.Max(b.MinSoC, bs.MinSoC), MaxSoC: 1,
 	}}
+	// the charge targets and the discharge limit of the battery settings
+	if bs.MaxSoC > 0 {
+		in.Battery.MaxSoC = math.Max(in.Battery.MinSoC, bs.MaxSoC)
+	}
+	if bs.MaxDischargeW > 0 && (b.MaxDischargeW <= 0 || bs.MaxDischargeW < b.MaxDischargeW) {
+		in.Battery.MaxDischargeW = bs.MaxDischargeW
+	}
 	var plan planner.Plan
 	if s.bat == nil || s.pvf == nil {
 		plan = planner.Make(planner.Input{Now: now}, nil, s.cfg.Planner)
@@ -568,9 +588,9 @@ func first(s []string) string {
 func (s *Site) apply(ctx context.Context) { s.writeLimits(ctx, true) }
 
 // updateCharging runs the loadpoints and returns the guest charging power.
-func (s *Site) updateCharging(ctx context.Context, st State, chargers map[string]sdk.ChargerStatus, tree *circuit.Tree) (guestW, excludedW float64) {
+func (s *Site) updateCharging(ctx context.Context, st State, chargers map[string]sdk.ChargerStatus, tree *circuit.Tree) (guestW, excludedW, forceW float64) {
 	if !s.charge.HasLoadpoints() {
-		return 0, 0
+		return 0, 0, 0
 	}
 	s.mu.RLock()
 	plan := s.plan
@@ -585,11 +605,17 @@ func (s *Site) updateCharging(ctx context.Context, st State, chargers map[string
 	res := s.charge.Update(ctx, charging.SiteInput{Now: st.Time, GridW: st.GridW, BatteryW: st.BatteryW, PVW: st.PVW, LoadW: st.LoadW,
 		Chargers: chargers, BatteryPriority: batteryFirst, Circuits: tree})
 
-	// guest policy forceBattery: charge the battery as if the guest was not there
-	want := 0.0
-	if res.ForceBatteryW > 50 && st.SoC < 0.99 && plan.CurrentLimitW() != 0 {
-		want = math.Min(res.ForceBatteryW, s.cfg.Battery.MaxChargeW)
-	}
+	return res.GuestW, res.ExcludedW, res.ForceBatteryW
+}
+
+// updateForce force-charges the battery for a guest (policy forceBattery:
+// charge as if the guest was not there) or a boost, and returns to the
+// battery plan afterwards.
+func (s *Site) updateForce(ctx context.Context, soc, guestForceW float64) {
+	s.mu.RLock()
+	planLimit := s.plan.CurrentLimitW()
+	s.mu.RUnlock()
+	want := s.forceWant(soc, guestForceW, planLimit)
 	switch {
 	case want > 0 && s.forceCh == nil:
 		if !s.forceErr {
@@ -606,7 +632,6 @@ func (s *Site) updateCharging(ctx context.Context, st State, chargers map[string
 		s.forcing = false
 		s.apply(ctx) // back to the battery plan
 	}
-	return res.GuestW, res.ExcludedW
 }
 
 // Charging returns the loadpoint manager.

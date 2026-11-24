@@ -31,7 +31,7 @@ func init() {
 		Name:         "Fronius GEN24 / Symo",
 		Description:  "Wechselrichter mit Smart Meter und optionaler Batterie. Lesen über die Solar API, Batteriesteuerung über Modbus TCP (SunSpec, int+SF).",
 		Category:     sdk.CatInverter,
-		Capabilities: []sdk.Capability{sdk.CapGrid, sdk.CapPV, sdk.CapBattery, sdk.CapBatteryControl, sdk.CapPhases},
+		Capabilities: []sdk.Capability{sdk.CapGrid, sdk.CapPV, sdk.CapBattery, sdk.CapBatteryControl, sdk.CapBatteryLimits, sdk.CapBatteryForce, sdk.CapPhases},
 		Params: []sdk.Param{
 			{Name: "host", Label: "IP-Adresse / Hostname", Type: sdk.TypeHost, Required: true},
 			{Name: "capacityWh", Label: "Nutzbare Batteriekapazität", Type: sdk.TypeFloat, Unit: "Wh", Min: sdk.Ptr(0), Description: "Leer lassen, wenn keine Batterie angeschlossen ist."},
@@ -218,4 +218,18 @@ func (d *Device) SetLimits(ctx context.Context, chargeW, dischargeW float64) err
 		return nil
 	}
 	return d.ss.setLimits(chargeW, dischargeW, d.revert)
+}
+
+// ForceCharge implements sdk.BatteryForceCharger: charge with w watts, from
+// the grid if needed (boost). Charging from the grid must be allowed in the
+// inverter's battery settings as well.
+func (d *Device) ForceCharge(ctx context.Context, w float64) error {
+	if d.ss == nil {
+		return fmt.Errorf("%s: battery control disabled (mode %s or modbusPort 0)", d.cfg.ID, d.cfg.Mode)
+	}
+	if d.cfg.DryRun {
+		slog.Info("dry-run: would force-charge the battery", "device", d.cfg.ID, "watts", w, "revert", d.revert)
+		return nil
+	}
+	return d.ss.forceCharge(w, d.revert)
 }
