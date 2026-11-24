@@ -16,15 +16,17 @@ import (
 // SunSpec storage model 124 point offsets (relative to the first point,
 // i.e. after the model ID and length registers).
 const (
-	model124        = 124
-	offWChaMax      = 0
-	offStorCtlMod   = 3
-	offInWRte       = 11
-	offRvrtTms      = 13
-	offWChaMaxSF    = 16
-	offInOutWRteSF  = 23
-	storCtlCharge   = 1 // bit 0: limit charging by InWRte
-	sunspecBaseAddr = 40000
+	model124         = 124
+	offWChaMax       = 0
+	offStorCtlMod    = 3
+	offOutWRte       = 10
+	offInWRte        = 11
+	offRvrtTms       = 13
+	offWChaMaxSF     = 16
+	offInOutWRteSF   = 23
+	storCtlCharge    = 1 // bit 0: limit charging by InWRte
+	storCtlDischarge = 2 // bit 1: limit discharging by OutWRte
+	sunspecBaseAddr  = 40000
 )
 
 // registers abstracts the Modbus client for tests.
@@ -160,4 +162,47 @@ func (s *sunspec) reset() error {
 		return err
 	}
 	return s.regs.write(s.base+offStorCtlMod, []uint16{0})
+}
+
+// setLimits sets charge and discharge limits in one go (negative = no
+// limit) with automatic revert; without any limit the inverter returns to
+// autonomous operation.
+func (s *sunspec) setLimits(chargeW, dischargeW float64, revert time.Duration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.discover(); err != nil {
+		return err
+	}
+	if chargeW < 0 && dischargeW < 0 {
+		return s.regs.write(s.base+offStorCtlMod, []uint16{0})
+	}
+	pts, err := s.regs.read(s.base, offInOutWRteSF+1)
+	if err != nil {
+		return err
+	}
+	wChaMax := float64(pts[offWChaMax]) * scale(pts[offWChaMaxSF])
+	if wChaMax <= 0 {
+		return errors.New("sunspec: WChaMax is zero")
+	}
+	rate := func(w float64) uint16 {
+		pct := math.Max(0, math.Min(100, w/wChaMax*100))
+		return uint16(int16(math.Round(pct / scale(pts[offInOutWRteSF]))))
+	}
+	var mode uint16
+	if chargeW >= 0 {
+		if err := s.regs.write(s.base+offInWRte, []uint16{rate(chargeW)}); err != nil {
+			return err
+		}
+		mode |= storCtlCharge
+	}
+	if dischargeW >= 0 {
+		if err := s.regs.write(s.base+offOutWRte, []uint16{rate(dischargeW)}); err != nil {
+			return err
+		}
+		mode |= storCtlDischarge
+	}
+	if err := s.regs.write(s.base+offRvrtTms, []uint16{uint16(revert.Seconds())}); err != nil {
+		return err
+	}
+	return s.regs.write(s.base+offStorCtlMod, []uint16{mode})
 }

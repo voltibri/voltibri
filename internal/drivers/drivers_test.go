@@ -2,6 +2,7 @@ package drivers_test
 
 import (
 	"context"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -196,5 +197,21 @@ func TestForecastSolar(t *testing.T) {
 	d.(sdk.PVForecaster).PVForecast(context.Background(), from, from.Add(time.Hour))
 	if len(calls) != 2 {
 		t.Errorf("forecast not cached: %v", calls)
+	}
+}
+
+func TestManualVehicle(t *testing.T) {
+	dev, err := sdk.New(sdk.DeviceConfig{ID: "e-up", Name: "Dräger e-Up", Type: "vehicle", Params: map[string]any{"capacityKWh": 32.3, "phases": 2.0}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	vp := dev.(sdk.VehicleProvider)
+	vs, _ := vp.Vehicles(context.Background())
+	if len(vs) != 1 || vs[0].Name != "Dräger e-Up" || vs[0].CapacityWh != 32300 || vs[0].MaxPowerW != 7360 {
+		t.Fatalf("vehicle %+v", vs)
+	}
+	st, _ := vp.VehicleStatus(context.Background(), "e-up")
+	if !math.IsNaN(st.SoC) || st.Connected {
+		t.Fatalf("status %+v", st)
 	}
 }

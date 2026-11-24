@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
@@ -53,6 +54,9 @@ const (
 // loadpoint; entries here only tune it.
 type Charging struct {
 	Loadpoints []Loadpoint `yaml:"loadpoints,omitempty" json:"loadpoints,omitempty"`
+	// Cards: what a charging card (RFID) starts – a vehicle or "guest" and a
+	// charge mode for the session.
+	Cards []Card `yaml:"cards,omitempty" json:"cards,omitempty"`
 	// BatteryPrioritySoC: below this SoC PV surplus goes to the home battery
 	// first (unless the battery plan says there is enough surplus later).
 	// Default 0.5.
@@ -61,13 +65,14 @@ type Charging struct {
 
 // Loadpoint tunes one charger.
 type Loadpoint struct {
-	Charger       string  `yaml:"charger" json:"charger"`                                 // device id
-	Phases        int     `yaml:"phases,omitempty" json:"phases,omitempty"`               // default 3
-	MinCurrentA   float64 `yaml:"minCurrent,omitempty" json:"minCurrent,omitempty"`       // default 6
-	MaxCurrentA   float64 `yaml:"maxCurrent,omitempty" json:"maxCurrent,omitempty"`       // default 16
-	SeparateMeter bool    `yaml:"separateMeter,omitempty" json:"separateMeter,omitempty"` // behind its own meter: uses tariffs.charging
-	Guest         string  `yaml:"guest,omitempty" json:"guest,omitempty"`                 // share | batteryFirst | forceBattery
-	GuestMode     string  `yaml:"guestMode,omitempty" json:"guestMode,omitempty"`         // charge mode for guests (default fast)
+	Charger        string  `yaml:"charger" json:"charger"`                                   // device id
+	Phases         int     `yaml:"phases,omitempty" json:"phases,omitempty"`                 // default 3
+	MinCurrentA    float64 `yaml:"minCurrent,omitempty" json:"minCurrent,omitempty"`         // default 6
+	MaxCurrentA    float64 `yaml:"maxCurrent,omitempty" json:"maxCurrent,omitempty"`         // default 16
+	SeparateMeter  bool    `yaml:"separateMeter,omitempty" json:"separateMeter,omitempty"`   // behind its own meter: uses tariffs.charging
+	Guest          string  `yaml:"guest,omitempty" json:"guest,omitempty"`                   // share | batteryFirst | forceBattery
+	GuestMode      string  `yaml:"guestMode,omitempty" json:"guestMode,omitempty"`           // charge mode for guests (default fast)
+	GuestNoBattery bool    `yaml:"guestNoBattery,omitempty" json:"guestNoBattery,omitempty"` // guests never from the home battery
 }
 
 // LoadpointFor returns the tuning for a charger with defaults applied.
@@ -91,7 +96,7 @@ func (c *Config) LoadpointFor(charger string) Loadpoint {
 		lp.Guest = GuestShare
 	}
 	if lp.GuestMode == "" {
-		lp.GuestMode = "fast"
+		lp.GuestMode = "off" // guests do not charge until someone starts it (card, button)
 	}
 	return lp
 }
@@ -139,6 +144,12 @@ type Device struct {
 	Runs *bool `yaml:"runs,omitempty" json:"runs,omitempty"`
 	// RunThresholdW: a run starts above this power (default 25 W).
 	RunThresholdW float64 `yaml:"runThresholdW,omitempty" json:"runThresholdW,omitempty"`
+	// BatteryUse: "" (default, the home battery may supply this device) or
+	// "never" (the battery is held back while it runs: PV and grid only).
+	BatteryUse string `yaml:"batteryUse,omitempty" json:"batteryUse,omitempty"`
+	// NoBatteryModes (vehicles): in these charge modes the home battery does
+	// not supply the car, e.g. [fast] or [fast, minpv].
+	NoBatteryModes []string `yaml:"noBatteryModes,omitempty" json:"noBatteryModes,omitempty"`
 	// Flexibility: none (default), shiftable (start can be delayed, the
 	// program then runs to its end), interruptible (may be switched on and
 	// off as long as it is done by its deadline) or surplus (no target, runs
@@ -296,6 +307,8 @@ func (c *Config) Validate() error {
 	errs = append(errs, c.validateRanges()...)
 	errs = append(errs, c.validateCircuits()...)
 	errs = append(errs, c.validateLifecycle()...)
+	errs = append(errs, c.validateCards()...)
+	errs = append(errs, c.validateVehicles()...)
 	return errors.Join(errs...)
 }
 
@@ -468,4 +481,40 @@ func (c *Config) device(id string) Device {
 		}
 	}
 	return Device{}
+}
+
+// Card is the setting of one charging card (RFID).
+type Card struct {
+	Card    string `yaml:"card" json:"card"`                           // name as in the wallbox app
+	Vehicle string `yaml:"vehicle,omitempty" json:"vehicle,omitempty"` // vehicle key or "guest"; empty = detect
+	Mode    string `yaml:"mode,omitempty" json:"mode,omitempty"`       // charge mode for the session; empty = vehicle default
+}
+
+// validateCards checks the charging card settings.
+func (c *Config) validateCards() []error {
+	var errs []error
+	seen := map[string]bool{}
+	for _, k := range c.Charging.Cards {
+		if k.Card == "" {
+			errs = append(errs, errors.New("charging.cards: card name is required"))
+			continue
+		}
+		if seen[strings.ToLower(k.Card)] {
+			errs = append(errs, fmt.Errorf("charging.cards: card %q twice", k.Card))
+		}
+		seen[strings.ToLower(k.Card)] = true
+		switch k.Mode {
+		case "", "off", "external", "pv", "pv1", "minpv", "fast":
+		default:
+			errs = append(errs, fmt.Errorf("charging.cards: card %q: unknown mode %q", k.Card, k.Mode))
+		}
+	}
+	for i, lp := range c.Charging.Loadpoints {
+		switch lp.GuestMode {
+		case "", "off", "external", "pv", "pv1", "minpv", "fast":
+		default:
+			errs = append(errs, fmt.Errorf("charging.loadpoints[%d]: unknown guestMode %q", i, lp.GuestMode))
+		}
+	}
+	return errs
 }

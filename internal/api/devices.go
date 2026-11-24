@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/voltibri/voltibri/internal/auth"
 	"github.com/voltibri/voltibri/internal/config"
 	"github.com/voltibri/voltibri/internal/store"
 	"github.com/voltibri/voltibri/sdk"
@@ -214,18 +215,25 @@ func (h *handler) putSection(w http.ResponseWriter, r *http.Request) {
 		ptr   any
 		label string
 	}{
-		"planner":  {&cfg.Planner, "Batteriestrategie"},
-		"battery":  {&cfg.Battery, "Hausbatterie"},
-		"grid":     {&cfg.Grid, "Netzanschluss"},
-		"circuits": {&cfg.Circuits, "Unterverteilungen"},
+		"planner":    {&cfg.Planner, "Batteriestrategie"},
+		"battery":    {&cfg.Battery, "Hausbatterie"},
+		"grid":       {&cfg.Grid, "Netzanschluss"},
+		"circuits":   {&cfg.Circuits, "Unterverteilungen"},
+		"cards":      {&cfg.Charging.Cards, "Ladekarten"},
+		"loadpoints": {&cfg.Charging.Loadpoints, "Ladepunkte"},
 	}
 	t, ok := targets[name]
 	if !ok {
 		writeErr(w, http.StatusNotFound, "Unbekannter Abschnitt: "+name, nil)
 		return
 	}
-	if name == "circuits" {
-		cfg.Circuits = nil // lists are replaced, not merged
+	switch name { // lists are replaced, not merged
+	case "circuits":
+		cfg.Circuits = nil
+	case "cards":
+		cfg.Charging.Cards = nil
+	case "loadpoints":
+		cfg.Charging.Loadpoints = nil
 	}
 	dec := json.NewDecoder(io.LimitReader(r.Body, 1<<16))
 	dec.DisallowUnknownFields()
@@ -255,8 +263,12 @@ func (h *handler) assets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := time.Now()
+	p := auth.From(r.Context())
 	out := []assetInfo{}
 	for _, d := range cfg.Devices {
+		if !p.Admin() && !p.Loadpoint(d.ID) && !p.Vehicle(d.ID) {
+			continue // users: their wallboxes and vehicles
+		}
 		name := d.Name
 		if name == "" {
 			name = d.ID

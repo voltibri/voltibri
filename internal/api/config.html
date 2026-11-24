@@ -52,6 +52,7 @@
   .ubar.over i { background:var(--warn); }
   .dev.sub { padding-left:18px; }
   tr.undone td { color:var(--muted); }
+  table.cards select { font:inherit; font-size:13px; color:var(--fg); background:var(--card-2); border:1px solid var(--line); border-radius:9px; padding:5px 8px; max-width:100%; }
   .dev.retired .nm, .dev.retired .ic { opacity:.55; }
   .banner { border-radius:10px; padding:10px 12px; font-size:13px; margin-bottom:14px; border:1px solid var(--line); background:var(--card); }
   .banner.err { border-color:var(--warn); color:var(--warn); }
@@ -76,10 +77,22 @@
     <div class="err" id="secErr" role="alert"></div><div class="actions" id="secActions"></div>
   </form>
 </dialog>
+<dialog class="setup" id="lpd" aria-labelledby="lpTitle">
+  <form class="inner" id="lpForm" novalidate>
+    <h2 id="lpTitle"></h2><div id="lpBody"></div>
+    <div class="err" id="lpErr" role="alert"></div><div class="actions" id="lpActions"></div>
+  </form>
+</dialog>
 <dialog class="setup" id="circ" aria-labelledby="circTitle">
   <form class="inner" id="circForm" novalidate>
     <h2 id="circTitle"></h2><div id="circBody"></div>
     <div class="err" id="circErr" role="alert"></div><div class="actions" id="circActions"></div>
+  </form>
+</dialog>
+<dialog class="setup" id="ud" aria-labelledby="udTitle">
+  <form class="inner" id="udForm" novalidate>
+    <h2 id="udTitle"></h2><div id="udBody"></div>
+    <div class="err" id="udErr" role="alert"></div><div class="actions" id="udActions"></div>
   </form>
 </dialog>
 <dialog class="setup" id="ev" aria-labelledby="evTitle">
@@ -106,7 +119,7 @@ const AREAS = [
   {key: 'wallbox', title: 'Wallboxen', icon: 'car', pick: ['charger', 'none'], defIcon: 'car', defKind: 'ev-charger',
    why: 'Jede Wallbox ist ein Ladepunkt.'},
   {key: 'vehicles', title: 'Fahrzeuge', icon: 'car', pick: ['vehicle'],
-   why: 'Fahrzeugkonten liefern Ladestand und Ladeziel.'},
+   why: 'Jedes Fahrzeug ist ein eigener Eintrag mit Lademodus, Ladekarten und Auswertungen. Ladestand und Ladeziel kommen aus einer Datenquelle (Fahrzeugkonto), die sich jederzeit wechseln lässt.'},
   {key: 'heat', title: 'Heizung + Klima', icon: 'heatpump', pick: ['switch', 'meter', 'none'], defIcon: 'heatpump', defKind: 'heating-rod',
    why: 'Wärmepumpe, Warmwasser, Klimageräte.'},
   {key: 'other', title: 'Haushalt', icon: 'plug', pick: ['switch', 'meter', 'none'], defIcon: 'plug', defKind: 'appliance',
@@ -114,13 +127,15 @@ const AREAS = [
   {key: 'prices', title: 'Prognose + Preise', icon: 'solar', pick: ['forecast', 'tariff'],
    why: 'PV-Prognose, Strompreise und Tarife.'},
   {key: 'strategy', title: 'Batteriestrategie', icon: 'battery', why: 'Wie voltibri die Hausbatterie lädt.'},
+  {key: 'users', title: 'Benutzer + Gruppen', icon: 'users',
+   why: 'Wer sich anmelden darf. Administratoren dürfen alles; Benutzer sehen nur, was ihre Gruppen freigeben – z. B. zwei Wallboxen und ein Fahrzeug.'},
   {key: 'system', title: 'System', icon: 'grid', why: 'Allgemeine Einstellungen und Versionen der Konfiguration.'},
 ];
 
 let D = {};  // loaded data
 
 // area by asset kind (derived on the server, see config.KindOf)
-const AREA_OF_KIND = {'ev-charger': 'wallbox', 'vehicle-account': 'vehicles', 'heat-pump': 'heat', 'heating-rod': 'heat', climate: 'heat',
+const AREA_OF_KIND = {'ev-charger': 'wallbox', 'vehicle-account': 'vehicles', vehicle: 'vehicles', 'heat-pump': 'heat', 'heating-rod': 'heat', climate: 'heat',
   forecast: 'prices', tariff: 'prices', pv: 'infra', battery: 'infra', inverter: 'infra', 'grid-meter': 'infra', appliance: 'other'};
 const assetOf = id => (D.assets || []).find(a => a.id === id) || {};
 function areaOf(dev) {
@@ -170,8 +185,9 @@ function extraFor(dev, area) {
     const lp = (D.cfg.charging && D.cfg.charging.loadpoints || []).find(l => l.charger === dev.id) || {};
     const GUEST = {share: 'teilen', batteryFirst: 'Batterie zuerst', forceBattery: 'Batterie erzwingen'};
     out.push(`<b>${lp.phases || 3}</b>-phasig`, `<b>${lp.minCurrent || 6}–${lp.maxCurrent || 16} A</b>`,
-      `Gäste: <b>${GUEST[lp.guest || 'share']}</b>`);
+      `Gäste: <b>${MODE_NAME[lp.guestMode || 'off']}</b>, ${GUEST[lp.guest || 'share']}${lp.guestNoBattery ? ', ohne Hausbatterie' : ''}`);
     if (lp.separateMeter) out.push('eigener Zähler');
+    if (!D.readOnly && D.local) out.push(`<button type="button" class="linkbtn" data-lpedit="${esc(dev.id)}">Ladepunkt einstellen</button>`);
   }
   if (Array.isArray(p.planes)) {
     const kwp = p.planes.reduce((a, x) => a + (+x.kwp || 0), 0);
@@ -195,7 +211,17 @@ function devRow(dev, area) {
     if (m === 'owned' && D.cfg.site.dryRun) chips.push('<span class="chip dry">Testmodus</span>');
   }
   let val = '';
-  if (area === 'vehicles') {
+  const vAsset = area === 'vehicles' && dev.type === 'vehicle' ? (D.charging.vehicles || []).find(v => v.key === dev.id) : null;
+  if (area === 'vehicles' && dev.type === 'vehicle') {
+    const src = (dev.params || {}).source;
+    const srcName = src ? ((D.cfg.devices || []).find(x => x.id === src) || {}).name || src : '';
+    chips.push(src ? `<span class="chip ok" title="Ladestand und Ladeziel kommen von hier">über ${esc(srcName)}</span>` : '<span class="chip">manuell</span>');
+    if (vAsset && vAsset.error) chips.push(`<span class="chip err" title="${esc(vAsset.error)}">Datenquelle</span>`);
+    if (batKey(dev.noBatteryModes) !== 'allow') chips.push(`<span class="chip" title="Hausbatterie beim Laden">Hausbatterie ${BAT_OPTS[batKey(dev.noBatteryModes)].label}</span>`);
+    const capKWh = (dev.params || {}).capacityKWh;
+    if (capKWh) chips.push(`<span class="chip">${num(capKWh, 1)} kWh</span>`);
+    val = vAsset && vAsset.soc != null ? pctv(vAsset.soc) : '';
+  } else if (area === 'vehicles') {
     const pr = (D.charging.providers || []).find(p => p.id === dev.id);
     if (pr) chips.push(pr.needsLogin && !pr.authorized ? '<span class="chip err">nicht angemeldet</span>' : '<span class="chip ok">verbunden</span>');
     val = pr ? `${pr.vehicles} Fahrzeug${pr.vehicles === 1 ? '' : 'e'}` : '';
@@ -208,6 +234,7 @@ function devRow(dev, area) {
   if ((area === 'heat' || area === 'other') && !asset.retired && controlOf(drv)[0] !== 'keine') chips.push(`<span class="chip" title="${esc(controlOf(drv)[1])}">${controlOf(drv)[0]}</span>`);
   if (dev.flexibility && dev.flexibility !== 'none') chips.push(`<span class="chip ctl">${esc(FLEX_TEXT[dev.flexibility] ? FLEX_TEXT[dev.flexibility][0] : dev.flexibility)}</span>`);
   if (dev.runs === false) chips.push('<span class="chip">ohne Läufe</span>');
+  if (dev.batteryUse === 'never') chips.push('<span class="chip" title="Die Hausbatterie versorgt dieses Gerät nicht.">ohne Hausbatterie</span>');
   if (asset.retired) { chips.push(`<span class="chip">stillgelegt seit ${monthYear(dev.decommissioned)}</span>`); val = ''; }
   const errs = devErrors(dev);
   if (errs.length) chips.push(`<span class="chip err" title="${esc(errs.join('\n'))}">Fehler</span>`);
@@ -220,8 +247,22 @@ function devRow(dev, area) {
       ` · ${new Date(s.first).toLocaleDateString('de-DE', {month: '2-digit', year: 'numeric'})}–${new Date(s.last).toLocaleDateString('de-DE', {month: '2-digit', year: 'numeric'})}` +
       (s.imported ? ` <span class="why">(${s.imported === s.count ? 'alle' : s.imported} importiert)</span>` : ''));
   }
-  if (area === 'vehicles') (D.charging.vehicles || []).filter(v => v.provider === dev.id).forEach(v =>
-    extra.push(`<b>${esc(v.name)}</b> ${v.soc != null ? pctv(v.soc) : ''} ${esc([v.info.brand, v.info.model].filter(Boolean).join(' '))}`));
+  if (vAsset) {
+    const i = vAsset.info || {};
+    const car = [i.brand, i.model].filter(Boolean).join(' ');
+    if (car || i.vin) extra.push(esc([car, i.vin].filter(Boolean).join(' · ')));
+    if (vAsset.limitSoc != null || vAsset.rangeKm != null) extra.push([vAsset.limitSoc != null ? `Ladeziel <b>${pctv(vAsset.limitSoc)}</b>` : '', vAsset.rangeKm != null ? `<b>${num(vAsset.rangeKm, 0)} km</b> Reichweite` : ''].filter(Boolean).join(' · '));
+    if (vAsset.error) extra.push(`<span style="color:var(--warn)">${esc(vAsset.error)}</span>`);
+    const al = (dev.params || {}).aliases;
+    if (al) extra.push(`<span class="why">frühere Namen: ${esc(al)}</span>`);
+    const rv = (D.runVehicles || []).find(x => x.name === (dev.name || dev.id));
+    if (rv) extra.push(`<b>${rv.count}</b> Ladevorgänge · <b>${num(rv.energyWh / 1000, 0)} kWh</b>`);
+  } else if (area === 'vehicles') (D.charging.vehicles || []).filter(v => v.provider === dev.id).forEach(v => {
+    const own = v.asset ? (D.cfg.devices || []).find(x => x.id === v.key) : null;
+    extra.push(own ? `${esc(v.info.vin || v.sourceId)} → <b>${esc(own.name || own.id)}</b>`
+      : `<b>${esc(v.name)}</b> ${v.soc != null ? pctv(v.soc) : ''} ${esc([v.info.brand, v.info.model].filter(Boolean).join(' '))} <span class="chip">nicht zugeordnet</span>` +
+        (!D.readOnly && D.local ? ` <button type="button" class="linkbtn" data-adopt="${esc(v.key)}">als Fahrzeug anlegen</button>` : ''));
+  });
   if (errs.length) extra.push(...errs.map(e => `<span style="color:var(--warn)">${esc(e)}</span>`));
   return `<div class="dev${asset.retired ? ' retired' : ''}">
     <span class="ic">${iconSVG(icon, 22)}</span>
@@ -250,8 +291,8 @@ function extraSection(area) {
     return `<div class="sublabel">Hausbatterie ${editBtn('battery')}</div>` +
       sectionKV('battery', [D.state && D.state.hasBattery ? ['Ladestand jetzt', pctv(D.state.soc)] : null]);
   }
-  if (area === 'wallbox' && c.charging) {
-    return kv([['Batterie zuerst bis', pctv(c.charging.batteryPrioritySoC || 0.5)]]);
+  if (area === 'wallbox') {
+    return kv([['Batterie zuerst bis', pctv((c.charging && c.charging.batteryPrioritySoC) || 0.5)]]) + cardsSection();
   }
   if (area === 'prices') {
     const t = c.tariffs || {};
@@ -608,6 +649,74 @@ $('circ').addEventListener('click', e => {
   }
 });
 
+// ---- charging cards and loadpoint settings ----
+const MODE_NAME = {off: 'Aus', pv: 'Überschuss', minpv: 'Min+PV', pv1: '1-phasig + PV', external: 'Extern', fast: 'Schnell'};
+
+// every card a wallbox knows, plus cards that only exist in the settings
+function cardsSection() {
+  const c = window._cards || {known: [], settings: []};
+  const names = [...new Set([...c.known, ...c.settings.map(s => s.card)])];
+  const ro = D.readOnly || !D.local;
+  const vehicles = (D.charging.vehicles || []);
+  const row = n => {
+    const s = c.settings.find(x => x.card.toLowerCase() === n.toLowerCase()) || {};
+    const vOpts = [['', 'automatisch erkennen'], ['guest', 'Gastfahrzeug'], ...vehicles.map(v => [v.key, v.name])]
+      .map(([k, l]) => `<option value="${esc(k)}"${k === (s.vehicle || '') ? ' selected' : ''}>${esc(l)}</option>`).join('');
+    const mOpts = [['', 'Standard des Fahrzeugs'], ...Object.entries(MODE_NAME)]
+      .map(([k, l]) => `<option value="${k}"${k === (s.mode || '') ? ' selected' : ''}>${esc(l)}</option>`).join('');
+    return `<tr data-card="${esc(n)}"><td>${iconSVG('device', 14)} ${esc(n)}${c.known.includes(n) ? '' : ' <span class="why">(nicht in der Wallbox)</span>'}</td>
+      <td><select data-cardveh${ro ? ' disabled' : ''}>${vOpts}</select></td><td><select data-cardmode${ro ? ' disabled' : ''}>${mOpts}</select></td></tr>`;
+  };
+  return `<div class="sublabel">Ladekarten</div>` + (names.length
+    ? `<div class="tablewrap"><table class="list cards"><thead><tr><th>Karte</th><th>Fahrzeug</th><th>Lademodus für den Ladevorgang</th></tr></thead><tbody>${names.map(row).join('')}</tbody></table></div>
+      <p class="why" style="margin:8px 0 0">Wird eine Karte an der Wallbox vorgehalten, gelten Fahrzeug und Modus bis zum Abstecken. Ohne Karte startet ein Gastfahrzeug mit dem Gast-Standard des Ladepunkts.</p>`
+    : '<p class="why" style="margin:6px 0 0">Keine Ladekarten gefunden. Karten werden in der App der Wallbox angelernt.</p>');
+}
+
+async function saveCards() {
+  const list = [...document.querySelectorAll('tr[data-card]')].map(tr => ({card: tr.dataset.card,
+    vehicle: tr.querySelector('[data-cardveh]').value || undefined, mode: tr.querySelector('[data-cardmode]').value || undefined}))
+    .filter(x => x.vehicle || x.mode);
+  const r = await fetch('api/config/section/cards', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(list)});
+  if (!r.ok) { const x = await r.json().catch(() => ({})); alert([x.error].concat(x.details || []).join('\n')); }
+  setTimeout(load, 1200);
+}
+
+function openLoadpoint(id) {
+  const all = (D.cfg.charging && D.cfg.charging.loadpoints) || [];
+  const lp = all.find(l => l.charger === id) || {charger: id};
+  const dev = (D.cfg.devices || []).find(d => d.id === id) || {};
+  const sel = (sid, opts, v) => `<select id="${sid}">${opts.map(([k, l]) => `<option value="${k}"${String(k) === String(v) ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
+  $('lpTitle').textContent = (dev.name || id) + ' – Ladepunkt';
+  $('lpBody').innerHTML = `<div class="stack">
+    <label class="f">Beim Anstecken eines Gastfahrzeugs${sel('lp_gmode', Object.entries(MODE_NAME), lp.guestMode || 'off')}
+      <span class="why">„Aus“: Gäste laden erst, wenn jemand startet – per Ladekarte oder Knopf in der Übersicht.</span></label>
+    <label class="f">Gäste und Hausbatterie${sel('lp_guest', [['share', 'teilen – Gast darf PV nutzen, zahlt Netzpreis'], ['batteryFirst', 'Batterie zuerst – Gast bekommt nur, was die Batterie nicht braucht'], ['forceBattery', 'Batterie erzwingen – Batterie lädt weiter wie ohne Gast']], lp.guest || 'share')}</label>
+    <label class="f cb"><input type="checkbox" id="lp_gnb"${lp.guestNoBattery ? ' checked' : ''}> Gäste nie aus der Hausbatterie laden</label>
+    <div class="row2"><label class="f">Phasen${sel('lp_ph', [[3, 'dreiphasig'], [1, 'einphasig']], lp.phases || 3)}</label>
+      <label class="f">Strom min–max (A)<span style="display:flex;gap:6px"><input type="number" id="lp_min" min="6" max="32" value="${lp.minCurrent || 6}"><input type="number" id="lp_max" min="6" max="32" value="${lp.maxCurrent || 16}"></span></label></div>
+  </div>`;
+  $('lpErr').textContent = '';
+  $('lpActions').innerHTML = '<button type="button" class="btn" data-close>Abbrechen</button><button type="submit" class="btn primary">Speichern</button>';
+  $('lpd').dataset.id = id;
+  $('lpd').showModal();
+}
+
+$('lpForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const id = $('lpd').dataset.id, all = ((D.cfg.charging && D.cfg.charging.loadpoints) || []).filter(l => l.charger !== id);
+  const old = ((D.cfg.charging && D.cfg.charging.loadpoints) || []).find(l => l.charger === id) || {};
+  all.push({...old, charger: id, guestMode: $('lp_gmode').value, guest: $('lp_guest').value, guestNoBattery: $('lp_gnb').checked || undefined,
+    phases: Number($('lp_ph').value), minCurrent: Number($('lp_min').value), maxCurrent: Number($('lp_max').value)});
+  const r = await fetch('api/config/section/loadpoints', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(all)});
+  const res = await r.json().catch(() => ({}));
+  if (!r.ok) { $('lpErr').textContent = [res.error || 'Fehler ' + r.status].concat(res.details || []).join(' · '); return; }
+  $('lpd').close();
+  setTimeout(load, 1200);
+});
+$('lpd').addEventListener('click', e => { if (e.target === $('lpd') || e.target.closest('[data-close]')) $('lpd').close(); });
+document.addEventListener('change', e => { if (e.target.matches('[data-cardveh], [data-cardmode]')) saveCards(); });
+
 function render() {
   const groups = Object.fromEntries(AREAS.map(a => [a.key, []]));
   for (const d of D.cfg.devices || []) groups[areaOf(d)].push(d);
@@ -617,27 +726,40 @@ function render() {
     let inner;
     if (a.key === 'strategy') inner = strategySection();
     else if (a.key === 'grid') inner = gridSection();
+    else if (a.key === 'users') inner = `<div class="usersbody">${usersSection()}</div>`;
     else if (a.key === 'system') inner = systemSection();
     else {
       const devs = groups[a.key];
+      if (a.key === 'vehicles') {
+        const cars = devs.filter(d => d.type === 'vehicle'), accts = devs.filter(d => d.type !== 'vehicle');
+        inner = `<div class="devs">${cars.length ? cars.map(d => devRow(d, a.key)).join('') : '<div class="empty">Noch keine Fahrzeuge angelegt.</div>'}</div>` +
+          (accts.length ? `<div class="sublabel">Datenquellen</div><div class="devs">${accts.map(d => devRow(d, a.key)).join('')}</div>` : '');
+        return areaCard(a, inner, canAdd);
+      }
       inner = `<div class="devs">${devs.length ? devs.map(d => devRow(d, a.key)).join('') : '<div class="empty">Noch nichts eingerichtet.</div>'}</div>${extraSection(a.key)}`;
     }
+    return areaCard(a, inner, canAdd);
+  }).join('');
+}
+
+function areaCard(a, inner, canAdd) {
     const add = !canAdd ? '' : a.pick ? `<button type="button" class="btn" data-add="${a.key}">+ hinzufügen</button>`
       : a.key === 'strategy' ? '<button type="button" class="btn" data-section="planner">Bearbeiten</button>'
-      : a.key === 'grid' ? '<button type="button" class="btn" data-circuit="">+ Unterverteilung</button>' : '';
+      : a.key === 'grid' ? '<button type="button" class="btn" data-circuit="">+ Unterverteilung</button>'
+      : a.key === 'users' ? '<button type="button" class="btn" data-user="">+ Benutzer</button>' : '';
     return `<section class="card area" id="${a.key}">
       <div class="head"><span class="ic">${iconSVG(a.icon, 20)}</span><h2>${a.title}</h2><span class="spacer"></span>${add}</div>
       <p class="why">${a.why}</p>${inner}</section>`;
-  }).join('');
 }
 
 async function load() {
   const j = u => fetch(u).then(r => r.ok ? r.json() : null).catch(() => null);
   await voltibri.ready;
-  const [cfg, status, state, charging, versions, imports, assets, runs] = await Promise.all([j('api/config'), j('api/status'), j('api/state'),
-    j('api/charging'), j('api/config/versions'), j('api/imports'), j('api/assets'), j('api/runs/summary')]);
+  const [cfg, status, state, charging, versions, imports, assets, runs, cards, runVehicles, users, groups, prov] = await Promise.all([j('api/config'), j('api/status'), j('api/state'),
+    j('api/charging'), j('api/config/versions'), j('api/imports'), j('api/assets'), j('api/runs/summary'), j('api/charging/cards'), j('api/runs/vehicles?kind=charging'), j('api/users'), j('api/groups'), j('api/auth/providers')]);
+  window._cards = cards || {known: [], settings: []};
   if (!cfg) { $('banner').hidden = false; $('banner').className = 'banner err'; $('banner').textContent = 'Konfiguration konnte nicht geladen werden.'; return; }
-  D = {cfg: cfg.config, version: cfg.version, readOnly: cfg.readOnly, status: status || {}, state, charging: charging || {}, versions: versions || [], imports: imports || [], assets: assets || [], runs: runs || [],
+  D = {cfg: cfg.config, version: cfg.version, readOnly: cfg.readOnly, status: status || {}, state, charging: charging || {}, versions: versions || [], imports: imports || [], assets: assets || [], runs: runs || [], runVehicles: runVehicles || [], users: users || [], groups: groups || [], providers: (prov || {}).providers || [], redirectUri: (prov || {}).redirectUri,
        local: charging ? charging.local !== false : true};
   D.cfg.roles = D.cfg.roles || {};
   D.cfg.site = D.cfg.site || {};
@@ -665,6 +787,19 @@ $('areas').addEventListener('click', async e => {
     if (!r.ok) alert(x.error || 'Fehler ' + r.status);
     return load();
   }
+  const ad = e.target.closest('[data-adopt]');
+  if (ad) {
+    const v = (D.charging.vehicles || []).find(x => x.key === ad.dataset.adopt);
+    if (v) return voltibri.open({type: 'vehicle', defaults: {icon: 'car', name: v.name, params: {source: v.provider, sourceVehicle: v.sourceId}}, onDone: load});
+  }
+  const ue = e.target.closest('[data-user]');
+  if (ue && !e.target.closest('dialog')) return openUser(ue.dataset.user);
+  const ge = e.target.closest('[data-group]');
+  if (ge && !e.target.closest('dialog')) return openGroup(ge.dataset.group);
+  const pe = e.target.closest('[data-provider]');
+  if (pe && !e.target.closest('dialog')) return openProvider(pe.dataset.provider);
+  const lpe = e.target.closest('[data-lpedit]');
+  if (lpe) return openLoadpoint(lpe.dataset.lpedit);
   const ci = e.target.closest('[data-circuit]');
   if (ci) return openCircuit(ci.dataset.circuit);
   const sec = e.target.closest('[data-section]');
@@ -684,6 +819,184 @@ $('areas').addEventListener('click', async e => {
     setTimeout(load, 1500);
   }
 });
+
+// --- users and groups (not part of the configuration versions) ---
+const wallboxes = () => (D.cfg.devices || []).filter(d => assetOf(d.id).kind === 'ev-charger' && !assetOf(d.id).retired);
+const ownVehicles = () => (D.cfg.devices || []).filter(d => d.type === 'vehicle' && !assetOf(d.id).retired);
+function groupRights(g) {
+  const out = [];
+  if (g.overview) out.push('Übersicht');
+  if (g.reports) out.push('Berichte');
+  if ((g.loadpoints || []).length) out.push('Wallbox: ' + g.loadpoints.map(devName).join(', '));
+  if ((g.vehicles || []).length) out.push('Fahrzeug: ' + g.vehicles.map(devName).join(', '));
+  return out.length ? out : ['keine Freigaben'];
+}
+function usersSection() {
+  const groups = D.groups || [], users = D.users || [];
+  const gname = id => (groups.find(g => g.id === id) || {}).name || id;
+  const seen = u => u.lastSeen ? 'zuletzt ' + when(u.lastSeen) : 'noch nie angemeldet';
+  const urows = users.map(u => `<div class="dev${u.disabled ? ' retired' : ''}">
+    <span class="ic">${iconSVG('user', 22)}</span>
+    <div><div class="nm">${esc(u.name || u.login)}</div>
+      <div class="meta"><span>${esc(u.login)}</span><span class="chip${u.role === 'admin' ? ' ctl' : ''}">${u.role === 'admin' ? 'Administrator' : 'Benutzer'}</span>
+        ${u.groups.map(g => `<span class="chip">${esc(gname(g))}</span>`).join('')}
+        ${u.disabled ? '<span class="chip">gesperrt</span>' : u.hasPassword ? '' : '<span class="chip dry">Einladung offen</span>'}</div></div>
+    <span class="val" style="font-size:12px;color:var(--muted)">${seen(u)}</span>
+    <span class="act"><button type="button" class="btn" data-user="${esc(u.id)}">Bearbeiten</button></span></div>`).join('');
+  const grows = groups.map(g => `<div class="dev">
+    <span class="ic">${iconSVG('users', 22)}</span>
+    <div><div class="nm">${esc(g.name)}</div><div class="meta">${groupRights(g).map(x => `<span>${esc(x)}</span>`).join('')}</div></div>
+    <span class="val" style="font-size:12px;color:var(--muted)">${users.filter(u => u.groups.includes(g.id)).length} Mitglieder</span>
+    <span class="act"><button type="button" class="btn" data-group="${esc(g.id)}">Bearbeiten</button></span></div>`).join('');
+  return `<div class="devs">${urows || '<div class="empty">Noch keine Benutzer.</div>'}</div>
+    <div class="sublabel">Gruppen <button type="button" class="linkbtn" data-group="">+ Gruppe</button></div>
+    <div class="devs">${grows || '<div class="empty">Noch keine Gruppen. Eine Gruppe gibt z. B. Wallboxen und ein Fahrzeug frei.</div>'}</div>
+    <div class="sublabel">Anmeldedienste <button type="button" class="linkbtn" data-provider="">+ Dienst</button></div>
+    <div class="devs">${(D.providers || []).map(p => `<div class="dev">
+      <span class="ic">${iconSVG('lock', 22)}</span>
+      <div><div class="nm">${esc(p.name)}</div><div class="meta"><span>${esc(p.issuer)}</span><span>Client-ID ${esc(p.clientId)}</span></div></div>
+      <span class="val"></span>
+      <span class="act"><button type="button" class="btn" data-provider="${esc(p.id)}">Bearbeiten</button></span></div>`).join('') ||
+      '<div class="empty">Keine. Mit einem OpenID-Connect-Dienst wie Pocket ID oder Google können sich Benutzer ohne Passwort anmelden – sie verbinden ihn selbst unter „Konto“.</div>'}</div>`;
+}
+
+function openProvider(id) {
+  const p = id ? D.providers.find(x => x.id === id) : {name: '', issuer: '', clientId: ''};
+  $('udTitle').textContent = id ? p.name + ' bearbeiten' : 'Anmeldedienst hinzufügen';
+  $('udBody').innerHTML = `<div class="stack">
+    <ol class="steps"><li>Beim Dienst eine Anwendung (OIDC-Client) für voltibri anlegen, z. B. in Pocket ID unter „OIDC Clients“.</li>
+      <li>Dort als Callback- bzw. Redirect-URL eintragen:<div class="copy"><code id="p_redir">${esc(D.redirectUri || '')}</code><button type="button" class="btn" data-copyredir>Kopieren</button></div></li>
+      <li>Client-ID und Client-Secret hier eintragen.</li></ol>
+    <label class="f" for="p_name">Name auf dem Knopf *<input type="text" id="p_name" value="${esc(p.name)}" placeholder="z. B. Pocket ID" autocomplete="off"></label>
+    <label class="f" for="p_iss">Aussteller-URL (Issuer) *<input type="text" id="p_iss" value="${esc(p.issuer)}" placeholder="https://id.example.com oder https://accounts.google.com" autocomplete="off" autocapitalize="none"></label>
+    <div class="row2"><label class="f" for="p_cid">Client-ID *<input type="text" id="p_cid" value="${esc(p.clientId)}" autocomplete="off" autocapitalize="none"></label>
+      <label class="f" for="p_sec">Client-Secret<input type="password" id="p_sec" autocomplete="new-password" placeholder="${p.hasSecret ? 'gespeichert – leer lassen, um es zu behalten' : ''}"></label></div>
+    <span class="why">Das Secret wird verschlüsselt gespeichert. Beim Speichern prüft voltibri, ob der Dienst erreichbar ist.</span>
+  </div>`;
+  $('udErr').textContent = '';
+  $('udActions').innerHTML = `${id ? '<button type="button" class="btn danger" data-pdel>Löschen</button><span class="spacer"></span>' : ''}
+    <button type="button" class="btn" data-close>Abbrechen</button><button type="submit" class="btn primary">${id ? 'Speichern' : 'Hinzufügen'}</button>`;
+  $('ud').dataset.kind = 'provider';
+  $('ud').dataset.id = id || '';
+  $('ud').showModal();
+}
+
+async function sendJSON(method, url, body) {
+  const r = await fetch(url, {method, headers: {'Content-Type': 'application/json'}, body: body ? JSON.stringify(body) : undefined});
+  const j = r.status === 204 ? {} : await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error([j.error || 'Fehler ' + r.status].concat(j.details || []).join(' · '));
+  return j;
+}
+
+function openUser(id) {
+  const u = id ? D.users.find(x => x.id === id) : {login: '', name: '', email: '', role: 'user', groups: []};
+  const self = window.ME && window.ME.user.id === id;
+  $('udTitle').textContent = id ? (u.name || u.login) + ' bearbeiten' : 'Benutzer anlegen';
+  $('udBody').innerHTML = `<div class="stack">
+    <div class="row2"><label class="f" for="u_name">Name<input type="text" id="u_name" value="${esc(u.name)}" placeholder="z. B. Josi" autocomplete="off"></label>
+      <label class="f" for="u_login">Benutzername *<input type="text" id="u_login" value="${esc(u.login)}" placeholder="z. B. josi" autocomplete="off" autocapitalize="none"></label></div>
+    <label class="f" for="u_mail">E-Mail<input type="text" id="u_mail" value="${esc(u.email || '')}" autocomplete="off" inputmode="email"></label>
+    <label class="f" for="u_role">Rolle<select id="u_role"${self ? ' disabled' : ''}><option value="user"${u.role !== 'admin' ? ' selected' : ''}>Benutzer – sieht nur, was die Gruppen freigeben</option>
+      <option value="admin"${u.role === 'admin' ? ' selected' : ''}>Administrator – alles, auch Konfiguration und Benutzer</option></select></label>
+    <fieldset class="roles"><legend>Gruppen</legend>${(D.groups || []).map(g => `<label class="f cb"><input type="checkbox" data-ug="${esc(g.id)}"${u.groups.includes(g.id) ? ' checked' : ''}>
+      ${esc(g.name)} <span class="why">(${esc(groupRights(g).join(' · '))})</span></label>`).join('') || '<span class="why">Noch keine Gruppen angelegt.</span>'}</fieldset>
+    ${id && !self ? `<label class="f cb"><input type="checkbox" id="u_dis"${u.disabled ? ' checked' : ''}> Gesperrt – kann sich nicht anmelden</label>` : ''}
+    ${id ? `<div class="sublabel" style="margin:0">Zugang</div>
+      <div class="why">${u.hasPassword ? 'Passwort gesetzt.' : 'Noch kein Passwort.'} Ein Einladungslink (7 Tage gültig, einmalig) lässt ${esc(u.name || u.login)} ein ${u.hasPassword ? 'neues ' : ''}Passwort festlegen.</div>
+      <div class="actions" style="justify-content:flex-start"><button type="button" class="btn" data-invite="${esc(id)}">${iconSVG('key', 14)} Einladungslink erzeugen</button>
+        ${self ? '' : `<button type="button" class="btn" data-ulogout="${esc(id)}">Überall abmelden</button>`}</div>
+      <div id="u_link"></div>` : '<div class="why">Nach dem Anlegen bekommst du einen Einladungslink, mit dem die Person ihr Passwort festlegt.</div>'}
+  </div>`;
+  $('udErr').textContent = '';
+  $('udActions').innerHTML = `${id && !self ? '<button type="button" class="btn danger" data-udel>Löschen</button><span class="spacer"></span>' : ''}
+    <button type="button" class="btn" data-close>Abbrechen</button><button type="submit" class="btn primary">${id ? 'Speichern' : 'Anlegen'}</button>`;
+  $('ud').dataset.kind = 'user';
+  $('ud').dataset.id = id || '';
+  $('ud').showModal();
+}
+
+function openGroup(id) {
+  const g = id ? D.groups.find(x => x.id === id) : {name: '', overview: false, reports: true, loadpoints: [], vehicles: []};
+  const box = (attr, list, sel) => list.map(d => `<label class="f cb"><input type="checkbox" ${attr}="${esc(d.id)}"${sel.includes(d.id) ? ' checked' : ''}> ${esc(d.name || d.id)}</label>`).join('');
+  $('udTitle').textContent = id ? 'Gruppe ' + g.name : 'Gruppe anlegen';
+  $('udBody').innerHTML = `<div class="stack">
+    <label class="f" for="g_name">Name *<input type="text" id="g_name" value="${esc(g.name)}" placeholder="z. B. Dräger" autocomplete="off"></label>
+    <fieldset class="roles"><legend>Wallboxen</legend>${box('data-glp', wallboxes(), g.loadpoints) || '<span class="why">Keine Wallboxen.</span>'}
+      <span class="why">Mitglieder sehen und steuern diese Wallboxen – solange kein fremdes Fahrzeug lädt (dann sehen sie nur „belegt“).</span></fieldset>
+    <fieldset class="roles"><legend>Fahrzeuge</legend>${box('data-gveh', ownVehicles(), g.vehicles) || '<span class="why">Keine Fahrzeuge.</span>'}
+      <span class="why">Lademodus und Ladeplan dieser Fahrzeuge; an den Wallboxen auswählbar.</span></fieldset>
+    <fieldset class="roles"><legend>Weitere Freigaben</legend>
+      <label class="f cb"><input type="checkbox" id="g_rep"${g.reports ? ' checked' : ''}> Berichte – Ladevorgänge, kWh und Kosten der Fahrzeuge oben</label>
+      <label class="f cb"><input type="checkbox" id="g_ov"${g.overview ? ' checked' : ''}> Übersicht – Energiefluss, Hausbatterie, Heizung</label></fieldset>
+  </div>`;
+  $('udErr').textContent = '';
+  $('udActions').innerHTML = `${id ? '<button type="button" class="btn danger" data-gdel>Löschen</button><span class="spacer"></span>' : ''}
+    <button type="button" class="btn" data-close>Abbrechen</button><button type="submit" class="btn primary">${id ? 'Speichern' : 'Anlegen'}</button>`;
+  $('ud').dataset.kind = 'group';
+  $('ud').dataset.id = id || '';
+  $('ud').showModal();
+}
+
+function showLink(j) {
+  $('u_link').innerHTML = `<div class="copy"><code id="u_linkText">${esc(j.link)}</code><button type="button" class="btn" data-copylink>Kopieren</button></div>
+    <span class="why">Gültig bis ${when(j.expires)}. Schick den Link z. B. per Messenger – wer ihn hat, kann das Passwort festlegen.</span>`;
+}
+
+$('udForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const d = $('ud'), id = d.dataset.id;
+  try {
+    if (d.dataset.kind === 'user') {
+      const body = {login: $('u_login').value, name: $('u_name').value, email: $('u_mail').value, role: $('u_role').value,
+        groups: [...d.querySelectorAll('[data-ug]:checked')].map(x => x.dataset.ug), disabled: $('u_dis') ? $('u_dis').checked : false};
+      const u = await sendJSON(id ? 'PUT' : 'POST', 'api/users' + (id ? '/' + encodeURIComponent(id) : ''), body);
+      if (!id) { // new: show the invite link right away
+        await loadUsers();
+        openUser(u.id);
+        showLink(await sendJSON('POST', `api/users/${encodeURIComponent(u.id)}/invite`));
+        return;
+      }
+    } else if (d.dataset.kind === 'provider') {
+      $('udActions').querySelector('[type=submit]').textContent = 'Prüfe …';
+      await sendJSON(id ? 'PUT' : 'POST', 'api/auth/providers' + (id ? '/' + encodeURIComponent(id) : ''),
+        {name: $('p_name').value, issuer: $('p_iss').value, clientId: $('p_cid').value, clientSecret: $('p_sec').value});
+    } else {
+      await sendJSON(id ? 'PUT' : 'POST', 'api/groups' + (id ? '/' + encodeURIComponent(id) : ''), {name: $('g_name').value, overview: $('g_ov').checked, reports: $('g_rep').checked,
+        loadpoints: [...d.querySelectorAll('[data-glp]:checked')].map(x => x.dataset.glp), vehicles: [...d.querySelectorAll('[data-gveh]:checked')].map(x => x.dataset.gveh)});
+    }
+    d.close();
+    await loadUsers();
+  } catch (x) { $('udErr').textContent = x.message; }
+});
+$('ud').addEventListener('click', async e => {
+  const d = $('ud');
+  if (e.target === d || e.target.closest('[data-close]')) return d.close();
+  try {
+    const inv = e.target.closest('[data-invite]');
+    if (inv) showLink(await sendJSON('POST', `api/users/${encodeURIComponent(inv.dataset.invite)}/invite`));
+    const lo = e.target.closest('[data-ulogout]');
+    if (lo) { await sendJSON('POST', `api/users/${encodeURIComponent(lo.dataset.ulogout)}/logout`); lo.textContent = 'Abgemeldet'; lo.disabled = true; }
+    if (e.target.closest('[data-copylink]')) navigator.clipboard.writeText($('u_linkText').textContent).then(() => { e.target.closest('[data-copylink]').textContent = 'Kopiert'; }, () => {});
+    if (e.target.closest('[data-udel]') && confirm('Benutzer löschen? Anmeldungen und verbundene Logins werden entfernt.')) {
+      await sendJSON('DELETE', 'api/users/' + encodeURIComponent(d.dataset.id)); d.close(); await loadUsers();
+    }
+    if (e.target.closest('[data-gdel]') && confirm('Gruppe löschen? Die Mitglieder verlieren diese Freigaben.')) {
+      await sendJSON('DELETE', 'api/groups/' + encodeURIComponent(d.dataset.id)); d.close(); await loadUsers();
+    }
+    if (e.target.closest('[data-copyredir]')) navigator.clipboard.writeText($('p_redir').textContent).then(() => { e.target.closest('[data-copyredir]').textContent = 'Kopiert'; }, () => {});
+    if (e.target.closest('[data-pdel]') && confirm('Anmeldedienst löschen? Alle damit verbundenen Logins werden getrennt.')) {
+      await sendJSON('DELETE', 'api/auth/providers/' + encodeURIComponent(d.dataset.id)); d.close(); await loadUsers();
+    }
+  } catch (x) { $('udErr').textContent = x.message; if ($('udActions').querySelector('[type=submit]')) $('udActions').querySelector('[type=submit]').textContent = 'Speichern'; }
+});
+
+async function loadUsers() {
+  const [users, groups, prov] = await Promise.all([fetch('api/users').then(r => r.ok ? r.json() : []), fetch('api/groups').then(r => r.ok ? r.json() : []),
+    fetch('api/auth/providers').then(r => r.ok ? r.json() : {})]);
+  D.users = users; D.groups = groups; D.providers = prov.providers || []; D.redirectUri = prov.redirectUri;
+  const el = document.querySelector('#users .usersbody');
+  if (el) el.innerHTML = usersSection();
+}
 
 load();
 setInterval(() => { if (!document.querySelector('dialog[open]')) load(); }, 10000);

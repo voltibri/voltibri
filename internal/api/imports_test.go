@@ -49,8 +49,8 @@ func TestEvccImportAPI(t *testing.T) {
 		t.Fatalf("list: %s", rec.Body.String())
 	}
 	path := "/api/imports/" + itoa(res.Import.ID) + "/undo"
-	if rec := do(h, "POST", path, "", "10.0.0.9:1"); rec.Code != http.StatusForbidden {
-		t.Errorf("remote undo: %d", rec.Code)
+	if rec := doAnon(h, "POST", path, ""); rec.Code != http.StatusUnauthorized {
+		t.Errorf("anonymous undo: %d", rec.Code)
 	}
 	if rec := do(h, "POST", path, "", local); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"removed": 2`) {
 		t.Fatalf("undo: %d %s", rec.Code, rec.Body.String())

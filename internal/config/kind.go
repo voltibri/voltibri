@@ -5,6 +5,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/voltibri/voltibri/sdk"
@@ -18,6 +19,7 @@ const (
 	KindGridMeter      = "grid-meter"
 	KindEVCharger      = "ev-charger"
 	KindVehicleAccount = "vehicle-account"
+	KindVehicle        = "vehicle" // a manually entered vehicle
 	KindHeatPump       = "heat-pump"
 	KindHeatingRod     = "heating-rod"
 	KindClimate        = "climate" // air conditioning, dehumidifier
@@ -29,7 +31,7 @@ const (
 // Kinds lists all kinds with their German label.
 var Kinds = []struct{ Kind, Label string }{
 	{KindPV, "PV-Anlage"}, {KindBattery, "Hausbatterie"}, {KindInverter, "Wechselrichter"}, {KindGridMeter, "Netzzähler"},
-	{KindEVCharger, "Wallbox"}, {KindVehicleAccount, "Fahrzeugkonto"}, {KindHeatPump, "Wärmepumpe"}, {KindHeatingRod, "Heizstab"},
+	{KindEVCharger, "Wallbox"}, {KindVehicle, "Fahrzeug"}, {KindVehicleAccount, "Fahrzeugkonto"}, {KindHeatPump, "Wärmepumpe"}, {KindHeatingRod, "Heizstab"},
 	{KindClimate, "Klima / Entfeuchter"}, {KindAppliance, "Haushaltsgerät"}, {KindForecast, "Prognose"}, {KindTariff, "Strompreis"},
 }
 
@@ -53,6 +55,10 @@ func KindOf(d Device) string {
 	switch {
 	case has(sdk.CapCharger):
 		return KindEVCharger
+	case has(sdk.CapHeat):
+		return KindHeatPump
+	case has(sdk.CapVehicles) && d.Type == "vehicle":
+		return KindVehicle
 	case has(sdk.CapVehicles):
 		return KindVehicleAccount
 	case has(sdk.CapBattery) || (has(sdk.CapPV) && has(sdk.CapGrid)):
@@ -131,6 +137,9 @@ func (c *Config) validateLifecycle() []error {
 		default:
 			errs = append(errs, fmt.Errorf("device %q: flexibility must be none, shiftable, interruptible or surplus", d.ID))
 		}
+		if d.BatteryUse != "" && d.BatteryUse != BatteryNever {
+			errs = append(errs, fmt.Errorf("device %q: batteryUse must be empty or never", d.ID))
+		}
 		if d.RunThresholdW < 0 || d.RunThresholdW > 100000 {
 			errs = append(errs, fmt.Errorf("device %q: runThresholdW out of range", d.ID))
 		}
@@ -168,3 +177,99 @@ const (
 	FlexInterruptible = "interruptible" // may be switched on and off as long as it is done by its deadline
 	FlexSurplus       = "surplus"       // no target, runs only on PV surplus (heating rod, dehumidifier)
 )
+
+// BatteryNever: the home battery must not supply the device.
+const BatteryNever = "never"
+
+// VehicleBinding is where a vehicle asset gets its live data from and
+// which names it had in earlier runs (imports, former data sources).
+type VehicleBinding struct {
+	Source        string   // device id of the vehicle account; "" = manual
+	SourceVehicle string   // vehicle id within that account
+	Aliases       []string // former names in runs, e.g. "Cupra Tavascan" from evcc
+}
+
+// IsVehicle reports whether the device is a vehicle asset (driver "vehicle").
+func (d Device) IsVehicle() bool { return d.Type == "vehicle" }
+
+// Vehicle returns the binding of a vehicle asset.
+func (d Device) Vehicle() VehicleBinding {
+	str := func(k string) string { s, _ := d.Params[k].(string); return strings.TrimSpace(s) }
+	b := VehicleBinding{Source: str("source"), SourceVehicle: str("sourceVehicle")}
+	for _, a := range strings.Split(str("aliases"), ",") {
+		if a = strings.TrimSpace(a); a != "" {
+			b.Aliases = append(b.Aliases, a)
+		}
+	}
+	return b
+}
+
+// VehicleNames maps every name a vehicle had in runs (its display name and
+// its aliases) to the vehicle asset's display name.
+func (c *Config) VehicleNames() map[string]string {
+	out := map[string]string{}
+	for _, d := range c.Devices {
+		if !d.IsVehicle() {
+			continue
+		}
+		name := d.Name
+		if name == "" {
+			name = d.ID
+		}
+		out[name] = name
+		for _, a := range d.Vehicle().Aliases {
+			if _, ok := out[a]; !ok {
+				out[a] = name
+			}
+		}
+	}
+	return out
+}
+
+// validateVehicles checks the data sources of vehicle assets: an existing
+// vehicle account, each account vehicle bound at most once.
+func (c *Config) validateVehicles() []error {
+	var errs []error
+	bound := map[string]string{}
+	for _, d := range c.Devices {
+		if !d.IsVehicle() {
+			continue
+		}
+		for _, m := range d.NoBatteryModes {
+			switch m {
+			case "external", "pv", "pv1", "minpv", "fast":
+			default:
+				errs = append(errs, fmt.Errorf("devices.%s: noBatteryModes: unknown mode %q", d.ID, m))
+			}
+		}
+		b := d.Vehicle()
+		if b.Source == "" {
+			continue
+		}
+		src, ok := c.Device(b.Source)
+		if !ok || KindOf(src) != KindVehicleAccount {
+			errs = append(errs, fmt.Errorf("devices.%s: data source %q is not a vehicle account", d.ID, b.Source))
+			continue
+		}
+		if b.SourceVehicle == "" {
+			errs = append(errs, fmt.Errorf("devices.%s: choose the vehicle of %s", d.ID, b.Source))
+			continue
+		}
+		k := b.Source + "/" + b.SourceVehicle
+		if o, ok := bound[k]; ok {
+			errs = append(errs, fmt.Errorf("devices.%s: the vehicle is already the data source of %s", d.ID, o))
+		}
+		bound[k] = d.ID
+	}
+	return errs
+}
+
+// Device returns the device with the id.
+func (c *Config) Device(id string) (Device, bool) {
+	for _, d := range c.Devices {
+		if d.ID == id {
+			return d, true
+		}
+	}
+	return Device{}, false
+}

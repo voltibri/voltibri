@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"sync"
+	"time"
 
 	"github.com/voltibri/voltibri/internal/drivers/httpx"
 	"github.com/voltibri/voltibri/sdk"
@@ -34,6 +36,10 @@ func init() {
 type Device struct {
 	cfg sdk.DeviceConfig
 	url string
+
+	mu      sync.Mutex
+	cards   []string // names by index, cached
+	cardsAt time.Time
 }
 
 // New creates the device. Parameters: host (required) or url.
@@ -52,11 +58,16 @@ func New(cfg sdk.DeviceConfig) (sdk.Device, error) {
 func (d *Device) ID() string { return d.cfg.ID }
 
 type status struct {
-	Car int       `json:"car"` // 1 idle, 2 charging, 3 wait for car, 4 complete, 5 error
-	Amp float64   `json:"amp"`
-	Pnp int       `json:"pnp"` // active phases
-	Nrg []float64 `json:"nrg"` // 4..6 = current L1..L3 A, 11 = total power W
-	Eto float64   `json:"eto"` // total energy Wh
+	Car   int       `json:"car"` // 1 idle, 2 charging, 3 wait for car, 4 complete, 5 error
+	Amp   float64   `json:"amp"`
+	Pnp   int       `json:"pnp"` // active phases
+	Nrg   []float64 `json:"nrg"` // 4..6 = current L1..L3 A, 11 = total power W
+	Eto   float64   `json:"eto"` // total energy Wh
+	Trx   *int      `json:"trx"` // transaction: null none, 0 without card, n = card n (1-based)
+	Cards []struct {
+		Name   string `json:"name"`
+		CardID bool   `json:"cardId"` // a card is taught in
+	} `json:"cards"`
 }
 
 // Currents implements sdk.PhaseCurrents.
@@ -92,7 +103,7 @@ func (d *Device) SetPhases(ctx context.Context, phases int) error {
 // ChargerStatus implements sdk.Charger.
 func (d *Device) ChargerStatus(ctx context.Context) (sdk.ChargerStatus, error) {
 	var s status
-	if err := httpx.GetJSON(ctx, d.url+"/api/status?filter=car,amp,pnp,nrg", &s); err != nil {
+	if err := httpx.GetJSON(ctx, d.url+"/api/status?filter=car,amp,pnp,nrg,trx", &s); err != nil {
 		return sdk.ChargerStatus{}, err
 	}
 	st := sdk.ChargerStatus{
@@ -103,6 +114,11 @@ func (d *Device) ChargerStatus(ctx context.Context) (sdk.ChargerStatus, error) {
 	}
 	if len(s.Nrg) > 11 {
 		st.PowerW = s.Nrg[11]
+	}
+	if s.Trx != nil && *s.Trx > 0 && st.Connected {
+		if names, err := d.cardNames(ctx); err == nil && *s.Trx-1 < len(names) {
+			st.Card = names[*s.Trx-1]
+		}
 	}
 	return st, nil
 }
@@ -133,4 +149,47 @@ func (d *Device) SetCurrent(ctx context.Context, a float64) error {
 		return fmt.Errorf("%s: current %.1f A out of range 6..32", d.cfg.ID, a)
 	}
 	return d.set(ctx, "amp", fmt.Sprintf("%.0f", a))
+}
+
+// cardNames returns the names of all card slots (cached for 10 minutes);
+// unnamed cards are called "Karte n".
+func (d *Device) cardNames(ctx context.Context) ([]string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.cards != nil && time.Since(d.cardsAt) < 10*time.Minute {
+		return d.cards, nil
+	}
+	var s status
+	if err := httpx.GetJSON(ctx, d.url+"/api/status?filter=cards", &s); err != nil {
+		return nil, err
+	}
+	names := make([]string, len(s.Cards))
+	for i, c := range s.Cards {
+		names[i] = c.Name
+		if c.Name == "" || c.Name == "n/a" {
+			names[i] = fmt.Sprintf("Karte %d", i+1)
+		}
+	}
+	d.cards, d.cardsAt = names, time.Now()
+	return names, nil
+}
+
+// Cards implements sdk.CardLister: the taught-in cards.
+func (d *Device) Cards(ctx context.Context) ([]string, error) {
+	var s status
+	if err := httpx.GetJSON(ctx, d.url+"/api/status?filter=cards", &s); err != nil {
+		return nil, err
+	}
+	out := []string{}
+	for i, c := range s.Cards {
+		if !c.CardID {
+			continue
+		}
+		n := c.Name
+		if n == "" || n == "n/a" {
+			n = fmt.Sprintf("Karte %d", i+1)
+		}
+		out = append(out, n)
+	}
+	return out, nil
 }

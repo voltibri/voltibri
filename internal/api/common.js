@@ -33,14 +33,24 @@ const ICONS = {
   plus:    '<path d="M12 5v14M5 12h14"/>',
   list:    '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
   device:  '<rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/>',
+  user:    '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/>',
+  users:   '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.8 3-6 6.5-6s6.5 2.2 6.5 6"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.3c2.2.7 3.5 2.6 3.5 5.7"/>',
+  logout:  '<path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 17l-5-5 5-5M5 12h11"/>',
+  key:     '<circle cx="8" cy="15" r="4"/><path d="m10.8 12.2 9.2-9.2M17 6l3 3M14.5 8.5l2 2"/>',
+  lock:    '<rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>',
 };
 const ICON_LABEL = {solar: 'PV', balcony: 'Balkonkraftwerk', car: 'Auto / Wallbox', heatpump: 'Wärmepumpe / Klima', plug: 'Steckdose',
   water: 'Warmwasser', house: 'Haus', grid: 'Netz', battery: 'Batterie'};
 const iconSVG = (name, size = 20) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[name] || ICONS.plug}</svg>`;
-const KIND_LABEL = {pv: 'PV-Anlage', battery: 'Hausbatterie', inverter: 'Wechselrichter', 'grid-meter': 'Netzzähler', 'ev-charger': 'Wallbox',
+const KIND_LABEL = {pv: 'PV-Anlage', battery: 'Hausbatterie', inverter: 'Wechselrichter', 'grid-meter': 'Netzzähler', 'ev-charger': 'Wallbox', vehicle: 'Fahrzeug',
   'vehicle-account': 'Fahrzeugkonto', 'heat-pump': 'Wärmepumpe', 'heating-rod': 'Heizstab', climate: 'Klima / Entfeuchter', appliance: 'Haushaltsgerät',
   forecast: 'Prognose', tariff: 'Strompreis'};
 const slugify = s => s.toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+// vehicles: in which charge modes the home battery must not supply the car
+const BAT_OPTS = {allow: {label: 'darf liefern', modes: []}, fast: {label: 'nicht bei Schnell', modes: ['fast']},
+  fastmin: {label: 'nicht bei Schnell und Min+PV', modes: ['fast', 'minpv']}, never: {label: 'nie', modes: ['external', 'pv', 'pv1', 'minpv', 'fast']}};
+const batKey = ms => { const s = [...(ms || [])].sort().join(); return Object.keys(BAT_OPTS).find(k => [...BAT_OPTS[k].modes].sort().join() === s) || 'allow'; };
+
 const FLEX_TEXT = {none: ['keine', 'Nur messen – voltibri schaltet nichts.'],
   shiftable: ['Start verschiebbar', 'Ein Programm, das einmal gestartet durchlaufen muss (Waschmaschine, Spülmaschine, Trockner). voltibri darf den Start verschieben – die Steuerung folgt in einem späteren Schritt.'],
   interruptible: ['unterbrechbar', 'Braucht Energie bis zu einer Frist, Pausen schaden nicht (E-Bike-Ladegerät, Poolpumpe). voltibri darf ein- und ausschalten – die Steuerung folgt in einem späteren Schritt.'],
@@ -83,6 +93,14 @@ const voltibri = (() => {
       if (e.target.closest('[data-remove]')) remove();
     });
     dlg.addEventListener('change', e => {
+      if (e.target.id === 'sp_source') {
+        $('sp_sourceVehicle').innerHTML = sourceOpts(e.target.value, '');
+        $('sp_sourceVehicle').closest('label').hidden = !e.target.value;
+      }
+      if (e.target.id === 'sp_sourceVehicle' && !$('sp__name').value.trim()) {
+        const o = e.target.selectedOptions[0];
+        if (o && o.value) $('sp__name').value = o.textContent.replace(/ · .*$/, '');
+      }
       if (e.target.id === 'sp__flex') {
         $('sp__flexwhy').textContent = FLEX_TEXT[e.target.value][1];
         $('sp__flexwarn').hidden = e.target.value === 'none' || controlOf(st.drv)[0] !== 'keine';
@@ -93,6 +111,21 @@ const voltibri = (() => {
   const buttons = html => { $('setupActions').innerHTML = html; };
   const body = html => { $('setupBody').innerHTML = html; };
   const err = msg => { $('setupErr').textContent = msg || ''; };
+
+  // vehicle assets: data source (vehicle account) and its vehicle
+  function sourceOpts(src, cur) {
+    const vs = ((st.ch && st.ch.vehicles) || []).filter(v => v.provider === src && v.sourceId && (!v.asset || v.key === st.dev.id));
+    if (cur && !vs.some(v => v.sourceId === cur)) vs.push({sourceId: cur, name: cur + ' (zurzeit nicht gemeldet)', info: {}});
+    return '<option value="">bitte wählen</option>' + vs.map(v => `<option value="${esc(v.sourceId)}"${v.sourceId === cur ? ' selected' : ''}>${esc(v.info.name || v.name)}${v.info.vin ? ' · ' + esc(v.info.vin) : ''}</option>`).join('');
+  }
+  function vehicleSource(pv) {
+    const accts = (st.cfg.devices || []).filter(x => x.type !== 'vehicle' && ((drivers.find(d => d.type === x.type) || {}).capabilities || []).includes('vehicles'));
+    const src = pv.source || '';
+    return `<label class="f" for="sp_source">Datenquelle<select id="sp_source" data-param="source"><option value="">keine – manuell (Ladestand unbekannt)</option>${accts.map(a =>
+        `<option value="${esc(a.id)}"${a.id === src ? ' selected' : ''}>${esc(a.name || a.id)}</option>`).join('')}</select>
+        <span class="why">Woher Ladestand und Ladeziel kommen. Lässt sich jederzeit wechseln – Ladevorgänge, Einstellungen und Ladekarten bleiben beim Fahrzeug.</span></label>
+      <label class="f" for="sp_sourceVehicle"${src ? '' : ' hidden'}>Fahrzeug im Konto<select id="sp_sourceVehicle" data-param="sourceVehicle">${sourceOpts(src, pv.sourceVehicle || '')}</select></label>`;
+  }
 
   function field(p, val, isNew) {
     const id = 'sp_' + p.name;
@@ -147,18 +180,20 @@ const voltibri = (() => {
       type = st.dev.type;
     }
     st.drv = drivers.find(d => d.type === type);
+    st.ch = type === 'vehicle' ? await fetch('api/charging').then(r => r.json()).catch(() => ({})) : null;
     if (!st.drv) { err('Unbekannter Gerätetyp: ' + type); return; }
     const d = st.drv, df = st.defaults || {};
     if (!id) {
       st.dev = {id: type, type, name: df.name || (type === 'none' ? '' : shortName(d)), params: {}};
       if (df.icon) st.dev.icon = df.icon;
       if (df.kind && type === 'none') st.dev.kind = df.kind;
+      if (df.params) st.dev.params = {...df.params};
       let n = 2;
       while (st.ids.has(st.dev.id)) st.dev.id = type + '-' + n++;
     }
     const pv = st.dev.params || {}, caps = d.capabilities || [];
     const params = (d.params || []).filter(p => p.type !== 'list');
-    const visible = params.filter(p => !p.advanced && p.name !== 'redirectUri');
+    const visible = params.filter(p => !p.advanced && p.name !== 'redirectUri' && !(d.type === 'vehicle' && ['source', 'sourceVehicle'].includes(p.name)));
     const adv = params.filter(p => p.advanced || p.name === 'redirectUri');
     const lists = (d.params || []).filter(p => p.type === 'list').map(p => p.label || p.name);
     const oauth = caps.includes('oauth');
@@ -193,6 +228,11 @@ const voltibri = (() => {
     // consumers (not wallboxes, producers, meters): flexibility and runs
     const consumer = (caps.includes('consumer') || caps.includes('switch') || bare) && !caps.includes('charger');
     const flex = st.dev.flexibility || 'none';
+    // home battery: may it supply this device? (consumers and wallboxes)
+    const batteryOpt = consumer || caps.includes('charger') ? `<label class="f" for="sp__bat">Hausbatterie<select id="sp__bat">
+        <option value=""${st.dev.batteryUse ? '' : ' selected'}>darf dieses Gerät versorgen</option>
+        <option value="never"${st.dev.batteryUse === 'never' ? ' selected' : ''}>nie – nur PV und Netz</option></select>
+        <span class="why">Mit „nie“ begrenzt voltibri die Entladung der Hausbatterie auf den übrigen Verbrauch, solange das Gerät läuft. Für Fahrzeuge lässt sich das je Lademodus beim Fahrzeug einstellen (Konfiguration → Fahrzeuge).</span></label>` : '';
     const consumerOpts = consumer ? `<label class="f" for="sp__flex">Flexibilität<select id="sp__flex">${Object.entries(FLEX_TEXT).map(([k, [l]]) =>
         `<option value="${k}"${k === flex ? ' selected' : ''}>${l}</option>`).join('')}</select>
         <span class="why" id="sp__flexwhy">${esc(FLEX_TEXT[flex][1])}</span>
@@ -206,12 +246,17 @@ const voltibri = (() => {
       ${st.isNew && d.description ? `<div class="why">${esc(d.description)}</div>` : ''}
       ${steps.length ? `<ol class="steps">${steps.map(s => `<li>${s}</li>`).join('')}</ol>` : ''}
       <label class="f" for="sp__name">Name<input type="text" id="sp__name" value="${esc(st.dev.name || '')}" placeholder="${esc(st.dev.id)}" autocomplete="off"></label>
+      ${d.type === 'vehicle' ? vehicleSource(pv) : ''}
       ${visible.map(p => field(p, pv[p.name], st.isNew)).join('')}
       ${bare ? kindSel + life : ''}
       ${roleOpts ? `<fieldset class="roles"><legend>Verwenden als</legend>${roleOpts}</fieldset>` : ''}
       ${ctl ? `<label class="f" for="sp__mode">Steuerung<select id="sp__mode">${Object.keys(MODE_TEXT).map(m => `<option value="${m}"${m === mode ? ' selected' : ''}>${MODE_TEXT[m]}</option>`).join('')}</select>
         <span class="why">„Fremdgesteuert“: ein anderes System (z. B. evcc, Home Assistant) steuert, voltibri liest nur mit.</span></label>` : ''}
       ${consumerOpts}
+      ${batteryOpt}
+      ${d.type === 'vehicle' ? `<label class="f" for="sp__vbat">Hausbatterie beim Laden<select id="sp__vbat">${Object.entries(BAT_OPTS).map(([k, o]) =>
+        `<option value="${k}"${k === batKey(st.dev.noBatteryModes) ? ' selected' : ''}>${o.label}</option>`).join('')}</select>
+        <span class="why">In den gewählten Lademodi lädt das Auto nur aus PV und Netz; voltibri begrenzt dann die Entladung der Hausbatterie auf den übrigen Verbrauch.</span></label>` : ''}
       ${lists.length ? `<div class="note">${esc(lists.join(', '))}: nur in der YAML-Datei bearbeitbar, bleibt beim Speichern erhalten.</div>` : ''}
       <details><summary>Erweiterte Einstellungen</summary><div>
         ${bare ? '' : kindSel + life}
@@ -252,6 +297,8 @@ const voltibri = (() => {
       const v = $(el).value;
       if (v) dev[key] = v; else delete dev[key];
     }
+    if ($('sp__vbat')) { const m = BAT_OPTS[$('sp__vbat').value].modes; if (m.length) dev.noBatteryModes = m; else delete dev.noBatteryModes; }
+    if ($('sp__bat')) { const b = $('sp__bat').value; if (b) dev.batteryUse = b; else delete dev.batteryUse; }
     if ($('sp__flex')) {
       const f = $('sp__flex').value;
       if (f && f !== 'none') dev.flexibility = f; else delete dev.flexibility;
@@ -259,7 +306,7 @@ const voltibri = (() => {
       const thr = Number($('sp__thr').value);
       if (thr > 0) dev.runThresholdW = thr; else delete dev.runThresholdW;
     }
-    if (st.isNew && dev.type === 'none' && name) { // readable id for devices without a connection
+    if (st.isNew && (dev.type === 'none' || dev.type === 'vehicle') && name) { // readable id for devices without a connection
       const base = slugify(name) || 'geraet';
       let n = 2;
       dev.id = base;
@@ -349,7 +396,9 @@ const voltibri = (() => {
 function topbar(active) {
   const el = document.querySelector('header.top');
   if (!el) return;
-  const tabs = [['overview', './', 'Übersicht', 'overview'], ['reports', 'berichte', 'Berichte', 'chart'], ['config', 'konfiguration', 'Konfiguration', 'gear']];
+  const me = window.ME;
+  const tabs = [['overview', './', 'Übersicht', 'overview'], ['reports', 'berichte', 'Berichte', 'chart'], ['config', 'konfiguration', 'Konfiguration', 'gear'], ['account', 'konto', 'Konto', 'user']]
+    .filter(([k]) => !me || k === 'overview' || k === 'account' || (k === 'reports' ? me.reports : me.admin));
   el.innerHTML = `<a class="brand" href="./" aria-label="voltibri Übersicht">
       <span class="mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.2 2.5 5.5 13h5.6l-1.3 8.5L18.5 10h-5.8z" fill="#fff"/></svg></span>
       <span><b>voltibri</b><small>smart self-consumption</small></span></a>
@@ -362,3 +411,59 @@ function topbar(active) {
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || ['localhost', '127.0.0.1'].includes(location.hostname))) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
+
+// --- sign-in ---
+// window.ME: the signed-in user and permissions (api/me), loaded once per
+// page; pages wait for voltibri.me before rendering permission dependent parts.
+voltibri.me = fetch('api/me').then(r => r.ok ? r.json() : null).catch(() => null).then(me => {
+  window.ME = me;
+  const active = document.querySelector('header.top nav [aria-current]');
+  if (me && document.querySelector('header.top')) topbar(document.body.dataset.page || (active ? {'./': 'overview', berichte: 'reports', konfiguration: 'config', konto: 'account'}[active.getAttribute('href')] : ''));
+  return me;
+});
+
+// 401 answers: "login" -> to the login page, "reauth" -> confirm the
+// password and repeat the request once.
+(() => {
+  const plain = window.fetch.bind(window);
+  let pending = null;
+  function confirmLogin() {
+    if (pending) return pending;
+    pending = new Promise(async resolve => {
+      // linked login services can confirm too (leaves the page and comes back)
+      const me = window.ME || {}, st = await plain('api/auth/state').then(r => r.json()).catch(() => ({}));
+      const linked = (st.providers || []).filter(p => (me.identities || []).some(i => i.provider === p.id));
+      const back = encodeURIComponent(location.pathname + location.search + location.hash);
+      const pw = !me.user || me.user.hasPassword;
+      document.body.insertAdjacentHTML('beforeend', `<dialog class="setup" id="reauth" aria-labelledby="reauthTitle"><form class="inner" method="dialog" id="reauthForm">
+        <h2 id="reauthTitle">Anmeldung bestätigen</h2>
+        <p class="why">Für die Konfiguration bitte kurz bestätigen, dass du es bist. Danach bleibt sie eine Weile freigeschaltet.</p>
+        ${pw ? '<label class="f" for="reauthPw">Passwort<input type="password" id="reauthPw" autocomplete="current-password" required></label>' : ''}
+        ${linked.map(p => `<a class="btn" href="api/auth/oidc/${encodeURIComponent(p.id)}/start?purpose=reauth&next=${back}">Mit ${esc(p.name)} bestätigen</a>`).join('')}
+        <div class="err" id="reauthErr" role="alert"></div>
+        <div class="actions"><button type="button" class="btn" data-cancel>Abbrechen</button>${pw ? '<button type="submit" class="btn primary">Bestätigen</button>' : ''}</div>
+      </form></dialog>`);
+      const d = document.getElementById('reauth');
+      const done = ok => { d.close(); d.remove(); pending = null; resolve(ok); };
+      d.querySelector('[data-cancel]').onclick = () => done(false);
+      d.addEventListener('cancel', () => done(false));
+      d.querySelector('form').addEventListener('submit', async e => {
+        e.preventDefault();
+        const r = await plain('api/auth/reauth', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({password: document.getElementById('reauthPw').value})});
+        if (r.ok) return done(true);
+        const j = await r.json().catch(() => ({}));
+        document.getElementById('reauthErr').textContent = j.error || 'Fehler ' + r.status;
+      });
+      d.showModal();
+    });
+    return pending;
+  }
+  window.fetch = async (input, init) => {
+    const r = await plain(input, init);
+    if (r.status !== 401 || !/^\/?api\//.test(String(input)) || /api\/auth\//.test(String(input)) || /\/login$/.test(location.pathname)) return r;
+    const j = await r.clone().json().catch(() => ({}));
+    if (j.code === 'reauth' && await confirmLogin()) return plain(input, init);
+    if (j.code === 'login') location.href = 'login?next=' + encodeURIComponent(location.pathname + location.search + location.hash);
+    return r;
+  };
+})();

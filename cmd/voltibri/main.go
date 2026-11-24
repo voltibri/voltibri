@@ -44,6 +44,7 @@ Usage:
   voltibri config    import|export|versions|rollback|validate ...
   voltibri history   info|import|import-ha ...  stored measurement history
   voltibri runs      list|import-evcc|imports|undo-import  charging sessions, heating cycles ...
+  voltibri users     list|add|invite|logout              sign-in accounts (emergency access)
   voltibri simulate  [-input data.csv]           compare charging strategies on history
   voltibri synth     -out data.csv               generate synthetic demo data
   voltibri import-ha -in history.csv -out data.csv -pv ... -grid ...
@@ -66,6 +67,8 @@ func main() {
 		err = configCmd(os.Args[2:])
 	case "history":
 		err = historyCmd(os.Args[2:])
+	case "users":
+		err = usersCmd(os.Args[2:])
 	case "runs", "sessions":
 		err = sessionsCmd(os.Args[2:])
 	case "simulate":

@@ -26,8 +26,10 @@ import (
 type Mode string
 
 const (
+	ModeOff      Mode = "off" // charging disabled
 	ModeExternal Mode = "external"
 	ModePV       Mode = "pv"
+	ModePV1      Mode = "pv1" // PV surplus on one phase only (starts at 1.4 kW)
 	ModeMinPV    Mode = "minpv"
 	ModeFast     Mode = "fast"
 )
@@ -35,7 +37,7 @@ const (
 // Valid reports whether m is a known mode.
 func (m Mode) Valid() bool {
 	switch m {
-	case ModeExternal, ModePV, ModeMinPV, ModeFast:
+	case ModeOff, ModeExternal, ModePV, ModePV1, ModeMinPV, ModeFast:
 		return true
 	}
 	return false
@@ -111,6 +113,9 @@ func Decide(in Input) Decision {
 		d.Reason = "extern gesteuert – voltibri greift nicht ein"
 		return d
 	}
+	if in.Mode == ModeOff {
+		return off("Wallbox deaktiviert")
+	}
 	if !in.Connected {
 		return off("kein Fahrzeug angesteckt")
 	}
@@ -126,7 +131,10 @@ func Decide(in Input) Decision {
 
 	// pv / minpv: pick the phase count the surplus allows
 	phases := in.Phases
-	if in.CanSwitch && in.Phases == 3 && in.SurplusW < in.MinA*Voltage*3 {
+	switch {
+	case in.Mode == ModePV1 && (in.CanSwitch || in.Phases == 1):
+		phases = 1 // always one phase: starts earlier, finer steps
+	case in.CanSwitch && in.Phases == 3 && in.SurplusW < in.MinA*Voltage*3:
 		phases = 1
 	}
 	target := amps(in.SurplusW, phases)

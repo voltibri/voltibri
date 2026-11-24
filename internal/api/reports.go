@@ -37,7 +37,7 @@ func (h *handler) profileScope(r *http.Request, f run.Filter) ([]string, map[str
 		k := config.KindOf(d)
 		switch k {
 		case config.KindPV, config.KindBattery, config.KindInverter, config.KindGridMeter,
-			config.KindForecast, config.KindTariff, config.KindVehicleAccount:
+			config.KindForecast, config.KindTariff, config.KindVehicleAccount, config.KindVehicle:
 			continue // producers and meters are not part of consumption reports
 		}
 		rk := config.RunKind(k)
@@ -50,7 +50,7 @@ func (h *handler) profileScope(r *http.Request, f run.Filter) ([]string, map[str
 			from[d.ID] = s
 		}
 	}
-	if f.Vehicle != "" {
+	if f.Vehicle != "" || f.Only != nil {
 		// the load profile does not know which car was charging: vehicle
 		// reports come from the runs only
 		return nil, map[string]time.Time{}, kinds, nil
@@ -211,5 +211,35 @@ func (h *handler) runVehicles(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "Fahrzeuge konnten nicht gelesen werden", err)
 		return
 	}
+	if cfg, err := h.current(r); err == nil {
+		list = mergeVehicles(list, cfg.VehicleNames())
+	}
 	writeJSON(w, http.StatusOK, list)
+}
+
+// mergeVehicles counts runs under a former name (alias) towards the vehicle
+// asset that has this name now.
+func mergeVehicles(list []store.RunVehicle, names map[string]string) []store.RunVehicle {
+	idx := map[string]int{}
+	out := []store.RunVehicle{}
+	for _, v := range list {
+		if n, ok := names[v.Name]; ok {
+			v.Name = n
+		}
+		i, ok := idx[v.Name]
+		if !ok {
+			idx[v.Name] = len(out)
+			out = append(out, v)
+			continue
+		}
+		o := &out[i]
+		o.Count += v.Count
+		o.EnergyWh += v.EnergyWh
+		o.Guest = o.Guest || v.Guest
+		if v.Last.After(o.Last) {
+			o.Last = v.Last
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Count > out[j].Count })
+	return out
 }

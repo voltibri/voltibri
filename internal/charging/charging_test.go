@@ -258,7 +258,7 @@ func TestManagerExternalNeverWrites(t *testing.T) {
 
 func TestGuestPolicies(t *testing.T) {
 	// no vehicle cloud reports a plugged-in car -> guest after the timeout
-	m, ch, _ := setup(t, config.Loadpoint{Guest: config.GuestBatteryFirst}, fakeProvider{"car1": {Connected: false}})
+	m, ch, _ := setup(t, config.Loadpoint{Guest: config.GuestBatteryFirst, GuestMode: "fast"}, fakeProvider{"car1": {Connected: false}})
 	ch.st = sdk.ChargerStatus{Connected: true}
 	tick(m, 0, ch, 0, 0, 0, 0)
 	if lp := m.Loadpoints()[0]; !lp.Detecting || lp.Vehicle != Guest {
@@ -271,7 +271,7 @@ func TestGuestPolicies(t *testing.T) {
 		t.Fatalf("battery first: %+v", lp)
 	}
 
-	m, ch, _ = setup(t, config.Loadpoint{Guest: config.GuestForceBattery}, fakeProvider{})
+	m, ch, _ = setup(t, config.Loadpoint{Guest: config.GuestForceBattery, GuestMode: "fast"}, fakeProvider{})
 	ch.st = sdk.ChargerStatus{Connected: true, Charging: true, PowerW: 11000}
 	r := tick(m, 0, ch, 7000, 0, 5000, 12000) // house 1 kW, PV 5 kW, guest 11 kW
 	if r.GuestW != 11000 || r.ForceBatteryW != 4000 {
@@ -280,8 +280,8 @@ func TestGuestPolicies(t *testing.T) {
 }
 
 func TestPlanInManager(t *testing.T) {
-	m, ch, _ := setup(t, config.Loadpoint{}, fakeProvider{"car1": {SoC: 0.5, Connected: true}})
-	m.SetVehicleSettings("tibber/car1", VehicleSettings{Mode: ModePV, CapacityWh: 60000,
+	m, ch := setupVehicle(t, config.Device{}, 60000, fakeProvider{"car1": {SoC: 0.5, Connected: true}})
+	m.SetVehicleSettings("car", VehicleSettings{Mode: ModePV,
 		Plans: []Plan{{SoC: 1, At: t0.Add(10 * time.Hour)}}})
 	ch.st = sdk.ChargerStatus{Connected: true}
 	tick(m, 0, ch, 0, 0, 0, 500)
@@ -339,4 +339,174 @@ func TestEmptySessionNotStored(t *testing.T) {
 	if len(*ss) != 0 {
 		t.Fatalf("empty session stored: %+v", *ss)
 	}
+}
+
+func TestBatteryExclusion(t *testing.T) {
+	m, ch := setupVehicle(t, config.Device{NoBatteryModes: []string{"fast"}}, 0, fakeProvider{"car1": {SoC: 0.4, Connected: true}})
+	m.SetVehicleSettings("car", VehicleSettings{Mode: ModeFast})
+	ch.st = sdk.ChargerStatus{Connected: true, Charging: true, PowerW: 11000}
+	res := tick(m, 0, ch, 0, 0, 0, 11500)
+	if res.ExcludedW != 11000 || !m.Loadpoints()[0].BatteryExcluded {
+		t.Fatalf("fast should be excluded: %+v", res)
+	}
+	m.SetVehicleSettings("car", VehicleSettings{Mode: ModePV})
+	if res := tick(m, time.Minute, ch, 0, 0, 0, 11500); res.ExcludedW != 0 || m.Loadpoints()[0].BatteryExcluded {
+		t.Fatalf("pv should use the battery: %+v", res)
+	}
+}
+
+func TestDecideOffAndPV1(t *testing.T) {
+	d := Decide(Input{Now: t0, Mode: ModeOff, Connected: true, SurplusW: 9000, MinA: 6, MaxA: 16, Phases: 3, PlanSlot: true})
+	if d.Enabled || !strings.Contains(d.Reason, "deaktiviert") {
+		t.Fatalf("off: %+v", d)
+	}
+	// 2 kW surplus: one phase with switching, 8 A
+	prev := State{Enabled: true, Phases: 1}
+	d = Decide(Input{Now: t0, Mode: ModePV1, Connected: true, SurplusW: 2000, MinA: 6, MaxA: 16, Phases: 3, CanSwitch: true, Prev: prev})
+	if !d.Enabled || d.Phases != 1 || d.CurrentA != 8 {
+		t.Fatalf("pv1: %+v", d)
+	}
+	// plenty of surplus: stays on one phase (16 A max)
+	d = Decide(Input{Now: t0, Mode: ModePV1, Connected: true, SurplusW: 9000, MinA: 6, MaxA: 16, Phases: 3, CanSwitch: true, Prev: prev})
+	if d.Phases != 1 || d.CurrentA != 16 {
+		t.Fatalf("pv1 high: %+v", d)
+	}
+}
+
+func TestLoadpointOff(t *testing.T) {
+	m, ch, _ := setup(t, config.Loadpoint{}, fakeProvider{"car1": {SoC: 0.4, Connected: true}})
+	m.SetVehicleSettings("tibber/car1", VehicleSettings{Mode: ModeFast})
+	if err := m.SetOff("wb", true); err != nil {
+		t.Fatal(err)
+	}
+	ch.st = sdk.ChargerStatus{Connected: true}
+	tick(m, 0, ch, 0, 0, 0, 500)
+	lp := m.Loadpoints()[0]
+	if !lp.Off || lp.Mode != ModeOff || lp.Target.Enabled {
+		t.Fatalf("off: %+v", lp)
+	}
+	m.SetOff("wb", false)
+	tick(m, time.Minute, ch, 0, 0, 0, 500)
+	if lp := m.Loadpoints()[0]; lp.Off || lp.Mode != ModeFast || !lp.Target.Enabled {
+		t.Fatalf("on again: %+v", lp)
+	}
+}
+
+func TestGuestDefaultOffAndCards(t *testing.T) {
+	m, ch, _ := setup(t, config.Loadpoint{}, fakeProvider{"car1": {Connected: false}})
+	m.cfg.Charging.Cards = []config.Card{{Card: "RFID-10-Dräger", Vehicle: "tibber/car1", Mode: "fast"}, {Card: "Gast PV", Vehicle: Guest, Mode: "pv"}}
+	// a guest plugs in: default off
+	ch.st = sdk.ChargerStatus{Connected: true}
+	tick(m, 0, ch, 0, 0, 0, 500)
+	if lp := m.Loadpoints()[0]; lp.Mode != ModeOff || lp.Target.Enabled {
+		t.Fatalf("guest default: %+v", lp)
+	}
+	// the card starts the e-Up fast for this session
+	ch.st = sdk.ChargerStatus{Connected: true, Card: "RFID-10-Dräger"}
+	tick(m, time.Minute, ch, 0, 0, 0, 500)
+	if lp := m.Loadpoints()[0]; lp.Vehicle != "tibber/car1" || lp.Mode != ModeFast || !lp.SessionMode || !lp.Target.Enabled || lp.Card != "RFID-10-Dräger" {
+		t.Fatalf("card: %+v", lp)
+	}
+	// unplug: session settings are gone, next guest is off again
+	ch.st = sdk.ChargerStatus{}
+	tick(m, 2*time.Minute, ch, 0, 0, 0, 500)
+	ch.st = sdk.ChargerStatus{Connected: true}
+	tick(m, 3*time.Minute, ch, 0, 0, 0, 500)
+	if lp := m.Loadpoints()[0]; lp.Vehicle != Guest || lp.Mode != ModeOff || lp.SessionMode {
+		t.Fatalf("after unplug: %+v", lp)
+	}
+	// guest card: guest with PV surplus
+	ch.st = sdk.ChargerStatus{Connected: true, Card: "gast pv"}
+	tick(m, 4*time.Minute, ch, 0, 0, 0, 500)
+	if lp := m.Loadpoints()[0]; lp.Vehicle != Guest || lp.Mode != ModePV {
+		t.Fatalf("guest card: %+v", lp)
+	}
+	// button during the session overrides it, also only for the session
+	m.SetSessionMode("wb", ModeFast)
+	tick(m, 5*time.Minute, ch, 0, 0, 0, 500)
+	if lp := m.Loadpoints()[0]; lp.Mode != ModeFast {
+		t.Fatalf("button: %+v", lp)
+	}
+}
+
+// fakeOwn is a vehicle asset (driver "vehicle").
+type fakeOwn struct {
+	id    string
+	capWh float64
+}
+
+func (f fakeOwn) ID() string { return f.id }
+func (f fakeOwn) Vehicles(context.Context) ([]sdk.VehicleInfo, error) {
+	capWh := f.capWh
+	if capWh == 0 {
+		capWh = 77000
+	}
+	return []sdk.VehicleInfo{{ID: f.id, Name: "Tavascan", CapacityWh: capWh}}, nil
+}
+func (f fakeOwn) VehicleStatus(context.Context, string) (sdk.VehicleStatus, error) {
+	return sdk.VehicleStatus{SoC: math.NaN(), LimitSoC: math.NaN(), RangeKm: math.NaN()}, nil
+}
+
+func TestVehicleAssetWithDataSource(t *testing.T) {
+	cache := sdk.NewMemCache()
+	// settings saved while the car was only known as tibber/car1
+	_ = cache.Put("vehicle:tibber/car1", []byte(`{"mode":"fast"}`))
+	cfg := config.Default()
+	cfg.Devices = []config.Device{{ID: "wb", Type: "x", Mode: "owned"}, {ID: "tibber", Type: "y"},
+		{ID: "tavascan", Type: "vehicle", Name: "Tavascan", Params: map[string]any{"source": "tibber", "sourceVehicle": "car1"}}}
+	cfg.Tariffs.Grid = &tariff.Config{Type: "fixed", Price: 30}
+	cfg.Charging.Loadpoints = []config.Loadpoint{{Charger: "wb"}}
+	cfg.Charging.Cards = []config.Card{{Card: "EWE", Vehicle: "tibber/car1"}}
+	ch := &fakeCharger{}
+	prov := fakeProvider{"car1": {SoC: 0.33, Connected: true}, "car2": {SoC: 0.5}}
+	m, err := New(cfg, time.UTC, map[string]sdk.Device{"wb": ch, "tibber": prov, "tavascan": fakeOwn{id: "tavascan"}}, cache, &memSessions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.refreshVehicles(context.Background())
+	keys := map[string]Vehicle{}
+	for _, v := range m.Vehicles() {
+		keys[v.Key] = v
+	}
+	v, ok := keys["tavascan"]
+	if !ok || len(keys) != 2 || keys["tibber/car2"].Key == "" {
+		t.Fatalf("vehicles: %+v", keys)
+	}
+	if !v.Asset || v.Provider != "tibber" || v.SourceID != "car1" || v.SoC == nil || *v.SoC != 0.33 || v.Settings.Mode != ModeFast || v.Settings.CapacityWh != 77000 {
+		t.Fatalf("asset: %+v", v)
+	}
+	if c, _ := m.cardFor("ewe"); c.Vehicle != "tavascan" {
+		t.Fatalf("card: %+v", c)
+	}
+	if err := m.SetVehicleSettings("tibber/car1", VehicleSettings{Mode: ModePV}); err != nil {
+		t.Fatal(err)
+	}
+	if b, _, _ := cache.Get("vehicle:tavascan"); !strings.Contains(string(b), `"pv"`) {
+		t.Fatalf("settings stored under %s", b)
+	}
+	// plugged in: detected as the asset
+	ch.st = sdk.ChargerStatus{Connected: true}
+	tick(m, 0, ch, 0, 0, 0, 500)
+	if lp := m.Loadpoints()[0]; lp.Vehicle != "tavascan" || lp.VehicleName != "Tavascan" {
+		t.Fatalf("loadpoint: %+v", lp)
+	}
+}
+
+// setupVehicle is setup with a vehicle asset "car" (configuration dev)
+// whose live data comes from tibber/car1.
+func setupVehicle(t *testing.T, dev config.Device, capWh float64, prov fakeProvider) (*Manager, *fakeCharger) {
+	t.Helper()
+	cfg := config.Default()
+	dev.ID, dev.Type, dev.Params = "car", "vehicle", map[string]any{"source": "tibber", "sourceVehicle": "car1"}
+	cfg.Devices = []config.Device{{ID: "wb", Type: "x", Mode: "owned"}, {ID: "tibber", Type: "y"}, dev}
+	cfg.Tariffs.Grid = &tariff.Config{Type: "fixed", Price: 30}
+	cfg.Tariffs.FeedIn = &tariff.Config{Type: "fixed", Price: 8}
+	cfg.Charging.Loadpoints = []config.Loadpoint{{Charger: "wb"}}
+	ch := &fakeCharger{}
+	m, err := New(cfg, time.UTC, map[string]sdk.Device{"wb": ch, "tibber": prov, "car": fakeOwn{id: "car", capWh: capWh}}, nil, &memSessions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.refreshVehicles(context.Background())
+	return m, ch
 }

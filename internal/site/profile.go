@@ -139,7 +139,7 @@ type runState struct {
 func runSettings(d config.Device) (on bool, thresholdW float64, pause time.Duration) {
 	kind := config.KindOf(d)
 	switch kind {
-	case config.KindEVCharger, config.KindVehicleAccount, config.KindForecast, config.KindTariff,
+	case config.KindEVCharger, config.KindVehicleAccount, config.KindVehicle, config.KindForecast, config.KindTariff,
 		config.KindPV, config.KindBattery, config.KindInverter, config.KindGridMeter:
 		return false, 0, 0 // wallboxes have charging sessions; producers and meters no runs
 	}

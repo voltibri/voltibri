@@ -44,8 +44,8 @@ func TestPutDevice(t *testing.T) {
 	if rec := do(h, "PUT", "/api/devices/x", `{"device":{"id":"y","type":"demo"}}`, local); rec.Code != http.StatusBadRequest {
 		t.Errorf("id mismatch: %d", rec.Code)
 	}
-	if rec := do(h, "PUT", "/api/devices/tibber", `{"device":{"type":"tibber"}}`, "192.168.1.5:4000"); rec.Code != http.StatusForbidden {
-		t.Errorf("remote write: %d", rec.Code)
+	if rec := doAnon(h, "PUT", "/api/devices/tibber", `{"device":{"type":"tibber"}}`); rec.Code != http.StatusUnauthorized {
+		t.Errorf("anonymous write: %d", rec.Code)
 	}
 	ro, _ := setup(t, true)
 	if rec := do(ro, "PUT", "/api/devices/tibber", `{"device":{"type":"tibber"}}`, local); rec.Code != http.StatusConflict {

@@ -5,6 +5,7 @@ package api
 
 import (
 	"encoding/json"
+	"io"
 	"math"
 	"net/http"
 	"net/url"
@@ -12,7 +13,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/voltibri/voltibri/internal/auth"
 	"github.com/voltibri/voltibri/internal/charging"
+	"github.com/voltibri/voltibri/internal/config"
 )
 
 // Charging settings (modes, plans, vehicle choice) are runtime settings:
@@ -28,6 +31,7 @@ type chargingResponse struct {
 	GridCt     *float64             `json:"gridCt,omitempty"`
 	FeedInCt   *float64             `json:"feedinCt,omitempty"`
 	Local      bool                 `json:"local"` // the client may change settings
+	Admin      bool                 `json:"admin"` // accounts and all vehicles
 }
 
 func opt(v float64) *float64 {
@@ -55,21 +59,17 @@ func (h *handler) chargingRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/vehicles/{key...}", h.local(h.putVehicle))
 	mux.HandleFunc("PUT /api/loadpoints/{id}/vehicle", h.local(h.putLoadpointVehicle))
 	mux.HandleFunc("PUT /api/loadpoints/{id}/guestmode", h.local(h.putGuestMode))
+	mux.HandleFunc("PUT /api/loadpoints/{id}/mode", h.local(h.putGuestMode)) // mode of the current session
+	mux.HandleFunc("GET /api/charging/cards", h.getCards)
+	mux.HandleFunc("PUT /api/loadpoints/{id}/off", h.local(h.putOff))
 	mux.HandleFunc("GET /api/oauth/{id}/login", h.local(h.oauthLogin))
 	mux.HandleFunc("GET /api/oauth/callback", h.oauthCallback)
 }
 
-// local only allows requests from the local machine (runtime settings,
-// independent of read-only configuration).
-func (h *handler) local(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if !isLoopback(r) {
-			writeErr(w, http.StatusForbidden, "Änderungen sind bis zur Einführung der Anmeldung nur vom lokalen Rechner aus erlaubt.", nil)
-			return
-		}
-		next(w, r)
-	}
-}
+// local marks runtime settings (independent of a read-only configuration);
+// access is checked by authenticate and, per wallbox and vehicle, by the
+// handlers.
+func (h *handler) local(next http.HandlerFunc) http.HandlerFunc { return next }
 
 func (h *handler) manager(w http.ResponseWriter) *charging.Manager {
 	m := h.rt.Charging()
@@ -82,9 +82,10 @@ func (h *handler) manager(w http.ResponseWriter) *charging.Manager {
 func (h *handler) getCharging(w http.ResponseWriter, r *http.Request) {
 	m := h.rt.Charging()
 	res := chargingResponse{Loadpoints: []charging.Loadpoint{}, Vehicles: []charging.Vehicle{}, Providers: []charging.Provider{},
-		Currency: "EUR", Local: isLoopback(r)}
+		Currency: "EUR", Local: true, Admin: auth.From(r.Context()).Admin()}
 	if m != nil {
 		res.Loadpoints, res.Vehicles, res.Providers = m.Loadpoints(), m.Vehicles(), m.Providers()
+		visibleCharging(auth.From(r.Context()), &res)
 		g, f := m.Prices(r.Context())
 		res.GridCt, res.FeedInCt = opt(g), opt(f)
 	}
@@ -104,6 +105,15 @@ func (h *handler) getSessions(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "Ladevorgänge konnten nicht gelesen werden", err)
 		return
 	}
+	if p := auth.From(r.Context()); !p.Admin() {
+		mine := ss[:0]
+		for _, s := range ss {
+			if p.Vehicle(s.Vehicle) {
+				mine = append(mine, s)
+			}
+		}
+		ss = mine
+	}
 	writeJSON(w, http.StatusOK, ss)
 }
 
@@ -115,6 +125,10 @@ func (h *handler) putVehicle(w http.ResponseWriter, r *http.Request) {
 	var s charging.VehicleSettings
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&s); err != nil {
 		writeErr(w, http.StatusBadRequest, "ungültige Daten", err)
+		return
+	}
+	if !auth.From(r.Context()).Vehicle(r.PathValue("key")) {
+		writeErr(w, http.StatusForbidden, "Dieses Fahrzeug ist für dich nicht freigegeben.", nil)
 		return
 	}
 	if err := m.SetVehicleSettings(r.PathValue("key"), s); err != nil {
@@ -136,6 +150,13 @@ func (h *handler) putLoadpointVehicle(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "ungültige Daten", err)
 		return
 	}
+	if !h.mayControl(w, r, m, r.PathValue("id")) {
+		return
+	}
+	if v := body.Vehicle; v != "" && v != charging.Guest && !auth.From(r.Context()).Vehicle(v) {
+		writeErr(w, http.StatusForbidden, "Dieses Fahrzeug ist für dich nicht freigegeben.", nil)
+		return
+	}
 	if err := m.SetLoadpointVehicle(r.PathValue("id"), body.Vehicle); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error(), nil)
 		return
@@ -153,6 +174,9 @@ func (h *handler) putGuestMode(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<12)).Decode(&body); err != nil {
 		writeErr(w, http.StatusBadRequest, "ungültige Daten", err)
+		return
+	}
+	if !h.mayControl(w, r, m, r.PathValue("id")) {
 		return
 	}
 	if err := m.SetGuestMode(r.PathValue("id"), body.Mode); err != nil {
@@ -240,4 +264,99 @@ func localPath(p string) string {
 		return ""
 	}
 	return p
+}
+
+// putOff switches a wallbox off or on ({"off": true}).
+func (h *handler) putOff(w http.ResponseWriter, r *http.Request) {
+	m := h.manager(w)
+	if m == nil {
+		return
+	}
+	var req struct {
+		Off bool `json:"off"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1024)).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "Ungültige Anfrage", err)
+		return
+	}
+	if !h.mayControl(w, r, m, r.PathValue("id")) {
+		return
+	}
+	if err := m.SetOff(r.PathValue("id"), req.Off); err != nil {
+		writeErr(w, http.StatusNotFound, err.Error(), nil)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// getCards lists the charging cards the wallboxes know and their settings.
+func (h *handler) getCards(w http.ResponseWriter, r *http.Request) {
+	out := struct {
+		Known    []string      `json:"known"`
+		Settings []config.Card `json:"settings"`
+	}{Known: []string{}, Settings: []config.Card{}}
+	if m := h.rt.Charging(); m != nil {
+		out.Known = m.Cards(r.Context())
+	}
+	if cfg, err := h.current(r); err == nil && cfg.Charging.Cards != nil {
+		out.Settings = cfg.Charging.Cards
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// foreign reports whether another user's vehicle is connected: the user only
+// sees that the wallbox is in use and may not change anything.
+func foreign(p *auth.Principal, lp charging.Loadpoint) bool {
+	return !p.Admin() && lp.Connected && lp.Vehicle != "" && lp.Vehicle != charging.Guest && !p.Vehicle(lp.Vehicle)
+}
+
+// visibleCharging filters the charging view to what the user may see.
+func visibleCharging(p *auth.Principal, res *chargingResponse) {
+	if p.Admin() {
+		return
+	}
+	lps := []charging.Loadpoint{}
+	for _, lp := range res.Loadpoints {
+		if !p.Loadpoint(lp.ID) {
+			continue
+		}
+		if foreign(p, lp) {
+			lp.Foreign = true
+			lp.Vehicle, lp.VehicleName, lp.Manual, lp.Card, lp.Reason, lp.Plan = "", "belegt", false, "", "", nil
+			if lp.Session != nil {
+				lp.Session = &charging.Session{Start: lp.Session.Start, EnergyWh: lp.Session.EnergyWh}
+			}
+		}
+		lps = append(lps, lp)
+	}
+	res.Loadpoints = lps
+	vs := []charging.Vehicle{}
+	for _, v := range res.Vehicles {
+		if v.Asset && p.Vehicle(v.Key) {
+			vs = append(vs, v)
+		}
+	}
+	res.Vehicles = vs
+	res.Providers = []charging.Provider{}
+}
+
+// mayControl checks that the user may change the loadpoint now.
+func (h *handler) mayControl(w http.ResponseWriter, r *http.Request, m *charging.Manager, id string) bool {
+	p := auth.From(r.Context())
+	for _, lp := range m.Loadpoints() {
+		if lp.ID != id {
+			continue
+		}
+		switch {
+		case !p.Loadpoint(id):
+			writeErr(w, http.StatusForbidden, "Diese Wallbox ist für dich nicht freigegeben.", nil)
+			return false
+		case foreign(p, lp):
+			writeErr(w, http.StatusForbidden, "An der Wallbox lädt gerade ein anderes Fahrzeug.", nil)
+			return false
+		}
+		return true
+	}
+	writeErr(w, http.StatusNotFound, "unbekannte Wallbox "+id, nil)
+	return false
 }

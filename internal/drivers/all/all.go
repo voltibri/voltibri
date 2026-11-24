@@ -7,6 +7,7 @@ package all
 import (
 	_ "github.com/voltibri/voltibri/internal/drivers/awattar"
 	_ "github.com/voltibri/voltibri/internal/drivers/demo"
+	_ "github.com/voltibri/voltibri/internal/drivers/esphome"
 	_ "github.com/voltibri/voltibri/internal/drivers/forecastsolar"
 	_ "github.com/voltibri/voltibri/internal/drivers/fronius"
 	_ "github.com/voltibri/voltibri/internal/drivers/goe"
@@ -14,4 +15,5 @@ import (
 	_ "github.com/voltibri/voltibri/internal/drivers/opendtu"
 	_ "github.com/voltibri/voltibri/internal/drivers/shelly"
 	_ "github.com/voltibri/voltibri/internal/drivers/tibber"
+	_ "github.com/voltibri/voltibri/internal/drivers/vehicle"
 )

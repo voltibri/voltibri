@@ -64,6 +64,12 @@ type ChargerStatus struct {
 	PowerW    float64 // current charging power
 	CurrentA  float64 // configured current per phase
 	Phases    int     // active phases
+	Card      string  // RFID card used for this session ("" = none)
+}
+
+// CardLister is a charger with RFID cards; it lists their names.
+type CardLister interface {
+	Cards(ctx context.Context) ([]string, error)
 }
 
 // Charger is an EV charging station.
@@ -138,6 +144,9 @@ type VehicleInfo struct {
 	Brand string `json:"brand"` // e.g. "Tesla"
 	Model string `json:"model"` // e.g. "Model Y"
 	VIN   string `json:"vin,omitempty"`
+	// Defaults known without the car (manual vehicles); user settings win.
+	CapacityWh float64 `json:"capacityWh,omitempty"`
+	MaxPowerW  float64 `json:"maxPowerW,omitempty"` // onboard charger limit
 }
 
 // VehicleStatus is the state reported by the vehicle (via its cloud).
@@ -169,6 +178,34 @@ type OAuthAuthorizer interface {
 	Exchange(ctx context.Context, code, state string) error
 	// Authorized reports whether usable tokens are available.
 	Authorized() bool
+}
+
+// BatteryLimiter sets charge and discharge limits at once (negative = no
+// limit; both negative = autonomous operation). Used to keep the battery
+// from feeding excluded loads (e.g. an EV charging from the grid).
+type BatteryLimiter interface {
+	SetLimits(ctx context.Context, chargeW, dischargeW float64) error
+}
+
+// HeatStatus is what a heat pump reports about its heat output. Unknown
+// numbers are NaN.
+type HeatStatus struct {
+	ThermalW   float64   // heat output now
+	COP        float64   // coefficient of performance now
+	ElectricW  float64   // electrical power of the heat pump itself (compressor)
+	FlowC      float64   // flow temperature
+	ReturnC    float64   // return temperature
+	OutdoorC   float64   // outdoor temperature
+	HotWaterC  float64   // domestic hot water temperature
+	HeatWh     float64   // heat counter (total)
+	ElectricWh float64   // electrical energy counter (total)
+	State      string    // operating state as text
+	Updated    time.Time // last value received
+}
+
+// HeatSource is a heat pump (or heat meter) that reports heat output.
+type HeatSource interface {
+	HeatStatus(ctx context.Context) (HeatStatus, error)
 }
 
 // BatteryForceCharger can make the battery charge with a given power even

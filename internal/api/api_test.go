@@ -6,10 +6,12 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/voltibri/voltibri/internal/auth"
 	"github.com/voltibri/voltibri/internal/charging"
 	"github.com/voltibri/voltibri/internal/config"
 	_ "github.com/voltibri/voltibri/internal/drivers/all"
@@ -40,7 +42,39 @@ func setup(t *testing.T, readOnly bool) (http.Handler, *store.Store) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	return Handler(fakeRuntime{readOnly: readOnly}, st), st
+	return signedIn(t, Handler(fakeRuntime{readOnly: readOnly}, st), st, auth.RoleAdmin), st
+}
+
+// signedIn creates a user with the role and sends its session cookie with
+// every request that has none.
+func signedIn(t *testing.T, h http.Handler, st *store.Store, role string) http.Handler {
+	t.Helper()
+	svc := auth.NewService(st)
+	ctx := context.Background()
+	u, err := svc.SaveUser(ctx, auth.User{Login: "test-" + role, Role: role})
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := svc.StartSession(ctx, u, "password", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := r.Cookie(sessionCookie); err != nil {
+			r.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+		}
+		h.ServeHTTP(w, r)
+	})
+}
+
+// doAnon sends a request without a valid session.
+func doAnon(h http.Handler, method, path, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	req.RemoteAddr = "192.168.1.20:1234"
+	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: "invalid"})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
 }
 
 func do(h http.Handler, method, path, body, remote string) *httptest.ResponseRecorder {
@@ -118,11 +152,20 @@ devices:
 
 func TestWritesRestricted(t *testing.T) {
 	h, _ := setup(t, false)
-	if rec := do(h, "PUT", "/api/config", `{"config":{}}`, "192.168.1.20:1234"); rec.Code != http.StatusForbidden {
-		t.Errorf("remote write: %d", rec.Code)
+	if rec := doAnon(h, "PUT", "/api/config", `{"config":{}}`); rec.Code != http.StatusUnauthorized {
+		t.Errorf("anonymous write: %d", rec.Code)
+	}
+	if rec := doAnon(h, "GET", "/api/state", ""); rec.Code != http.StatusUnauthorized {
+		t.Errorf("anonymous read: %d", rec.Code)
+	}
+	if rec := doAnon(h, "GET", "/", ""); rec.Code != http.StatusFound || !strings.HasPrefix(rec.Header().Get("Location"), "/login") {
+		t.Errorf("anonymous page: %d %s", rec.Code, rec.Header().Get("Location"))
+	}
+	if rec := doAnon(h, "GET", "/login", ""); rec.Code != 200 {
+		t.Errorf("login page: %d", rec.Code)
 	}
 	if rec := do(h, "GET", "/api/config", "", "192.168.1.20:1234"); rec.Code != 200 {
-		t.Errorf("remote read: %d", rec.Code)
+		t.Errorf("admin from another machine: %d", rec.Code)
 	}
 	ro, _ := setup(t, true)
 	if rec := do(ro, "PUT", "/api/config", `{"config":{}}`, local); rec.Code != http.StatusConflict {
@@ -156,11 +199,28 @@ func TestHistory(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || rec.Code != 200 {
 		t.Fatalf("history: %d %s", rec.Code, rec.Body.String())
 	}
-	if len(got) != 2 || got[0].PVW != 200 || got[1].PVW != 300 {
+	if len(got) != 2 || got[0].PVW == nil || *got[0].PVW != 200 || *got[1].PVW != 300 {
 		t.Fatalf("want the 2 slots of the last 2 h, got %+v", got)
 	}
 	if rec := do(h, "GET", "/api/history?hours=99", "", local); rec.Code != 400 {
 		t.Fatalf("hours=99: want 400, got %d", rec.Code)
+	}
+	// plan and measured state of charge for a window
+	now = time.Now().Truncate(15 * time.Minute)
+	if err := st.SavePlan(context.Background(), now, []store.PlanSlot{{Start: now.Add(-15 * time.Minute), PlanPVW: 250, PlanLoadW: 400, PlanSoC: 0.5}}); err != nil {
+		t.Fatal(err)
+	}
+	_ = st.SavePlan(context.Background(), now, []store.PlanSlot{{Start: now.Add(-15 * time.Minute), PlanPVW: 999}}) // first plan wins
+	_ = st.SaveSlotSoC(context.Background(), now.Add(-15*time.Minute), 0.48)
+	q := "/api/history?from=" + url.QueryEscape(now.Add(-time.Hour).Format(time.RFC3339)) + "&to=" + url.QueryEscape(now.Format(time.RFC3339))
+	rec = do(h, "GET", q, "", local)
+	got = nil
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || rec.Code != 200 {
+		t.Fatalf("window: %d %s", rec.Code, rec.Body.String())
+	}
+	last := got[len(got)-1]
+	if last.PlanPVW == nil || *last.PlanPVW != 250 || last.SoC == nil || *last.SoC != 0.48 || *last.PlanSoC != 0.5 {
+		t.Fatalf("plan slot: %+v", got)
 	}
 }
 
@@ -184,7 +244,7 @@ func TestChargingEndpoints(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.Update(context.Background(), charging.SiteInput{Now: time.Now(), Chargers: map[string]sdk.ChargerStatus{"wb": {Connected: true}}})
-	h := Handler(fakeRuntime{charge: m}, st)
+	h := signedIn(t, Handler(fakeRuntime{charge: m}, st), st, auth.RoleAdmin)
 
 	rec := do(h, "GET", "/api/charging", "", local)
 	var cr chargingResponse
@@ -197,8 +257,8 @@ func TestChargingEndpoints(t *testing.T) {
 	if rec := do(h, "PUT", "/api/loadpoints/wb/guestmode", `{"mode":"turbo"}`, local); rec.Code != 400 {
 		t.Fatalf("bad mode: %d", rec.Code)
 	}
-	if rec := do(h, "PUT", "/api/loadpoints/wb/guestmode", `{"mode":"pv"}`, "192.168.1.5:4000"); rec.Code != 403 {
-		t.Fatalf("remote write: %d", rec.Code)
+	if rec := doAnon(h, "PUT", "/api/loadpoints/wb/guestmode", `{"mode":"pv"}`); rec.Code != 401 {
+		t.Fatalf("anonymous write: %d", rec.Code)
 	}
 	if rec := do(h, "PUT", "/api/vehicles/tibber/nope", `{"mode":"fast"}`, local); rec.Code != 400 {
 		t.Fatalf("unknown vehicle: %d", rec.Code)

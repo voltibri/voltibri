@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/voltibri/voltibri/internal/auth"
 	"github.com/voltibri/voltibri/internal/importer"
 	"github.com/voltibri/voltibri/internal/run"
 	"github.com/voltibri/voltibri/internal/store"
@@ -121,6 +122,30 @@ func (h *handler) runFilter(r *http.Request) (run.Filter, *time.Location) {
 		}
 	}
 	f := run.Filter{Asset: q.Get("asset"), Kind: q.Get("kind"), Vehicle: q.Get("vehicle")}
+	if cfg, err := h.current(r); err == nil && f.Vehicle != "" {
+		// a vehicle asset also covers its former names (imports, other sources)
+		for n, v := range cfg.VehicleNames() {
+			if v == f.Vehicle && n != v {
+				f.Vehicles = append(f.Vehicles, n)
+			}
+		}
+	}
+	if p := auth.From(r.Context()); !p.Admin() {
+		// users only see the runs of their vehicles
+		f.Only = []string{}
+		if cfg, err := h.current(r); err == nil {
+			for _, id := range p.Vehicles() {
+				if d, ok := cfg.Device(id); ok {
+					name := d.Name
+					if name == "" {
+						name = d.ID
+					}
+					f.Only = append(f.Only, name)
+					f.Only = append(f.Only, d.Vehicle().Aliases...)
+				}
+			}
+		}
+	}
 	if y, err := strconv.Atoi(q.Get("year")); err == nil && y > 2000 && y < 2200 {
 		f.From, f.To = time.Date(y, 1, 1, 0, 0, 0, 0, loc), time.Date(y+1, 1, 1, 0, 0, 0, 0, loc)
 	}
@@ -148,4 +173,3 @@ func (h *handler) runs(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, list)
 }
-

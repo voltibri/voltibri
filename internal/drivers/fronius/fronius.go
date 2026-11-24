@@ -206,3 +206,16 @@ func (d *Device) ResetLimits(ctx context.Context) error {
 	}
 	return d.ss.reset()
 }
+
+// SetLimits implements sdk.BatteryLimiter: charge and discharge limit at
+// once (negative = no limit).
+func (d *Device) SetLimits(ctx context.Context, chargeW, dischargeW float64) error {
+	if d.ss == nil {
+		return fmt.Errorf("%s: battery control disabled (mode %s or modbusPort 0)", d.cfg.ID, d.cfg.Mode)
+	}
+	if d.cfg.DryRun {
+		slog.Info("dry-run: would set battery limits", "device", d.cfg.ID, "chargeW", chargeW, "dischargeW", dischargeW, "revert", d.revert)
+		return nil
+	}
+	return d.ss.setLimits(chargeW, dischargeW, d.revert)
+}

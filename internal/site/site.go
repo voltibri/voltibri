@@ -47,22 +47,26 @@ type HistoryProvider interface {
 
 // State is the latest measurement.
 type State struct {
-	Time       time.Time            `json:"time"`
-	GridW      float64              `json:"gridW"`
-	PVW        float64              `json:"pvW"`
-	BatteryW   float64              `json:"batteryW"`
-	LoadW      float64              `json:"loadW"`
-	SoC        float64              `json:"soc"`
-	HasBattery bool                 `json:"hasBattery"`
-	LimitW     float64              `json:"chargeLimitW"`
-	Controlled bool                 `json:"controlled"` // voltibri actively controls the battery
-	DryRun     bool                 `json:"dryRun"`
-	Producers  []Reading            `json:"producers"`
-	Consumers  []Reading            `json:"consumers"`
-	RestW      float64              `json:"restW"` // house load not covered by a measured consumer
-	Loadpoints []charging.Loadpoint `json:"loadpoints,omitempty"`
-	Circuits   []circuit.Status     `json:"circuits,omitempty"` // house connection first
-	Errors     []string             `json:"errors,omitempty"`
+	Time            time.Time            `json:"time"`
+	GridW           float64              `json:"gridW"`
+	PVW             float64              `json:"pvW"`
+	BatteryW        float64              `json:"batteryW"`
+	LoadW           float64              `json:"loadW"`
+	SoC             float64              `json:"soc"`
+	HasBattery      bool                 `json:"hasBattery"`
+	LimitW          float64              `json:"chargeLimitW"`
+	DischargeLimitW float64              `json:"dischargeLimitW"`    // -1 = battery not held back
+	ExcludedW       float64              `json:"excludedW"`          // load the battery must not supply
+	Excluded        []string             `json:"excluded,omitempty"` // devices held back from the battery
+	Heat            []HeatReading        `json:"heat,omitempty"`     // heat pumps: heat output, COP, temperatures
+	Controlled      bool                 `json:"controlled"`         // voltibri actively controls the battery
+	DryRun          bool                 `json:"dryRun"`
+	Producers       []Reading            `json:"producers"`
+	Consumers       []Reading            `json:"consumers"`
+	RestW           float64              `json:"restW"` // house load not covered by a measured consumer
+	Loadpoints      []charging.Loadpoint `json:"loadpoints,omitempty"`
+	Circuits        []circuit.Status     `json:"circuits,omitempty"` // house connection first
+	Errors          []string             `json:"errors,omitempty"`
 }
 
 // Reading is the power of a single producer or consumer.
@@ -106,12 +110,14 @@ type Site struct {
 	forcing  bool
 	forceErr bool
 
-	model    *forecast.LoadModel
-	hist     History
-	corr     map[string]meter.Correction // per device id
-	circuits []circuit.Node              // installation tree, nil if not configured
-	prof     profile                     // load profile of the current slot
-	runs     map[string]*runState        // run detection per device
+	model     *forecast.LoadModel
+	hist      History
+	corr      map[string]meter.Correction // per device id
+	circuits  []circuit.Node              // installation tree, nil if not configured
+	prof      profile                     // load profile of the current slot
+	discharge float64                     // wanted discharge limit, -1 = none
+	limits    limitState                  // last written battery limits
+	runs      map[string]*runState        // run detection per device
 
 	mu    sync.RWMutex
 	state State
@@ -138,14 +144,21 @@ func New(cfg *config.Config, hist History) (*Site, error) {
 	}
 	s := &Site{cfg: cfg, loc: loc, hist: hist, devices: map[string]sdk.Device{}, corr: map[string]meter.Correction{},
 		model: forecast.NewLoadModel(forecast.DefaultConfig(), cal, loc)}
+	built := false
+	defer func() {
+		if !built { // a failed configuration must not leave connections open
+			s.closeDevices()
+		}
+	}()
 	s.circuits = circuitNodes(cfg)
+	s.discharge = -1
 	now := time.Now()
 	for _, dc := range cfg.Devices {
 		if dc.Retired(now) {
 			continue // decommissioned: history only
 		}
 		s.corr[dc.ID] = dc.Correction
-		dcfg := sdk.DeviceConfig{ID: dc.ID, Type: dc.Type, Mode: sdk.ControlMode(dc.Mode), DryRun: cfg.Site.DryRun, Params: dc.Params}
+		dcfg := sdk.DeviceConfig{ID: dc.ID, Name: dc.Name, Type: dc.Type, Mode: sdk.ControlMode(dc.Mode), DryRun: cfg.Site.DryRun, Params: dc.Params}
 		if cp, ok := hist.(CacheProvider); ok {
 			dcfg.Cache = cp.Cache(dc.ID)
 		}
@@ -209,6 +222,7 @@ func New(cfg *config.Config, hist History) (*Site, error) {
 			return nil, fmt.Errorf("roles.tariff: device %q provides no prices", id)
 		}
 	}
+	built = true
 	return s, nil
 }
 
@@ -347,6 +361,7 @@ func (s *Site) Run(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
+			defer s.closeDevices()
 			// keep what was measured: the started slot (added to on the
 			// next start) and open runs
 			s.finishRuns(time.Now())
@@ -444,8 +459,10 @@ func (s *Site) measure(ctx context.Context) bool {
 			}
 		}
 	}
-	guestW := s.updateCharging(ctx, st, chargers, tree)
+	guestW, excludedW := s.updateCharging(ctx, st, chargers, tree)
+	st.Heat = s.readHeat(ctx)
 	st.Loadpoints = s.charge.Loadpoints()
+	s.updateDischargeLimit(ctx, &st, excludedW)
 	st.Errors = errs
 	for _, e := range errs {
 		slog.Warn("measurement error", "err", e)
@@ -469,6 +486,11 @@ func (s *Site) measure(ctx context.Context) bool {
 		s.model.Add(r)
 		if err := s.hist.AppendHistory(ctx, r); err != nil {
 			slog.Error("writing history failed", "err", err)
+		}
+		if ps, ok := s.hist.(PlanStore); ok && st.HasBattery && !math.IsNaN(st.SoC) {
+			if err := ps.SaveSlotSoC(ctx, s.slot, st.SoC); err != nil {
+				slog.Error("writing state of charge failed", "err", err)
+			}
 		}
 		s.sumPV, s.sumLoad, s.nSamples = 0, 0, 0
 	}
@@ -532,6 +554,7 @@ func (s *Site) replan(ctx context.Context) {
 	s.mu.Lock()
 	s.plan = plan
 	s.mu.Unlock()
+	s.savePlan(ctx, plan)
 	slog.Info("plan", "mode", plan.Mode, "targetSoC", fmt.Sprintf("%.0f%%", 100*plan.TargetSoC), "limitW", plan.CurrentLimitW(), "reason", first(plan.Reasons))
 }
 
@@ -542,32 +565,12 @@ func first(s []string) string {
 	return s[0]
 }
 
-func (s *Site) apply(ctx context.Context) {
-	s.mu.RLock()
-	limit := s.plan.CurrentLimitW()
-	s.mu.RUnlock()
-	if s.batCtl == nil || s.forcing { // forced charging for a guest overrides the plan
-		return
-	}
-	var err error
-	if limit < 0 {
-		err = s.batCtl.ResetLimits(ctx)
-	} else {
-		err = s.batCtl.SetChargeLimit(ctx, limit)
-	}
-	if err != nil {
-		slog.Error("applying battery limit failed", "err", err)
-		return
-	}
-	s.mu.Lock()
-	s.state.LimitW = limit
-	s.mu.Unlock()
-}
+func (s *Site) apply(ctx context.Context) { s.writeLimits(ctx, true) }
 
 // updateCharging runs the loadpoints and returns the guest charging power.
-func (s *Site) updateCharging(ctx context.Context, st State, chargers map[string]sdk.ChargerStatus, tree *circuit.Tree) float64 {
+func (s *Site) updateCharging(ctx context.Context, st State, chargers map[string]sdk.ChargerStatus, tree *circuit.Tree) (guestW, excludedW float64) {
 	if !s.charge.HasLoadpoints() {
-		return 0
+		return 0, 0
 	}
 	s.mu.RLock()
 	plan := s.plan
@@ -603,7 +606,7 @@ func (s *Site) updateCharging(ctx context.Context, st State, chargers map[string
 		s.forcing = false
 		s.apply(ctx) // back to the battery plan
 	}
-	return res.GuestW
+	return res.GuestW, res.ExcludedW
 }
 
 // Charging returns the loadpoint manager.

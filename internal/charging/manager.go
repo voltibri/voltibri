@@ -6,7 +6,6 @@ package charging
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -29,8 +28,10 @@ const Guest = "guest"
 // plugged-in vehicle before treating it as a guest.
 var DetectTimeout = 10 * time.Minute
 
-// VehicleSettings are the user's settings for a vehicle (stored in the
-// database, changed from the web page without a config version).
+// VehicleSettings are the effective settings of a vehicle. Mode and plans
+// are the user's (stored in the database, changed from the web page without
+// a config version); capacity, charger limit and the home battery rule come
+// from the vehicle's configuration and are filled in by vehicleSettings.
 type VehicleSettings struct {
 	Name       string  `json:"name,omitempty"`       // display name override
 	CapacityWh float64 `json:"capacityWh,omitempty"` // needed for SoC plans
@@ -38,12 +39,17 @@ type VehicleSettings struct {
 	MinPowerW  float64 `json:"minPowerW,omitempty"`  // minpv minimum (0 = minimum current)
 	MaxPowerW  float64 `json:"maxPowerW,omitempty"`  // onboard charger limit (0 = none)
 	Plans      []Plan  `json:"plans,omitempty"`
+	// NoBatteryModes: in these charge modes the home battery is held back
+	// (the car charges from PV and grid only).
+	NoBatteryModes []Mode `json:"noBatteryModes,omitempty"`
 }
 
 // Vehicle is a known vehicle with its state.
 type Vehicle struct {
-	Key       string          `json:"key"` // provider/id
-	Provider  string          `json:"provider"`
+	Key       string          `json:"key"`                // asset id, or account/id for vehicles without an asset
+	Asset     bool            `json:"asset"`              // configured as its own vehicle
+	Provider  string          `json:"provider"`           // account the live data comes from ("" = manual)
+	SourceID  string          `json:"sourceId,omitempty"` // vehicle id within the account
 	Info      sdk.VehicleInfo `json:"info"`
 	Name      string          `json:"name"`
 	Settings  VehicleSettings `json:"settings"`
@@ -68,29 +74,35 @@ type Session = run.Run
 
 // Loadpoint is the public view of a charge point.
 type Loadpoint struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Owned       bool      `json:"owned"` // voltibri may write to the charger
-	Phases      int       `json:"phases"`
-	MinCurrentA float64   `json:"minCurrent"`
-	MaxCurrentA float64   `json:"maxCurrent"`
-	Guest       string    `json:"guestPolicy"`
-	Separate    bool      `json:"separateMeter"`
-	Connected   bool      `json:"connected"`
-	Charging    bool      `json:"charging"`
-	PowerW      float64   `json:"powerW"`
-	Vehicle     string    `json:"vehicle"` // key, "guest" or ""
-	VehicleName string    `json:"vehicleName"`
-	Manual      bool      `json:"manual"`    // vehicle chosen by the user
-	Detecting   bool      `json:"detecting"` // still waiting for the vehicle cloud
-	Mode        Mode      `json:"mode"`
-	Target      State     `json:"target"` // what voltibri wants
-	Reason      string    `json:"reason"`
-	Plan        *Schedule `json:"plan,omitempty"`
-	Session     *Session  `json:"session,omitempty"`
-	PriceCt     *float64  `json:"priceCt,omitempty"` // current price at this loadpoint
-	LimitA      *float64  `json:"limitA,omitempty"`  // load management: max current per phase right now
-	LimitBy     string    `json:"limitBy,omitempty"` // circuit that limits
+	ID              string    `json:"id"`
+	Name            string    `json:"name"`
+	Owned           bool      `json:"owned"`          // voltibri may write to the charger
+	CanSwitch       bool      `json:"canSwitch"`      // charger can switch between 1 and 3 phases
+	Off             bool      `json:"off"`            // switched off by the user (any vehicle)
+	Card            string    `json:"card,omitempty"` // charging card of this session
+	SessionMode     bool      `json:"sessionMode"`    // mode chosen for this session (until unplugged)
+	Phases          int       `json:"phases"`
+	MinCurrentA     float64   `json:"minCurrent"`
+	MaxCurrentA     float64   `json:"maxCurrent"`
+	Guest           string    `json:"guestPolicy"`
+	Separate        bool      `json:"separateMeter"`
+	Connected       bool      `json:"connected"`
+	Charging        bool      `json:"charging"`
+	PowerW          float64   `json:"powerW"`
+	Vehicle         string    `json:"vehicle"` // key, "guest" or ""
+	VehicleName     string    `json:"vehicleName"`
+	Manual          bool      `json:"manual"`    // vehicle chosen by the user
+	Detecting       bool      `json:"detecting"` // still waiting for the vehicle cloud
+	Mode            Mode      `json:"mode"`
+	Target          State     `json:"target"` // what voltibri wants
+	Reason          string    `json:"reason"`
+	Plan            *Schedule `json:"plan,omitempty"`
+	Session         *Session  `json:"session,omitempty"`
+	PriceCt         *float64  `json:"priceCt,omitempty"`         // current price at this loadpoint
+	LimitA          *float64  `json:"limitA,omitempty"`          // load management: max current per phase right now
+	LimitBy         string    `json:"limitBy,omitempty"`         // circuit that limits
+	BatteryExcluded bool      `json:"batteryExcluded,omitempty"` // the home battery is held back for this charging
+	Foreign         bool      `json:"foreign,omitempty"`         // set by the API: another user's vehicle is connected (details hidden)
 }
 
 // SiteInput is the site state for one control tick.
@@ -107,9 +119,11 @@ type SiteInput struct {
 type Result struct {
 	GuestW        float64 // guest charging power (kept out of the load forecast)
 	ForceBatteryW float64 // > 0: charge the battery with this power (forceBattery policy)
+	ExcludedW     float64 // charging power the home battery must not supply
 }
 
 type lpRuntime struct {
+	card       string // charging card seen in this session
 	view       Loadpoint
 	cfg        config.Loadpoint
 	charger    sdk.Charger
@@ -129,20 +143,29 @@ type lpRuntime struct {
 
 // Manager runs all loadpoints.
 type Manager struct {
-	loc       *time.Location
-	cfg       *config.Config
-	providers map[string]sdk.VehicleProvider
-	settings  sdk.Cache
-	sessions  run.Store
-	grid      tariff.Tariff
-	feedin    tariff.Tariff
-	chargingT tariff.Tariff
-	dynGrid   bool
+	batteryNever map[string]bool // devices the home battery must not supply
+	loc          *time.Location
+	cfg          *config.Config
+	providers    map[string]sdk.VehicleProvider // vehicle accounts
+	own          []ownVehicle                   // vehicle assets
+	alias        map[string]string              // former vehicle key -> asset id
+	settings     sdk.Cache
+	sessions     run.Store
+	grid         tariff.Tariff
+	feedin       tariff.Tariff
+	chargingT    tariff.Tariff
+	dynGrid      bool
 
 	mu       sync.RWMutex
 	lps      []*lpRuntime
 	vehicles map[string]*Vehicle
 	prices   map[string]priceCache
+}
+
+// ownVehicle is a vehicle asset (driver "vehicle").
+type ownVehicle struct {
+	dev config.Device
+	p   sdk.VehicleProvider
 }
 
 type priceCache struct {
@@ -158,7 +181,12 @@ func New(cfg *config.Config, loc *time.Location, devices map[string]sdk.Device, 
 		settings = sdk.NewMemCache()
 	}
 	m := &Manager{loc: loc, cfg: cfg, providers: map[string]sdk.VehicleProvider{}, settings: settings, sessions: sessions,
-		vehicles: map[string]*Vehicle{}, prices: map[string]priceCache{}}
+		vehicles: map[string]*Vehicle{}, prices: map[string]priceCache{}, batteryNever: map[string]bool{}, alias: map[string]string{}}
+	for _, d := range cfg.Devices {
+		if d.BatteryUse == config.BatteryNever {
+			m.batteryNever[d.ID] = true
+		}
+	}
 	var err error
 	if m.grid, err = tariff.New(cfg.Tariffs.Grid, loc, devices); err != nil {
 		return nil, fmt.Errorf("tariffs.grid: %w", err)
@@ -177,7 +205,15 @@ func New(cfg *config.Config, loc *time.Location, devices map[string]sdk.Device, 
 	for _, dc := range cfg.Devices {
 		dev := devices[dc.ID]
 		if vp, ok := dev.(sdk.VehicleProvider); ok {
-			m.providers[dc.ID] = vp
+			if dc.IsVehicle() {
+				m.own = append(m.own, ownVehicle{dev: dc, p: vp})
+				m.alias[dc.ID+"/"+dc.ID] = dc.ID // key of manual vehicles before they became assets
+				if b := dc.Vehicle(); b.Source != "" {
+					m.alias[b.Source+"/"+b.SourceVehicle] = dc.ID
+				}
+			} else {
+				m.providers[dc.ID] = vp
+			}
 		}
 		ch, ok := dev.(sdk.Charger)
 		if !ok || roles[dc.ID] {
@@ -196,7 +232,7 @@ func New(cfg *config.Config, loc *time.Location, devices map[string]sdk.Device, 
 		if name == "" {
 			name = dc.ID
 		}
-		lp.view = Loadpoint{ID: dc.ID, Name: name, Owned: lp.ctl != nil, Phases: lc.Phases, MinCurrentA: lc.MinCurrentA,
+		lp.view = Loadpoint{ID: dc.ID, Name: name, Owned: lp.ctl != nil, CanSwitch: lp.phaseSw != nil, Phases: lc.Phases, MinCurrentA: lc.MinCurrentA,
 			MaxCurrentA: lc.MaxCurrentA, Guest: lc.Guest, Separate: lc.SeparateMeter}
 		lp.manual = m.loadString("lp:" + dc.ID)
 		if b, _, ok := settings.Get("open:" + dc.ID); ok && len(b) > 0 {
@@ -206,6 +242,9 @@ func New(cfg *config.Config, loc *time.Location, devices map[string]sdk.Device, 
 			}
 		}
 		m.lps = append(m.lps, lp)
+	}
+	for _, lp := range m.lps { // aliases are complete only now
+		lp.manual = m.resolve(lp.manual)
 	}
 	return m, nil
 }
@@ -224,12 +263,31 @@ func (m *Manager) loadString(key string) string {
 func (m *Manager) vehicleSettings(key string) VehicleSettings {
 	var s VehicleSettings
 	if m.settings != nil {
-		if b, _, ok := m.settings.Get("vehicle:" + key); ok {
+		b, _, ok := m.settings.Get("vehicle:" + key)
+		for old, k := range m.alias { // settings saved under a former key
+			if !ok && k == key {
+				b, _, ok = m.settings.Get("vehicle:" + old)
+			}
+		}
+		if ok {
 			_ = json.Unmarshal(b, &s)
 		}
 	}
 	if s.Mode == "" {
 		s.Mode = ModePV
+	}
+	// battery size, charger limit and the home battery rule are configuration
+	// (vehicle asset), not settings; the Min+PV minimum is not adjustable yet
+	s.CapacityWh, s.MaxPowerW, s.MinPowerW, s.NoBatteryModes = 0, 0, 0, nil
+	if v, ok := m.vehicles[key]; ok {
+		s.CapacityWh, s.MaxPowerW = v.Info.CapacityWh, v.Info.MaxPowerW
+	}
+	for _, a := range m.own {
+		if a.dev.ID == key {
+			for _, md := range a.dev.NoBatteryModes {
+				s.NoBatteryModes = append(s.NoBatteryModes, Mode(md))
+			}
+		}
 	}
 	return s
 }
@@ -240,7 +298,7 @@ func (m *Manager) HasLoadpoints() bool { return len(m.lps) > 0 }
 // Run refreshes the vehicle list and states in the background (vehicle
 // clouds are slow; the control loop only uses the latest known state).
 func (m *Manager) Run(ctx context.Context) {
-	if len(m.providers) == 0 {
+	if len(m.providers) == 0 && len(m.own) == 0 {
 		return
 	}
 	t := time.NewTicker(time.Minute)
@@ -258,42 +316,84 @@ func (m *Manager) Run(ctx context.Context) {
 func (m *Manager) refreshVehicles(ctx context.Context) {
 	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
-	found := map[string]*Vehicle{}
+	m.mu.RLock()
+	old := m.vehicles
+	m.mu.RUnlock()
+	// 1. vehicles of the accounts (Tibber, vendor clouds)
+	acct := map[string]*Vehicle{}
+	failed := map[string]string{}
 	for pid, p := range m.providers {
 		if a, ok := p.(sdk.OAuthAuthorizer); ok && !a.Authorized() {
+			failed[pid] = "nicht angemeldet"
 			continue
 		}
 		infos, err := p.Vehicles(ctx)
 		if err != nil {
 			slog.Warn("vehicles unavailable", "provider", pid, "err", err)
-			m.mu.RLock()
-			for k, v := range m.vehicles { // keep the last known ones
-				if v.Provider == pid {
-					found[k] = v
+			failed[pid] = err.Error()
+			for _, v := range old { // keep the last known ones
+				if v.Provider == pid && v.SourceID != "" {
+					c := *v
+					acct[pid+"/"+v.SourceID] = &c
 				}
 			}
-			m.mu.RUnlock()
 			continue
 		}
 		for _, info := range infos {
 			key := pid + "/" + info.ID
-			v := &Vehicle{Key: key, Provider: pid, Info: info}
+			v := &Vehicle{Key: key, Provider: pid, SourceID: info.ID, Info: info}
 			st, err := p.VehicleStatus(ctx, info.ID)
 			if err != nil {
 				v.Error = err.Error()
-				m.mu.RLock()
-				if old, ok := m.vehicles[key]; ok {
-					st = old.status
+				if o, ok := old[m.resolve(key)]; ok {
+					st = o.status
 				}
-				m.mu.RUnlock()
 			}
 			v.status = st
-			found[key] = v
+			acct[key] = v
 		}
+	}
+	found := map[string]*Vehicle{}
+	// 2. vehicle assets; a bound account vehicle supplies the live data
+	for _, a := range m.own {
+		infos, _ := a.p.Vehicles(ctx)
+		v := &Vehicle{Key: a.dev.ID, Asset: true, status: sdk.VehicleStatus{SoC: math.NaN(), LimitSoC: math.NaN(), RangeKm: math.NaN()}}
+		if len(infos) > 0 {
+			v.Info = infos[0]
+		}
+		if b := a.dev.Vehicle(); b.Source != "" {
+			v.Provider, v.SourceID = b.Source, b.SourceVehicle
+			if src, ok := acct[b.Source+"/"+b.SourceVehicle]; ok {
+				delete(acct, b.Source+"/"+b.SourceVehicle)
+				v.status, v.Error = src.status, src.Error
+				v.Info.VIN = src.Info.VIN
+				if v.Info.Brand == "" && v.Info.Model == "" {
+					v.Info.Brand, v.Info.Model = src.Info.Brand, src.Info.Model
+				}
+			} else if f, ok := failed[b.Source]; ok {
+				v.Error = "Datenquelle " + b.Source + ": " + f
+			} else {
+				v.Error = "Datenquelle " + b.Source + " kennt dieses Fahrzeug nicht (mehr)"
+			}
+		}
+		found[v.Key] = v
+	}
+	// 3. account vehicles without an asset stay usable (automatic detection)
+	for k, v := range acct {
+		found[k] = v
 	}
 	m.mu.Lock()
 	m.vehicles = found
 	m.mu.Unlock()
+}
+
+// resolve maps a former vehicle key (account/id, or the key of a manual
+// vehicle before vehicles became assets) to the key of its vehicle asset.
+func (m *Manager) resolve(key string) string {
+	if k, ok := m.alias[key]; ok {
+		return k
+	}
+	return key
 }
 
 func optional(f float64) *float64 {
@@ -364,6 +464,7 @@ func (m *Manager) Loadpoints() []Loadpoint {
 
 // SetVehicleSettings stores the settings of a vehicle.
 func (m *Manager) SetVehicleSettings(key string, s VehicleSettings) error {
+	key = m.resolve(key)
 	m.mu.RLock()
 	_, ok := m.vehicles[key]
 	m.mu.RUnlock()
@@ -373,9 +474,8 @@ func (m *Manager) SetVehicleSettings(key string, s VehicleSettings) error {
 	if s.Mode != "" && !s.Mode.Valid() {
 		return fmt.Errorf("unknown mode %q", s.Mode)
 	}
-	if s.CapacityWh < 0 || s.MinPowerW < 0 || s.MaxPowerW < 0 {
-		return errors.New("values must not be negative")
-	}
+	// configuration, not settings (see vehicleSettings)
+	s.CapacityWh, s.MaxPowerW, s.MinPowerW, s.NoBatteryModes = 0, 0, 0, nil
 	for i := range s.Plans {
 		if s.Plans[i].ID == "" {
 			s.Plans[i].ID = fmt.Sprintf("p%d", time.Now().UnixNano()+int64(i))
@@ -391,6 +491,7 @@ func (m *Manager) SetVehicleSettings(key string, s VehicleSettings) error {
 // SetLoadpointVehicle assigns a vehicle manually ("" = automatic, "guest").
 // The assignment ends when the vehicle is unplugged.
 func (m *Manager) SetLoadpointVehicle(id, key string) error {
+	key = m.resolve(key)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if key != "" && key != Guest {
@@ -407,6 +508,10 @@ func (m *Manager) SetLoadpointVehicle(id, key string) error {
 	return fmt.Errorf("unknown loadpoint %q", id)
 }
 
+// SetSessionMode sets the charge mode of the current session (until the car
+// is unplugged); it wins over the vehicle's default mode.
+func (m *Manager) SetSessionMode(id string, mode Mode) error { return m.SetGuestMode(id, mode) }
+
 // SetGuestMode changes the charge mode used for guests at a loadpoint.
 func (m *Manager) SetGuestMode(id string, mode Mode) error {
 	if !mode.Valid() {
@@ -416,7 +521,7 @@ func (m *Manager) SetGuestMode(id string, mode Mode) error {
 	defer m.mu.Unlock()
 	for _, lp := range m.lps {
 		if lp.view.ID == id {
-			return m.settings.Put("guestmode:"+id, []byte(mode))
+			return m.settings.Put("mode:"+id, []byte(mode))
 		}
 	}
 	return fmt.Errorf("unknown loadpoint %q", id)
@@ -518,17 +623,30 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 			m.endSession(ctx, lp, in.Now)
 			lp.manual = ""
 			_ = m.settings.Put("lp:"+v.ID, []byte{})
+			_ = m.settings.Put("mode:"+v.ID, []byte{})
+			lp.card = ""
 		}
 
 		// vehicle and mode
 		delete(taken, v.Vehicle)
 		v.Vehicle, v.Detecting, v.Manual = "", false, lp.manual != ""
 		vs := VehicleSettings{}
-		guestMode := Mode(m.loadString("guestmode:" + v.ID))
-		if !guestMode.Valid() {
-			guestMode = Mode(lp.cfg.GuestMode)
+		// a card held to the wallbox chooses vehicle and mode for this session
+		if v.Connected && st.Card != "" && lp.card != st.Card {
+			lp.card = st.Card
+			if c, ok := m.cardFor(st.Card); ok {
+				if c.Vehicle != "" {
+					lp.manual = c.Vehicle
+					_ = m.settings.Put("lp:"+v.ID, []byte(c.Vehicle))
+				}
+				if Mode(c.Mode).Valid() {
+					_ = m.settings.Put("mode:"+v.ID, []byte(c.Mode))
+				}
+				slog.Info("charging card", "loadpoint", v.ID, "card", st.Card, "vehicle", c.Vehicle, "mode", c.Mode)
+			}
 		}
-		v.Mode = guestMode
+		v.Card = lp.card
+		v.Mode = Mode(lp.cfg.GuestMode) // guests: default of the wallbox
 		if v.Connected {
 			v.Vehicle, v.Detecting = m.detect(lp, in.Now, taken)
 			taken[v.Vehicle] = v.Vehicle != Guest
@@ -544,6 +662,16 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 			}
 		} else {
 			v.VehicleName = ""
+		}
+		// mode chosen for this session (wallbox buttons or card), until unplugged
+		v.SessionMode = false
+		if sm := Mode(m.loadString("mode:" + v.ID)); sm.Valid() && v.Connected {
+			v.Mode, v.SessionMode = sm, true
+		}
+		// the wallbox itself switched off: wins over every vehicle mode
+		v.Off = m.loadString("off:"+v.ID) == "1"
+		if v.Off {
+			v.Mode = ModeOff
 		}
 		guest := v.Connected && v.Vehicle == Guest
 
@@ -584,7 +712,7 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 		// plan
 		v.Plan = nil
 		planSlot := false
-		if veh, ok := m.vehicles[v.Vehicle]; ok && v.Connected && (v.Mode == ModePV || v.Mode == ModeMinPV) {
+		if veh, ok := m.vehicles[v.Vehicle]; ok && v.Connected && (v.Mode == ModePV || v.Mode == ModePV1 || v.Mode == ModeMinPV) {
 			if p, target := nextPlan(vs.Plans, in.Now, m.loc); !target.IsZero() {
 				powerW := lp.cfg.MaxCurrentA * Voltage * float64(lp.cfg.Phases)
 				if vs.MaxPowerW > 0 {
@@ -627,6 +755,13 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 				}
 			}
 			res.GuestW += v.PowerW
+		}
+
+		// home battery held back? (device setting, guests, vehicle per mode)
+		excl := m.batteryNever[v.ID] || (guest && lp.cfg.GuestNoBattery) || (!guest && hasMode(vs.NoBatteryModes, v.Mode))
+		v.BatteryExcluded = excl && v.Connected
+		if v.BatteryExcluded {
+			res.ExcludedW += v.PowerW
 		}
 
 		surplus := Surplus(in.GridW, in.BatteryW, v.PowerW, prio)
@@ -829,4 +964,62 @@ func priceNote(separate, guest bool) string {
 		return "Gast: alles zum Netzpreis"
 	}
 	return "PV und Akku zur Einspeisevergütung, Netz zum Tarif"
+}
+
+func hasMode(ms []Mode, m Mode) bool {
+	for _, x := range ms {
+		if x == m {
+			return true
+		}
+	}
+	return false
+}
+
+// SetOff switches a loadpoint off (no charging for any vehicle) or on again.
+func (m *Manager) SetOff(id string, off bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, lp := range m.lps {
+		if lp.view.ID == id {
+			v := ""
+			if off {
+				v = "1"
+			}
+			lp.view.Off = off
+			return m.settings.Put("off:"+id, []byte(v))
+		}
+	}
+	return fmt.Errorf("unknown loadpoint %q", id)
+}
+
+// cardFor finds the setting of a charging card by its name.
+func (m *Manager) cardFor(name string) (config.Card, bool) {
+	for _, c := range m.cfg.Charging.Cards {
+		if strings.EqualFold(c.Card, name) {
+			c.Vehicle = m.resolve(c.Vehicle)
+			return c, true
+		}
+	}
+	return config.Card{}, false
+}
+
+// Cards lists the cards the chargers know (for the settings page).
+func (m *Manager) Cards(ctx context.Context) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, lp := range m.lps {
+		if cl, ok := lp.charger.(sdk.CardLister); ok {
+			names, err := cl.Cards(ctx)
+			if err != nil {
+				continue
+			}
+			for _, n := range names {
+				if !seen[n] {
+					seen[n] = true
+					out = append(out, n)
+				}
+			}
+		}
+	}
+	return out
 }

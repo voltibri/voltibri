@@ -16,14 +16,24 @@
 <link rel="stylesheet" href="common.css">
 <style>
   /* hero: big numbers above the energy flow */
-  .stats { display:grid; grid-template-columns:repeat(4, 1fr); gap:8px 20px; }
+  .hero { display:grid; grid-template-columns:minmax(0, 1fr) 210px; gap:12px 28px; align-items:center; }
+  .hero .err { grid-column:1 / -1; }
+  .stats { display:flex; flex-direction:column; gap:0; }
+  .stats .stat { padding:14px 0; border-top:1px solid var(--line); }
+  .stats .stat:first-child { border-top:0; }
   .stat { display:flex; flex-direction:column; gap:2px; min-width:0; }
   .stat .big { font-size:34px; font-weight:300; line-height:1.1; letter-spacing:-.035em; white-space:nowrap; }
   .stat .big small { font-size:16px; font-weight:400; color:var(--muted); margin-left:3px; letter-spacing:0; }
   .stat .sub { font-size:12px; }
   .dot { display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:6px; vertical-align:1px; }
-  @media (max-width:700px) { .stats { grid-template-columns:repeat(2, 1fr); } .stat .big { font-size:28px; } }
-  #flow { width:100%; height:auto; display:block; margin:10px auto 0; overflow:visible; }
+  @media (max-width:760px) {
+    .hero { grid-template-columns:1fr; gap:6px; }
+    .stats { display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; border-top:1px solid var(--line); padding-top:12px; }
+    .stats .stat { padding:0; border:0; }
+    .stat .big { font-size:22px; } .stat .big small { font-size:11px; }
+    .stat .eyebrow { font-size:9.5px; letter-spacing:.04em; } .stat .sub { font-size:10.5px; line-height:1.3; }
+  }
+  #flow { width:100%; height:auto; display:block; margin:0 auto; overflow:visible; }
   #flow text { font-variant-numeric:tabular-nums; }
   .track { fill:none; stroke:var(--track); stroke-width:2; }
   .tog { cursor:pointer; outline:none; }
@@ -41,6 +51,10 @@
   .cardhead { display:flex; align-items:flex-end; gap:10px 16px; flex-wrap:wrap; margin-bottom:14px; }
   .cardhead h2 { margin:2px 0 0; }
   .cardhead .right { margin-left:auto; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  /* users without the overview only see their wallboxes */
+  body.restricted [data-overview] { display:none !important; }
+  @media (min-width: 900px) { #bhead { flex-wrap:nowrap; } #bhead .right { flex-wrap:nowrap; white-space:nowrap; } }
+  .legend i.dash { background:repeating-linear-gradient(90deg, var(--muted) 0 5px, transparent 5px 9px); opacity:.8; }
   .chip { font-size:12px; padding:3px 10px; border-radius:99px; background:var(--card-2); border:1px solid var(--line); color:var(--muted); white-space:nowrap; }
   .chip b { color:var(--fg); font-weight:600; }
 
@@ -63,7 +77,22 @@
   .socbar i { position:absolute; inset:0 auto 0 0; background:linear-gradient(90deg, var(--accent), var(--battery)); border-radius:4px; }
   .socbar b { position:absolute; top:0; bottom:0; width:2px; background:var(--fg); opacity:.5; }
   .socline { display:flex; justify-content:space-between; font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; margin-top:4px; }
-  .modes { display:grid; grid-template-columns:repeat(4, 1fr); gap:3px; padding:3px; border-radius:12px; background:var(--track); }
+  .modes { position:relative; display:grid; grid-template-columns:1fr 1.6fr 1fr; gap:3px; padding:3px; border-radius:12px; background:var(--track); }
+  .modes .split { display:flex; border-radius:9px; }
+  .modes .split > button:first-child { flex:1; border-radius:9px 0 0 9px; }
+  .modes .split > button.caret { flex:none; width:30px; padding:0; border-radius:0 9px 9px 0; }
+  .modes .split.sel { background:var(--card); box-shadow:0 1px 3px rgba(0,0,0,.12); }
+  .modes .split.sel > button { color:var(--accent); }
+  .modes .split.sel > button.caret { border-left:1px solid var(--line); }
+  .modes button small { font-size:11px; font-weight:500; opacity:.8; margin-left:3px; }
+  .smartmenu { position:absolute; z-index:20; left:3px; right:3px; top:calc(100% + 6px); display:flex; flex-direction:column; gap:2px; padding:6px;
+    background:var(--card); border:1px solid var(--line); border-radius:14px; box-shadow:0 12px 32px rgba(0,0,0,.18); }
+  .smartmenu button { display:flex; flex-direction:column; align-items:flex-start; gap:2px; text-align:left; padding:8px 10px !important; border-radius:10px !important; color:var(--fg) !important; }
+  .smartmenu button:hover:not(:disabled) { background:var(--track) !important; }
+  .smartmenu button[aria-checked=true] { background:var(--accent-soft) !important; }
+  .smartmenu button[aria-checked=true] b { color:var(--accent); }
+  .smartmenu button span { font-size:12px; color:var(--muted); font-weight:400; }
+  .smartmenu button:disabled { opacity:.5; }
   .modes button { font:inherit; font-size:13px; font-weight:550; border:0; background:transparent; color:var(--muted); padding:6px 4px; border-radius:9px; cursor:pointer; }
   .modes button.sel { background:var(--card); color:var(--fg); box-shadow:0 1px 3px rgba(0,0,0,.12); }
   .modes button:disabled { cursor:default; }
@@ -81,6 +110,12 @@
   #lveh:not(:empty) { margin-top:14px; }
   #lveh details.more > div { margin-top:10px; display:flex; flex-direction:column; gap:8px; }
 
+  /* heat pump */
+  #heat[hidden] { display:none; }
+  .heatgrid { display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:14px 20px; }
+  .heatgrid .big { font-size:30px; font-weight:300; letter-spacing:-.035em; line-height:1.1; }
+  .heatgrid .big small { font-size:14px; color:var(--muted); margin-left:3px; }
+  .heatgrid .sub { font-size:12px; color:var(--muted); }
   /* battery plan */
   svg.chart { width:100%; height:auto; display:block; }
   .legend { display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--muted); margin:8px 0 12px; }
@@ -93,35 +128,44 @@
 <main>
   <header class="top"></header>
 
-  <section class="card hero" aria-label="Jetzt">
-    <div class="stats">
-      <div class="stat"><span class="eyebrow"><i class="dot" style="background:var(--solar)"></i>Erzeugung</span><span class="big num" id="sPV">–</span></div>
-      <div class="stat"><span class="eyebrow"><i class="dot" style="background:var(--home)"></i>Verbrauch</span><span class="big num" id="sLoad">–</span></div>
-      <div class="stat"><span class="eyebrow"><i class="dot" style="background:var(--accent)"></i>Autarkie</span><span class="big num" id="autarky">–</span></div>
-      <div class="stat"><span class="eyebrow"><i class="dot" style="background:var(--battery)"></i>Batterie</span><span class="big num" id="soc">–</span><span class="sub" id="batState"></span></div>
-    </div>
+  <section class="card hero" aria-label="Jetzt" data-overview>
     <svg id="flow" role="img" aria-label="Energiefluss zwischen Erzeugern, Netz, Batterie und Verbrauchern"></svg>
+    <!-- the day so far (the flow shows the current values): right of the flow on desktop, below on phones -->
+    <div class="stats">
+      <div class="stat"><span class="eyebrow"><i class="dot" style="background:var(--accent)"></i>Autarkie heute</span><span class="big num" id="tAut">–</span><span class="sub" id="tAutSub"></span></div>
+      <div class="stat"><span class="eyebrow"><i class="dot" style="background:var(--solar)"></i>Erzeugt heute</span><span class="big num" id="tPV">–</span><span class="sub" id="tPVSub"></span></div>
+      <div class="stat"><span class="eyebrow"><i class="dot" style="background:var(--solar);opacity:.45"></i>Prognose Rest</span><span class="big num" id="tRest">–</span><span class="sub">bis Mitternacht</span></div>
+    </div>
     <div class="err" id="errors"></div>
   </section>
 
   <section class="card" id="laden" hidden>
     <div class="cardhead"><div><div class="eyebrow">Laden</div><h2>Wallboxen</h2></div>
-      <div class="right"><span class="sub" id="ltariff"></span><a class="navlink" href="berichte">Alle Ladevorgänge →</a></div></div>
+      <div class="right"><span class="sub" id="ltariff"></span><a class="navlink" href="berichte" id="allRuns">Alle Ladevorgänge →</a></div></div>
     <div class="flash" id="lflash" hidden></div>
     <div class="lps" id="lps"></div>
     <div id="lveh"></div>
   </section>
 
-  <section class="card">
-    <div class="cardhead"><div><div class="eyebrow">Batterie</div><h2 id="bTitle">Ladeplanung</h2></div>
-      <div class="right"><span class="chip" id="limit">–</span><span class="chip" id="target">–</span></div></div>
-    <svg class="chart" id="chart" viewBox="0 0 960 300" role="img" aria-label="Plan für die nächsten 48 Stunden"></svg>
+  <section class="card" id="heat" hidden data-overview>
+    <div class="cardhead"><div><div class="eyebrow">Heizung</div><h2>Wärmepumpe</h2></div><div class="right"><span class="chip" id="hState"></span></div></div>
+    <div id="heatBody"></div>
+  </section>
+
+  <section class="card" data-overview>
+    <div class="cardhead" id="bhead"><div><div class="eyebrow">Batterie</div><h2 id="bTitle">Ladeplanung</h2></div>
+      <div class="right"><span class="chip" id="discharge" hidden></span><span class="chip" id="limit">–</span><span class="chip" id="target">–</span>
+        <div class="seg" role="group" aria-label="Zeitraum" id="range">
+      <button type="button" data-range="yesterday" aria-pressed="false">Gestern</button><button type="button" data-range="today" aria-pressed="true">Heute</button><button type="button" data-range="tomorrow" aria-pressed="false">Morgen</button><button type="button" data-range="48h" aria-pressed="false">48 h</button>
+        </div></div></div>
+    <svg class="chart" id="chart" viewBox="0 0 960 300" role="img" aria-label="Soll und Ist: PV, Hausverbrauch und Ladestand"></svg>
     <div class="legend">
       <span><i style="background:var(--solar)"></i>PV</span>
       <span><i style="background:var(--home)"></i>Hausverbrauch</span>
-      <span><i style="background:var(--battery)"></i>erwarteter Ladestand</span>
+      <span><i style="background:var(--battery)"></i>Ladestand</span>
       <span><i style="background:var(--limit);height:10px"></i>Laden erlaubt</span>
-      <span><i style="background:var(--track);height:10px"></i>gemessen</span>
+      <span><i class="dash"></i>Plan vom Tagesbeginn</span>
+      <span><i style="background:var(--track);height:10px"></i>Vergangenheit (gemessen)</span>
     </div>
     <details class="more" data-k="why"><summary>Warum so?</summary><ul id="reasons"></ul></details>
   </section>
@@ -287,9 +331,12 @@ function drawFlow(st) {
     value: kw(p.powerW), title: tip(p, st), count: p.count})));
   C.forEach(c => {
     const cl = !c.member && c.circuit ? circuitLoad(c.circuit, st) : null;
+    // heat pump: show the COP under the power (from a heat source, e.g. ESPHome)
+    const hp = c.icon === 'heatpump' && (st.heat || []).find(h => h.cop != null);
+    const extra = cl ? cl.extra : hp ? 'COP ' + hp.cop.toFixed(1).replace('.', ',') : undefined;
     g += wrap(c, node(nodes[c.id], {r: NODE_R, ic: c.icon || 'plug', color: c.rest ? 'var(--muted)' : COLORS.consumer,
-      value: kw(c.powerW), title: tip(c, st) + (cl ? ' · ' + cl.text : ''), count: c.count,
-      ring: cl ? cl.ring : undefined, ringColor: cl ? cl.color : undefined, extra: cl ? cl.extra : undefined}));
+      value: kw(c.powerW), title: tip(c, st) + (cl ? ' · ' + cl.text : '') + (hp && hp.thermalW != null ? ` · Wärme ${kw(hp.thermalW)}` : ''), count: c.count,
+      ring: cl ? cl.ring : undefined, ringColor: cl ? cl.color : undefined, extra}));
   });
   const gridState = Math.abs(st.gridW) < 15 ? 'ausgeglichen' : (st.gridW > 0 ? 'Bezug' : 'Einspeisung');
   const gl = circuitLoad('grid', st);
@@ -326,11 +373,19 @@ $('flow').addEventListener('click', toggleGroup);
 $('flow').addEventListener('keydown', toggleGroup);
 
 // --- charging panel ---
-const MODE_LABEL = {external: 'Extern', pv: 'PV', minpv: 'Min+PV', fast: 'Schnell'};
-const MODE_HELP = {external: 'Ein anderes System steuert (z. B. Neogrid). voltibri sperrt, gibt frei und regelt nichts, protokolliert nur.',
-  pv: 'Nur mit PV-Überschuss laden.', minpv: 'Immer mit Mindestleistung, mehr bei Überschuss.', fast: 'Mit maximaler Leistung laden.'};
+const MODE_LABEL = {off: 'Aus', pv: 'Überschuss', minpv: 'Min+PV', pv1: '1-phasig + PV', external: 'Extern', fast: 'Schnell'};
+const MODE_HELP = {off: 'Wallbox gesperrt – es wird nicht geladen.',
+  pv: 'Nur mit PV-Überschuss laden.', minpv: 'Immer mit Mindestleistung, mehr bei Überschuss.',
+  pv1: 'Nur Überschuss, immer einphasig: startet schon ab 1,4 kW und regelt feiner.',
+  external: 'Ein anderes System steuert (z. B. Neogrid). voltibri sperrt, gibt frei und regelt nichts, protokolliert nur.',
+  fast: 'Mit maximaler Leistung laden.'};
+// "Smart" groups the strategies that decide by themselves
+const SMART = ['pv', 'minpv', 'pv1', 'external'];
+const lastSmart = id => { try { const m = localStorage.getItem('voltibri.smart.' + id); return SMART.includes(m) ? m : 'pv'; } catch (e) { return 'pv'; } };
+let smartOpen = null; // loadpoint whose strategy menu is open
 const GUEST_POLICY = {share: 'Gast darf PV nutzen, wird zum Netzpreis verrechnet', batteryFirst: 'Batterie hat Vorrang vor Gästen',
   forceBattery: 'Batterie lädt weiter wie ohne Gast (eigener Zähler)'};
+// which charge modes keep the home battery out of EV charging
 const DAYS = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 let charging = null;
 const money = (ct, cur) => (ct / 100).toLocaleString('de-DE', {style: 'currency', currency: cur || 'EUR'});
@@ -355,8 +410,9 @@ function planText(p) {
 function renderLoadpoint(lp) {
   const veh = vehicleOf(lp.vehicle);
   const guest = lp.vehicle === 'guest';
-  const canEdit = charging.local;
-  const status = !lp.connected ? 'frei' : lp.charging ? 'lädt' : 'angesteckt';
+  // another user's car: only "belegt" and the power, no control
+  const canEdit = charging.local && !lp.foreign;
+  const status = !lp.connected ? 'frei' : lp.foreign ? 'belegt' : lp.charging ? 'lädt' : 'angesteckt';
   const opts = [`<option value="">Automatisch${lp.connected && !lp.manual ? ' (' + esc(lp.vehicleName) + ')' : ''}</option>`,
     `<option value="guest"${lp.manual && guest ? ' selected' : ''}>Gastfahrzeug</option>`,
     ...(charging.vehicles || []).map(v => `<option value="${esc(v.key)}"${lp.manual && lp.vehicle === v.key ? ' selected' : ''}>${esc(v.name)}</option>`)];
@@ -366,9 +422,20 @@ function renderLoadpoint(lp) {
       <div class="socline"><span>${pct(veh.soc)}${veh.rangeKm != null ? ' · ' + Math.round(veh.rangeKm) + ' km' : ''}</span>
       <span>${veh.limitSoc != null ? 'Limit ' + pct(veh.limitSoc) : ''}</span></div></div>`;
   }
-  const mode = lp.connected ? lp.mode : (veh ? veh.settings.mode : lp.mode);
-  const modeBtns = Object.keys(MODE_LABEL).map(m =>
-    `<button data-mode="${m}" class="${m === mode ? 'sel' : ''}" title="${esc(MODE_HELP[m])}" ${!canEdit || !lp.connected ? 'disabled' : ''}>${MODE_LABEL[m]}</button>`).join('');
+  // without a car only "Aus" (the wallbox switched off) is a state to show
+  const mode = lp.connected ? lp.mode : (lp.off ? 'off' : '');
+  // Aus | Smart ▾ | Schnell – the Smart part remembers the last strategy
+  // "Aus" works anytime; the others need a car – or switch the wallbox on again
+  const dis = !canEdit || (!lp.connected && !lp.off) ? ' disabled' : '';
+  const smart = SMART.includes(mode) ? mode : lastSmart(lp.id);
+  const menu = smartOpen === lp.id ? `<div class="smartmenu" role="menu">${SMART.map(m => {
+      const na = m === 'pv1' && !lp.canSwitch && lp.phases !== 1;
+      return `<button role="menuitemradio" aria-checked="${m === mode}" data-mode="${m}"${na ? ' disabled' : ''}>
+        <b>${MODE_LABEL[m]}</b><span>${esc(na ? 'Nicht verfügbar: die Wallbox kann nicht auf eine Phase umschalten (oder wird nicht gesteuert).' : MODE_HELP[m])}</span></button>`;
+    }).join('')}</div>` : '';
+  const modeBtns = `<button data-mode="off" class="${mode === 'off' ? 'sel' : ''}" title="${esc(MODE_HELP.off)}"${canEdit ? '' : ' disabled'}>Aus</button>
+    <span class="split${SMART.includes(mode) ? ' sel' : ''}"><button data-mode="${smart}" title="${esc(MODE_HELP[smart])}"${dis}>Smart <small>${MODE_LABEL[smart]}</small></button><button class="caret" data-smartmenu aria-haspopup="menu" aria-expanded="${smartOpen === lp.id}" aria-label="Strategie wählen"${dis}>▾</button></span>
+    <button data-mode="fast" class="${mode === 'fast' ? 'sel' : ''}" title="${esc(MODE_HELP.fast)}"${dis}>Schnell</button>${menu}`;
   let plan = '';
   if (veh) {
     const s = veh.settings, sch = lp.plan;
@@ -388,17 +455,20 @@ function renderLoadpoint(lp) {
   const sess = s ? `<div class="sess"><span>Dieser Ladevorgang <b>${kwh(s.energyWh)}</b></span>
       <span>PV/Akku <b>${s.energyWh > 0 ? Math.round(100 * (s.pvWh + s.batteryWh) / s.energyWh) : 0} %</b></span>
       <span>${guest ? 'Verrechnung' : 'Kosten'} <b>${money(s.costCt, charging.currency)}</b></span></div>` : '';
-  const who = lp.connected ? esc(lp.vehicleName) : 'kein Fahrzeug';
+  const who = (lp.connected ? esc(lp.vehicleName) : 'kein Fahrzeug') +
+    (lp.card ? ` <span class="pill" title="Ladekarte dieses Ladevorgangs">${iconSVG('device', 11)} ${esc(lp.card)}</span>` : '') +
+    (lp.connected && lp.sessionMode ? ' <span class="pill" title="Gilt nur für diesen Ladevorgang, bis zum Abstecken">nur jetzt</span>' : '');
   return `<div class="lp" data-lp="${esc(lp.id)}">
     <div class="lphead"><h3>${esc(lp.name)}</h3><span class="pw">${lp.connected ? kw(lp.powerW) : ''}</span></div>
     <div class="lpsub"><span class="pill${lp.charging ? ' on' : ''}">${status}</span>
+      ${lp.batteryExcluded ? '<span class="pill" title="Die Hausbatterie wird für diesen Ladevorgang zurückgehalten – Laden aus PV und Netz.">ohne Hausbatterie</span>' : ''}
       ${!lp.owned ? '<span class="pill" title="voltibri schreibt nicht auf diese Wallbox (Modus „observed“) und zeigt nur, was es tun würde.">beobachtet</span>' : ''}<span>${who}</span></div>
     ${soc}
     <div class="modes" role="group" aria-label="Lademodus">${modeBtns}</div>
     ${lp.connected ? `<div class="why">${esc(lp.reason)}</div>` : ''}
     ${sess}
     ${lp.connected || veh ? `<details class="more" data-k="lp:${esc(lp.id)}"><summary>Fahrzeug &amp; Ladeplan</summary><div>
-      ${lp.connected ? `<div class="vrow"><select data-vehsel aria-label="Fahrzeug" ${canEdit ? '' : 'disabled'}>${opts.join('')}</select>
+      ${lp.connected && !lp.foreign ? `<div class="vrow"><select data-vehsel aria-label="Fahrzeug" ${canEdit ? '' : 'disabled'}>${opts.join('')}</select>
         ${guest && !lp.detecting ? `<span class="why">${esc(GUEST_POLICY[lp.guestPolicy] || '')}</span>` : ''}</div>` : ''}
       ${plan}</div></details>` : ''}
   </div>`;
@@ -409,28 +479,27 @@ function renderVehicles() {
   const vs = charging.vehicles || [];
   // vehicle drivers that are not configured yet can be connected from here
   const configured = new Set(prov.map(p => p.type));
-  const connect = charging.local ? voltibri.drivers().filter(d => d.category === 'vehicle' && !configured.has(d.type)) : [];
+  const connect = charging.admin ? voltibri.drivers().filter(d => d.category === 'vehicle' && !configured.has(d.type)) : [];
   if (!prov.length && !vs.length) {
     if (!connect.length) return '';
     return `<div class="note">Ladestand und Abfahrtszeiten kommen aus einem Fahrzeugkonto.
       ${connect.map(d => `<button type="button" class="btn primary" data-setup-new="${esc(d.type)}">${esc(d.name.replace(/ \(.*\)$/, ''))} verbinden</button>`).join(' ')}</div>`;
   }
   const login = prov.map(p => {
-    const edit = charging.local ? ` <button type="button" class="linkbtn" data-setup-edit="${esc(p.id)}">Zugangsdaten ändern</button>` : '';
+    const edit = charging.admin ? ` <button type="button" class="linkbtn" data-setup-edit="${esc(p.id)}">Zugangsdaten ändern</button>` : '';
     if (!p.needsLogin || p.authorized) return `<div class="note">${esc(p.name)}: verbunden, ${p.vehicles} Fahrzeug${p.vehicles === 1 ? '' : 'e'}.${edit}</div>`;
     return `<div class="note">${esc(p.name)}: noch nicht angemeldet. ${charging.local ? `<a class="btn primary" href="api/oauth/${encodeURIComponent(p.id)}/login">Bei ${esc(p.name)} anmelden</a>` : 'Anmeldung nur vom lokalen Rechner.'}${edit}</div>`;
   }).join('');
   const rows = vs.map(v => `<tr data-veh="${esc(v.key)}">
-      <td>${esc(v.name)}<div class="why" style="font-size:11px">${esc([v.info.brand, v.info.model].filter(Boolean).join(' '))}</div></td>
+      <td>${esc(v.name)}<div class="why" style="font-size:11px">${esc([[v.info.brand, v.info.model].filter(Boolean).join(' '), v.settings.capacityWh ? kwh(v.settings.capacityWh) : '',
+        batKey(v.settings.noBatteryModes) !== 'allow' ? 'Hausbatterie ' + BAT_OPTS[batKey(v.settings.noBatteryModes)].label : ''].filter(Boolean).join(' · '))}</div></td>
       <td class="r">${v.soc != null ? pct(v.soc) : '–'}</td>
       <td>${v.charging ? 'lädt' : v.connected ? 'angesteckt' : 'unterwegs/frei'}</td>
       <td><select data-vmode ${charging.local ? '' : 'disabled'}>${Object.keys(MODE_LABEL).map(m => `<option value="${m}"${m === v.settings.mode ? ' selected' : ''}>${MODE_LABEL[m]}</option>`).join('')}</select></td>
-      <td><input type="number" data-vcap min="0" step="1" style="width:72px" value="${v.settings.capacityWh ? v.settings.capacityWh / 1000 : ''}" placeholder="kWh" aria-label="Akkukapazität kWh" ${charging.local ? '' : 'disabled'}> kWh</td>
-      <td><input type="number" data-vmin min="0" step="0.1" style="width:64px" value="${v.settings.minPowerW ? v.settings.minPowerW / 1000 : ''}" placeholder="auto" aria-label="Mindestleistung kW" ${charging.local ? '' : 'disabled'}> kW</td>
     </tr>`).join('');
   const needLogin = prov.some(p => p.needsLogin && !p.authorized);
   return `<details class="more" data-k="veh"${needLogin ? ' open' : ''}><summary>Fahrzeuge (${vs.length})</summary><div>${login}
-    ${vs.length ? `<div class="tablewrap"><table class="list"><thead><tr><th>Fahrzeug</th><th class="r">Ladestand</th><th>Status</th><th>Standardmodus</th><th>Akku</th><th>Min+PV ab</th></tr></thead><tbody>${rows}</tbody></table></div>` :
+    ${vs.length ? `<div class="tablewrap"><table class="list"><thead><tr><th>Fahrzeug</th><th class="r">Ladestand</th><th>Status</th><th>Standardmodus</th></tr></thead><tbody>${rows}</tbody></table></div>` :
       (prov.some(p => p.authorized) ? '<div class="why">Keine Fahrzeuge gefunden. Ist das Auto in der Tibber-App verbunden?</div>' : '')}</div></details>`;
 }
 
@@ -451,6 +520,11 @@ async function refreshCharging(force) {
     charging = await fetch('api/charging').then(r => r.json());
   } catch (e) { return; }
   box.hidden = !charging.loadpoints.length && !charging.providers.length;
+  if (box.hidden && document.body.classList.contains('restricted')) { // a user without wallboxes
+    box.hidden = false;
+    $('lps').innerHTML = '<div class="note">Für dich ist noch keine Wallbox freigegeben. Ein Administrator kann dich einer Gruppe zuordnen.</div>';
+    return;
+  }
   if (box.hidden) return;
   $('ltariff').textContent = [charging.gridCt != null ? 'Netz ' + charging.gridCt.toFixed(1).replace('.', ',') + ' ct' : '',
     charging.feedinCt != null ? 'Einspeisung ' + charging.feedinCt.toFixed(1).replace('.', ',') + ' ct' : ''].filter(Boolean).join(' · ');
@@ -461,12 +535,26 @@ async function refreshCharging(force) {
 function vehicleSettings(key) { return JSON.parse(JSON.stringify(vehicleOf(key).settings)); }
 
 $('laden').addEventListener('click', async e => {
+  const caret = e.target.closest('[data-smartmenu]');
+  if (caret && !caret.disabled) {
+    const id = caret.closest('[data-lp]').dataset.lp;
+    smartOpen = smartOpen === id ? null : id;
+    $('lps').innerHTML = charging.loadpoints.map(renderLoadpoint).join('');
+    restoreDetails($('laden'));
+    return;
+  }
   const mb = e.target.closest('[data-mode]');
   if (mb && !mb.disabled) {
+    if (SMART.includes(mb.dataset.mode)) { try { localStorage.setItem('voltibri.smart.' + mb.closest('[data-lp]').dataset.lp, mb.dataset.mode); } catch (err) {} }
+    smartOpen = null;
     const lp = charging.loadpoints.find(l => l.id === mb.closest('[data-lp]').dataset.lp);
-    const veh = vehicleOf(lp.vehicle);
-    if (veh) { const s = vehicleSettings(veh.key); s.mode = mb.dataset.mode; await send('PUT', 'api/vehicles/' + veh.key, s); }
-    else await send('PUT', `api/loadpoints/${encodeURIComponent(lp.id)}/guestmode`, {mode: mb.dataset.mode});
+    const url = `api/loadpoints/${encodeURIComponent(lp.id)}/off`;
+    // Aus is a setting of the wallbox (wins over every vehicle); the others switch it on again
+    if (mb.dataset.mode === 'off') { await send('PUT', url, {off: true}); return; }
+    if (lp.off) { const ok = await send('PUT', url, {off: false}); if (!ok || !lp.connected) return; }
+    // the buttons choose the mode of this charging session (until unplugged);
+    // a vehicle's default mode is set under "Fahrzeuge"
+    await send('PUT', `api/loadpoints/${encodeURIComponent(lp.id)}/mode`, {mode: mb.dataset.mode});
     return;
   }
   const del = e.target.closest('[data-delplan]');
@@ -487,8 +575,6 @@ $('laden').addEventListener('change', async e => {
   if (row) {
     const s = vehicleSettings(row.dataset.veh);
     if (t.matches('[data-vmode]')) s.mode = t.value;
-    if (t.matches('[data-vcap]')) s.capacityWh = Math.max(0, parseFloat(t.value || '0') * 1000);
-    if (t.matches('[data-vmin]')) s.minPowerW = Math.max(0, parseFloat(t.value || '0') * 1000);
     await send('PUT', 'api/vehicles/' + row.dataset.veh, s);
   }
 });
@@ -518,23 +604,66 @@ $('laden').addEventListener('submit', async e => {
 
 topbar('overview');
 // big number with a small unit: "4,2 kW" -> 4,2<small>kW</small>
-const big = s => { const m = String(s).match(/^(.*?)\s*(kW|W|%)$/); return m ? `${esc(m[1])}<small>${m[2]}</small>` : esc(s); };
+const big = s => { const m = String(s).match(/^(.*?)\s*(kWh|kW|W|%)$/); return m ? `${esc(m[1])}<small>${m[2]}</small>` : esc(s); };
 const PLAN_TITLE = {delay: 'Spät laden', immediate: 'Sofort laden', night: 'Für die Nacht laden', 'no-data': 'Zu wenig Daten'};
 
+// day totals (autarky, PV, forecast for the rest of the day), once a minute
+let todayAt = 0;
+async function refreshToday() {
+  if (Date.now() - todayAt < 60000) return;
+  todayAt = Date.now();
+  const t = await fetch('api/today').then(r => r.ok ? r.json() : null).catch(() => null);
+  if (!t) return;
+  const kwhBig = wh => big((wh / 1000).toLocaleString('de-DE', {maximumFractionDigits: wh >= 10000 ? 0 : 1}) + ' kWh');
+  const since = t.covered ? '' : ' seit ' + hm(t.since);
+  $('tAut').innerHTML = t.autarky != null ? big(pct(t.autarky)) : '–';
+  $('tAutSub').textContent = t.loadWh > 0 ? kwh(t.gridImportWh) + ' aus dem Netz' + since : 'noch keine Daten';
+  $('tPV').innerHTML = kwhBig(t.pvWh);
+  $('tPVSub').textContent = t.selfUse != null ? pct(t.selfUse) + ' selbst genutzt' + since : since.trim();
+  $('tRest').innerHTML = kwhBig(t.forecastRestWh);
+}
+
+// heat pump card (heat output and COP from a heat source, e.g. ESPHome)
+function renderHeat(st) {
+  const hs = st.heat || [];
+  $('heat').hidden = !hs.length;
+  if (!hs.length) return;
+  const h = hs[0];
+  const t = v => v == null ? '–' : v.toFixed(1).replace('.', ',') + ' °C';
+  const spread = h.flowC != null && h.returnC != null ? 'Spreizung ' + (h.flowC - h.returnC).toFixed(1).replace('.', ',') + ' K' : '';
+  $('hState').textContent = h.error ? 'keine Daten' : (h.state || '–');
+  $('heatBody').innerHTML = `<div class="heatgrid">
+    <div><div class="eyebrow">Wärmeleistung</div><div class="big num">${h.thermalW != null ? big(kw(Math.max(0, h.thermalW))) : '–'}</div>
+      <div class="sub">${h.electricW != null ? 'Verdichter ' + kw(h.electricW) : ''}</div></div>
+    <div><div class="eyebrow">COP</div><div class="big num">${h.cop != null ? h.cop.toFixed(1).replace('.', ',') : '–'}</div><div class="sub">gemittelt über 5 min</div></div>
+    <div><div class="eyebrow">Vorlauf / Rücklauf</div><div class="big num" style="font-size:22px">${t(h.flowC)} / ${t(h.returnC)}</div><div class="sub">${spread}</div></div>
+    <div><div class="eyebrow">Außen · Warmwasser</div><div class="big num" style="font-size:22px">${t(h.outdoorC)} · ${t(h.hotWaterC)}</div></div>
+  </div>${h.error ? `<p class="note" style="margin-top:10px">${esc(h.error)}</p>` : ''}`;
+}
+
 async function refresh() {
+  const me = await voltibri.me;
+  if (me && !me.overview) { // only the wallboxes
+    document.body.classList.add('restricted');
+    $('allRuns').hidden = !me.reports;
+    refreshCharging();
+    return;
+  }
   try {
     const [st, plan, hist] = await Promise.all([fetch('api/state').then(r => r.json()), fetch('api/plan').then(r => r.json()),
-      fetch('api/history?hours=2').then(r => r.ok ? r.json() : []).catch(() => [])]);
+      loadHistory()]);
     drawFlow(st);
-    const self = st.loadW > 0 ? Math.max(0, Math.min(1, 1 - Math.max(0, st.gridW) / st.loadW)) : 1;
-    $('sPV').innerHTML = big(kw(st.pvW));
-    $('sLoad').innerHTML = big(kw(st.loadW));
-    $('autarky').innerHTML = big(pct(self));
-    $('soc').innerHTML = st.hasBattery ? big(pct(st.soc)) : '–';
-    $('batState').textContent = !st.hasBattery ? '' : Math.abs(st.batteryW) < 15 ? 'in Ruhe' : (st.batteryW < 0 ? 'lädt ' : 'entlädt ') + (Math.abs(st.batteryW) >= 15 ? kw(Math.abs(st.batteryW)) : '');
+    renderHeat(st);
+    refreshToday();
     $('bTitle').textContent = PLAN_TITLE[plan.mode] || modes[plan.mode] || 'Ladeplanung';
     $('limit').innerHTML = 'Ladegrenze <b>' + esc(!st.controlled ? 'nur Empfehlung' : (st.chargeLimitW < 0 ? 'keine' : kw(st.chargeLimitW))) + '</b>';
+    $('discharge').hidden = !(st.dischargeLimitW >= 0);
+    $('discharge').innerHTML = 'Entladung max. <b>' + kw(st.dischargeLimitW || 0) + '</b>';
+    $('discharge').title = (st.excluded || []).length ? 'Ohne Hausbatterie: ' + st.excluded.join(', ') + (st.controlled ? '' : ' (nur Empfehlung – Batterie nicht gesteuert)') : '';
     $('target').innerHTML = 'Ziel am Abend <b>' + (plan.targetSoC ? pct(plan.targetSoC) : '–') + '</b>';
+    $('discharge').hidden = !(st.dischargeLimitW >= 0);
+    $('discharge').innerHTML = 'Entladung max. <b>' + kw(st.dischargeLimitW || 0) + '</b>';
+    $('discharge').title = (st.excluded || []).length ? 'Ohne Hausbatterie: ' + st.excluded.join(', ') + (st.controlled ? '' : ' (nur Empfehlung – Batterie nicht gesteuert)') : '';
     $('hstatus').innerHTML = (st.dryRun ? '<span class="badge warn" title="voltibri schreibt nichts auf Geräte, sondern protokolliert nur">Testmodus</span>' : '') +
       `<span class="live" title="letzte Messung">${new Date(st.time).toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit', second: '2-digit'})}</span>`;
     $('errors').textContent = (st.errors || []).join(' · ');
@@ -549,60 +678,116 @@ async function refresh() {
   }
 }
 
-// Plan chart on a time axis: the measured last 2 hours (grey background)
-// followed by the forecast, with day boundaries and a "now" marker.
+// Chart ranges: [from, to] in ms. Past slots show measured values (solid)
+// and the plan of that day (dashed, muted); the future shows the plan.
 const SLOT_MS = 15 * 60 * 1000;
-function drawChart(slots, hist) {
+let range = 'today';
+try { range = localStorage.getItem('chartRange') || 'today'; } catch (e) {}
+function rangeWindow(r, now = Date.now()) {
+  const day = off => { const d = new Date(now); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + off); return d.getTime(); };
+  switch (r) {
+    case 'yesterday': return [day(-1), day(0)];
+    case 'tomorrow': return [day(1), day(2)];
+    case '48h': return [now - 3 * 3600e3, now + 48 * 3600e3];
+    default: return [day(0), day(1)];
+  }
+}
+function setRange(r) {
+  range = r;
+  try { localStorage.setItem('chartRange', r); } catch (e) {}
+  document.querySelectorAll('#range [data-range]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.range === r)));
+}
+setRange(range);
+$('range').addEventListener('click', e => {
+  const b = e.target.closest('[data-range]');
+  if (b) { setRange(b.dataset.range); refresh(); }
+});
+async function loadHistory() {
+  const [from, to] = rangeWindow(range);
+  const now = Date.now();
+  if (from >= now) return [];
+  const q = `from=${encodeURIComponent(new Date(from).toISOString().replace(/\.\d+Z$/, 'Z'))}&to=${encodeURIComponent(new Date(Math.min(to, now)).toISOString().replace(/\.\d+Z$/, 'Z'))}`;
+  return fetch('api/history?' + q).then(r => r.ok ? r.json() : []).catch(() => []);
+}
+
+function drawChart(planSlots, hist) {
   const svg = $('chart'), W = 960, H = 300, L = 44, R = 44, T = 24, B = 26;
-  if (!slots.length && !hist.length) { svg.innerHTML = ''; return; }
   const ts = s => new Date(s.start).getTime();
   const now = Date.now();
-  const t0 = Math.min(now - 2 * 3600e3, ...hist.map(ts));
-  const t1 = slots.length ? ts(slots[slots.length - 1]) + SLOT_MS : now;
+  const [t0, t1] = rangeWindow(range, now);
+  const slots = planSlots.filter(s => ts(s) + SLOT_MS > Math.max(t0, now) && ts(s) < t1);
+  hist = hist.filter(s => ts(s) >= t0 && ts(s) < Math.min(t1, now));
+  if (!slots.length && !hist.length) {
+    svg.innerHTML = `<text x="${W / 2}" y="${H / 2}" text-anchor="middle" font-size="14" fill="var(--muted)">${range === 'tomorrow' ? 'Für morgen gibt es noch keine Prognose.' : 'Für diesen Zeitraum liegen keine Daten vor.'}</text>`;
+    return;
+  }
   const x = t => L + (W-L-R) * (t - t0) / (t1 - t0);
-  const all = hist.concat(slots);
-  const maxW = Math.max(1000, ...all.map(s => Math.max(s.pvW, s.loadW)));
-  const y = w => T + (H-T-B) * (1 - w/maxW), ys = v => T + (H-T-B) * (1 - v);
-  const fmt = v => (v/1000).toFixed(1).replace('.', ',');
+  const v = (s, k) => s[k] == null ? NaN : s[k];
+  const maxW = Math.max(1000, ...slots.map(s => Math.max(s.pvW, s.loadW)),
+    ...hist.map(s => Math.max(v(s, 'pvW') || 0, v(s, 'loadW') || 0, v(s, 'planPvW') || 0, v(s, 'planLoadW') || 0)));
+  const y = w => T + (H-T-B) * (1 - w/maxW), ys = q => T + (H-T-B) * (1 - q);
+  const fmt = q => (q/1000).toFixed(1).replace('.', ',');
   let g = '';
-  // measured part
-  g += `<rect x="${L}" y="${T}" width="${(x(now) - L).toFixed(1)}" height="${H-T-B}" fill="var(--track)" opacity=".55"/>`;
-  // charging allowed: adjacent slots merged into one band (no seams)
+  // past (measured) background
+  const xp = Math.min(Math.max(x(now), L), W - R);
+  if (xp > L) g += `<rect x="${L}" y="${T}" width="${(xp - L).toFixed(1)}" height="${H-T-B}" fill="var(--track)" opacity=".45"/>`;
+  // charging allowed (future only): adjacent slots merged into one band
   const bands = [];
   slots.forEach(s => { if (s.chargeLimitW !== 0 && s.pvW > s.loadW) {
-    const a = Math.max(ts(s), now), b = ts(s) + SLOT_MS, last = bands[bands.length - 1];
+    const a = Math.max(ts(s), now), b = Math.min(ts(s) + SLOT_MS, t1), last = bands[bands.length - 1];
     if (b <= a) return;
     if (last && last[1] >= a) last[1] = b; else bands.push([a, b]);
   } });
   bands.forEach(([a, b]) => g += `<rect x="${x(a).toFixed(1)}" y="${T}" width="${(x(b) - x(a)).toFixed(1)}" height="${H-T-B}" fill="var(--limit)"/>`);
-  for (let k = 0; k <= 4; k++) { const v = maxW*k/4;
-    g += `<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/>` +
+  for (let k = 0; k <= 4; k++) { const w = maxW*k/4;
+    g += `<line x1="${L}" x2="${W-R}" y1="${y(w)}" y2="${y(w)}" stroke="var(--line)"/>` +
          `<text x="${L-6}" y="${ys(k/4)+4}" text-anchor="end" font-size="11" fill="var(--muted)">${k*25} %</text>` +
-         `<text x="${W-R+6}" y="${y(v)+4}" font-size="11" fill="var(--muted)">${fmt(v)}</text>`; }  // left: SoC, right: kW
-  // hour ticks every 6 h, day boundaries at local midnight
-  const d = new Date(t0); d.setMinutes(0, 0, 0); d.setHours(d.getHours() + 1);
-  for (; d.getTime() < t1; d.setHours(d.getHours() + 1)) {
+         `<text x="${W-R+6}" y="${y(w)+4}" font-size="11" fill="var(--muted)">${fmt(w)}</text>`; }  // left: SoC, right: kW
+  // hour ticks (every 3 h for one day, 6 h otherwise), day boundaries
+  const step = t1 - t0 <= 26 * 3600e3 ? 3 : 6;
+  const d = new Date(t0); d.setMinutes(0, 0, 0); if (d.getTime() < t0) d.setHours(d.getHours() + 1);
+  for (; d.getTime() <= t1; d.setHours(d.getHours() + 1)) {
     const h = d.getHours(), xt = x(d.getTime()).toFixed(1);
-    if (h === 0) {
+    if (h === 0 && d.getTime() > t0 && d.getTime() < t1) {
       g += `<line x1="${xt}" x2="${xt}" y1="${T - 14}" y2="${H-B}" stroke="var(--muted)" stroke-dasharray="3 3" opacity=".7"/>` +
            `<text x="${(+xt + 5).toFixed(1)}" y="${T - 4}" font-size="11" font-weight="600" fill="var(--muted)">${d.toLocaleDateString('de-DE', {weekday: 'short', day: '2-digit', month: '2-digit'})}</text>`;
     }
-    if (h % 6 === 0) g += `<text x="${xt}" y="${H-8}" text-anchor="middle" font-size="11" fill="var(--muted)">${h}:00</text>`;
+    if (h % step === 0) g += `<text x="${xt}" y="${H-8}" text-anchor="middle" font-size="11" fill="var(--muted)">${h}:00</text>`;
   }
-  // lines are drawn through the slot centres
-  const path = (rows, f, sc) => rows.map((s, i) => (i ? 'L' : 'M') + x(ts(s) + SLOT_MS / 2).toFixed(1) + ',' + sc(f(s)).toFixed(1)).join('');
-  const lines = (rows, extra = '') => {
-    let p = `<path d="${path(rows, s => s.pvW, y)}" fill="none" stroke="var(--solar)" stroke-width="2"${extra}/>`;
-    if (rows.some(s => s.loadW > 0)) p += `<path d="${path(rows, s => s.loadW, y)}" fill="none" stroke="var(--home)" stroke-width="2"${extra}/>`;
+  // a line through the slot centres; gaps (unknown values) break the line
+  const path = (rows, f, sc) => {
+    let p = '', on = false;
+    for (const s of rows) {
+      const q = f(s);
+      if (q == null || Number.isNaN(q)) { on = false; continue; }
+      p += (on ? 'L' : 'M') + x(ts(s) + SLOT_MS / 2).toFixed(1) + ',' + sc(q).toFixed(1);
+      on = true;
+    }
     return p;
   };
-  if (hist.length) g += lines(hist.concat(slots.slice(0, 1)));
-  if (slots.length) g += lines(slots);
-  if (slots.some(s => s.expectedSoC > 0)) g += `<path d="${path(slots, s => s.expectedSoC, ys)}" fill="none" stroke="var(--battery)" stroke-width="2.5"/>`;
+  const line = (d, color, w, extra = '') => d ? `<path d="${d}" fill="none" stroke="${color}" stroke-width="${w}" stroke-linejoin="round"${extra}/>` : '';
+  const planned = ' stroke-dasharray="5 4" opacity=".55"';
+  // past: the day's plan (dashed, muted) ...
+  g += line(path(hist, s => v(s, 'planPvW'), y), 'var(--solar)', 1.6, planned);
+  g += line(path(hist, s => v(s, 'planLoadW'), y), 'var(--home)', 1.6, planned);
+  g += line(path(hist, s => v(s, 'planSoC'), ys), 'var(--battery)', 1.8, planned);
+  // ... and what was measured, continued by the plan for the future
+  const join = slots.length ? [{start: slots[0].start, pvW: slots[0].pvW, loadW: slots[0].loadW, soc: slots[0].expectedSoC}] : [];
+  const past = hist.concat(hist.length ? join : []);
+  g += line(path(past, s => v(s, 'pvW'), y), 'var(--solar)', 2);
+  g += line(path(past, s => v(s, 'loadW'), y), 'var(--home)', 2);
+  g += line(path(past, s => v(s, 'soc'), ys), 'var(--battery)', 2.5);
+  if (slots.length) {
+    g += line(path(slots, s => s.pvW, y), 'var(--solar)', 2);
+    if (slots.some(s => s.loadW > 0)) g += line(path(slots, s => s.loadW, y), 'var(--home)', 2);
+    if (slots.some(s => s.expectedSoC > 0)) g += line(path(slots, s => s.expectedSoC, ys), 'var(--battery)', 2.5);
+  }
   // now marker
-  const xn = x(now).toFixed(1);
-  g += `<line x1="${xn}" x2="${xn}" y1="${T - 14}" y2="${H-B}" stroke="var(--fg)" stroke-width="1.5"/>` +
-       `<text x="${(+xn - 5).toFixed(1)}" y="${T - 4}" text-anchor="end" font-size="11" font-weight="600" fill="var(--fg)">jetzt</text>`;
+  if (now > t0 && now < t1) {
+    const xn = x(now).toFixed(1);
+    g += `<line x1="${xn}" x2="${xn}" y1="${T - 14}" y2="${H-B}" stroke="var(--fg)" stroke-width="1.5"/>` +
+         `<text x="${(+xn - 5).toFixed(1)}" y="${T - 4}" text-anchor="end" font-size="11" font-weight="600" fill="var(--fg)">jetzt</text>`;
+  }
   svg.innerHTML = g;
 }
 
@@ -614,6 +799,11 @@ $('laden').addEventListener('click', e => {
   if (n) voltibri.open({type: n.dataset.setupNew, onDone: () => refreshCharging(true)});
   const ed = e.target.closest('[data-setup-edit]');
   if (ed) voltibri.open({id: ed.dataset.setupEdit, onDone: () => refreshCharging(true)});
+});
+
+// a click outside closes the strategy menu
+document.addEventListener('click', e => {
+  if (smartOpen && !e.target.closest('.modes')) { smartOpen = null; refreshCharging(true); }
 });
 
 let resizeTimer;

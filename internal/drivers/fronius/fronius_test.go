@@ -118,3 +118,30 @@ func TestSunspecChargeLimit(t *testing.T) {
 		t.Errorf("after reset StorCtl_Mod = %d", got)
 	}
 }
+
+func TestSunspecLimits(t *testing.T) {
+	f := newFake()
+	s := &sunspec{regs: f}
+	// only a discharge limit: 800 of 5000 W = 16 % -> raw 1600, charging free
+	if err := s.setLimits(-1, 800, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	base := s.base
+	if f.m[base+offOutWRte] != 1600 || f.m[base+offStorCtlMod] != storCtlDischarge || f.m[base+offRvrtTms] != 60 {
+		t.Fatalf("discharge only: OutWRte %d mode %d revert %d", f.m[base+offOutWRte], f.m[base+offStorCtlMod], f.m[base+offRvrtTms])
+	}
+	// both
+	if err := s.setLimits(0, 0, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if f.m[base+offStorCtlMod] != storCtlCharge|storCtlDischarge || f.m[base+offInWRte] != 0 || f.m[base+offOutWRte] != 0 {
+		t.Fatalf("both: mode %d", f.m[base+offStorCtlMod])
+	}
+	// none: autonomous
+	if err := s.setLimits(-1, -1, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if f.m[base+offStorCtlMod] != 0 {
+		t.Fatalf("none: mode %d", f.m[base+offStorCtlMod])
+	}
+}

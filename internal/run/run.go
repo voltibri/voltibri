@@ -40,14 +40,16 @@ func (r Run) SolarWh() float64 { return r.PVWh + r.BatteryWh }
 
 // Filter selects runs.
 type Filter struct {
-	Asset   string
-	Vehicle string // vehicle name (the same car from different sources counts as one)
-	Kind    string
-	From    time.Time // start >= From (zero: no limit)
-	To      time.Time // start < To (zero: no limit)
-	Offset  int
-	Limit   int
-	All     bool // include voltibri runs hidden by an overlapping import
+	Asset    string
+	Vehicle  string   // vehicle name (the same car from different sources counts as one)
+	Vehicles []string // further names of that vehicle (aliases); set by the API
+	Only     []string // restriction: only runs of these vehicle names (users; never cleared)
+	Kind     string
+	From     time.Time // start >= From (zero: no limit)
+	To       time.Time // start < To (zero: no limit)
+	Offset   int
+	Limit    int
+	All      bool // include voltibri runs hidden by an overlapping import
 	// ProfiledFrom skips runs covered by a load profile (device -> first
 	// profiled slot); reports take energy and cost of that time from the
 	// profile instead.

@@ -337,7 +337,17 @@ func runWhere(f run.Filter) ([]string, []any) {
 		where, args = append(where, "asset = ?"), append(args, f.Asset)
 	}
 	if f.Vehicle != "" {
-		where, args = append(where, "vehicle_name = ?"), append(args, f.Vehicle)
+		names := append([]any{f.Vehicle}, toAny(f.Vehicles)...)
+		where = append(where, "vehicle_name IN (?"+strings.Repeat(", ?", len(names)-1)+")")
+		args = append(args, names...)
+	}
+	if f.Only != nil {
+		if len(f.Only) == 0 {
+			where = append(where, "0 = 1")
+		} else {
+			where = append(where, "vehicle_name IN (?"+strings.Repeat(", ?", len(f.Only)-1)+")")
+			args = append(args, toAny(f.Only)...)
+		}
 	}
 	if f.Kind != "" {
 		where, args = append(where, "kind = ?"), append(args, f.Kind)
@@ -366,7 +376,7 @@ type RunVehicle struct {
 // RunVehicles lists the vehicles of the runs selected by f (vehicle and
 // paging ignored), most used first.
 func (s *Store) RunVehicles(ctx context.Context, f run.Filter) ([]RunVehicle, error) {
-	f.Vehicle = ""
+	f.Vehicle, f.Vehicles = "", nil
 	where, args := runWhere(f)
 	rows, err := s.db.QueryContext(ctx, `SELECT vehicle_name, MAX(guest), COUNT(*), SUM(energy_wh), MAX(start) FROM runs r
 		WHERE `+strings.Join(where, " AND ")+` AND vehicle_name != '' GROUP BY vehicle_name ORDER BY COUNT(*) DESC`, args...)
@@ -386,4 +396,12 @@ func (s *Store) RunVehicles(ctx context.Context, f run.Filter) ([]RunVehicle, er
 		out = append(out, v)
 	}
 	return out, rows.Err()
+}
+
+func toAny(s []string) []any {
+	out := make([]any, len(s))
+	for i, v := range s {
+		out[i] = v
+	}
+	return out
 }

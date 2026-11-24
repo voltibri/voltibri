@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>voltibri · Anmelden</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="theme-color" content="#f4f2ec" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b1113" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="voltibri">
+<link rel="stylesheet" href="common.css">
+<style>
+  main.login { max-width:400px; margin:8vh auto 40px; padding:0 16px; }
+  .login .brand { display:flex; align-items:center; gap:10px; justify-content:center; margin-bottom:22px; text-decoration:none; color:var(--fg); }
+  .login .brand .mark { width:40px; height:40px; border-radius:12px; background:var(--accent); display:grid; place-items:center; }
+  .login .brand .mark svg { width:24px; height:24px; }
+  .login .brand b { font-size:22px; letter-spacing:-.01em; }
+  .login .card { padding:22px; }
+  .login h1 { font-size:19px; margin:0 0 4px; }
+  .login .setup .inner { padding:0; }
+  .login .btn.primary { padding:9px 14px; font-size:14px; }
+  .login .actions .btn { flex:1; }
+  .login .err { color:var(--warn); font-size:13px; min-height:1em; }
+  .login .ok { font-size:13px; }
+  .login .or { display:flex; align-items:center; gap:10px; color:var(--muted); font-size:12px; }
+  .login .or::before, .login .or::after { content:""; flex:1; border-top:1px solid var(--line); }
+  .login .btn.ext { display:flex; align-items:center; justify-content:center; gap:8px; padding:9px 14px; font-size:14px; text-decoration:none; color:var(--fg); }
+</style>
+</head>
+<body>
+<main class="login">
+  <a class="brand" href="./"><span class="mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.2 2.5 5.5 13h5.6l-1.3 8.5L18.5 10h-5.8z" fill="#fff"/></svg></span><b>voltibri</b></a>
+  <div class="card setup" id="box"></div>
+</main>
+<script src="common.js"></script>
+<script>
+const q = new URLSearchParams(location.search);
+// only paths on this server (no open redirect)
+const next = (p => p && p.startsWith('/') && !p.startsWith('//') && !p.startsWith('/login') ? p : '/')(q.get('next'));
+const box = $('box');
+
+async function post(url, body) {
+  const r = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || 'Fehler ' + r.status);
+  return j;
+}
+
+function form(title, why, fields, submit, onSubmit) {
+  box.innerHTML = `<form class="inner" novalidate>
+    <div><h1>${title}</h1>${why ? `<p class="why" style="margin:4px 0 0">${why}</p>` : ''}</div>
+    ${fields.map(([id, label, type, ac, val]) => `<label class="f" for="${id}">${label}<input type="${type}" id="${id}" autocomplete="${ac}" value="${esc(val || '')}"></label>`).join('')}
+    <div class="err" id="err" role="alert"></div>
+    <div class="actions"><button type="submit" class="btn primary">${submit}</button></div>
+  </form>`;
+  const f = box.querySelector('form');
+  f.addEventListener('submit', async e => {
+    e.preventDefault();
+    $('err').textContent = '';
+    const btn = f.querySelector('[type=submit]');
+    btn.disabled = true;
+    try { await onSubmit(); location.href = next; }
+    catch (x) { $('err').textContent = x.message; btn.disabled = false; }
+  });
+  const first = f.querySelector('input:not([value]), input[value=""]') || f.querySelector('input');
+  if (first) first.focus();
+}
+
+const pwRule = 'mindestens 10 Zeichen';
+
+async function start() {
+  const st = await fetch('api/auth/state').then(r => r.json()).catch(() => ({}));
+  const invite = q.get('invite');
+  if (invite) {
+    const r = await fetch('api/auth/invite?token=' + encodeURIComponent(invite));
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { box.innerHTML = `<h1>Einladung</h1><p class="err">${esc(j.error || 'Der Link ist ungültig.')}</p><p><a class="btn" href="login">Zur Anmeldung</a></p>`; return; }
+    return form(`Willkommen, ${esc(j.name)}`, `Lege ein Passwort für <b>${esc(j.login)}</b> fest (${pwRule}). Danach bist du angemeldet und bleibst es auf diesem Gerät.`,
+      [['pw', 'Neues Passwort', 'password', 'new-password'], ['pw2', 'Passwort wiederholen', 'password', 'new-password']], 'Passwort festlegen', async () => {
+        if ($('pw').value !== $('pw2').value) throw new Error('Die Passwörter stimmen nicht überein.');
+        await post('api/auth/invite', {token: invite, password: $('pw').value});
+      });
+  }
+  if (st.user) { location.href = next; return; }
+  if (st.setup) {
+    if (!st.setupHere && !q.get('setup')) {
+      box.innerHTML = `<h1>Ersteinrichtung</h1><p class="why">Es gibt noch keinen Benutzer. Lege den ersten Administrator am Rechner an, auf dem voltibri läuft, oder öffne den Einrichtungslink aus dem Protokoll von voltibri.</p>`;
+      return;
+    }
+    return form('Ersteinrichtung', `Lege den ersten Administrator an (Passwort ${pwRule}). Weitere Benutzer und Gruppen richtest du danach in der Konfiguration ein.`,
+      [['name', 'Name', 'text', 'name'], ['login', 'Benutzername', 'text', 'username'], ['pw', 'Passwort', 'password', 'new-password'], ['pw2', 'Passwort wiederholen', 'password', 'new-password']],
+      'Administrator anlegen', async () => {
+        if ($('pw').value !== $('pw2').value) throw new Error('Die Passwörter stimmen nicht überein.');
+        await post('api/auth/setup', {name: $('name').value, login: $('login').value, password: $('pw').value, token: q.get('setup') || ''});
+      });
+  }
+  form('Anmelden', '', [['login', 'Benutzername', 'text', 'username'], ['pw', 'Passwort', 'password', 'current-password']], 'Anmelden',
+    () => post('api/auth/login', {login: $('login').value, password: $('pw').value}));
+  const ps = st.providers || [];
+  if (ps.length) box.querySelector('form').insertAdjacentHTML('beforeend', `<div class="or"><span>oder</span></div>
+    ${ps.map(p => `<a class="btn ext" href="api/auth/oidc/${encodeURIComponent(p.id)}/start?next=${encodeURIComponent(next)}">${iconSVG('lock', 16)} Mit ${esc(p.name)} anmelden</a>`).join('')}`);
+  if (q.get('error')) $('err').textContent = q.get('error');
+}
+start();
+</script>
+</body>
+</html>

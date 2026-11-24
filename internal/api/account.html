@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>voltibri · Konto</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="theme-color" content="#f4f2ec" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b1113" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="voltibri">
+<link rel="stylesheet" href="common.css">
+<style>
+  main.account { display:grid; gap:16px; max-width:760px; }
+  .account .card h2 { margin:0 0 4px; font-size:17px; display:flex; align-items:center; gap:8px; }
+  .account .card > .why { margin:0 0 14px; }
+  .account .setup .inner { padding:0; }
+  .account .row2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  @media (max-width:640px) { .account .row2 { grid-template-columns:1fr; } }
+  .account .err { color:var(--warn); font-size:13px; min-height:1em; }
+  .account .actions { display:flex; gap:8px; justify-content:flex-end; align-items:center; flex-wrap:wrap; }
+  .account .chip { margin-left:6px; }
+  .account .list { display:flex; flex-direction:column; }
+  .account .item { display:flex; align-items:center; gap:12px; padding:10px 0; border-top:1px solid var(--line); font-size:14px; }
+  .account .item:first-child { border-top:0; }
+  .account .item .meta { color:var(--muted); font-size:12px; }
+  .account .item > div { flex:1; min-width:0; }
+  .account dl.kv { margin:0; }
+</style>
+</head>
+<body data-page="account">
+<header class="top"></header>
+<main class="account">
+  <section class="card setup" id="profile"></section>
+  <section class="card setup" id="password"></section>
+  <section class="card" id="logins"></section>
+  <section class="card" id="sessions"></section>
+</main>
+<script src="common.js"></script>
+<script>
+topbar('account');
+const when = t => new Date(t).toLocaleString('de-DE', {day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'});
+let acct = null;
+
+async function send(method, url, body) {
+  const r = await fetch(url, {method, headers: {'Content-Type': 'application/json'}, body: body ? JSON.stringify(body) : undefined});
+  if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || 'Fehler ' + r.status); }
+}
+
+function agentName(a) {
+  if (!a) return 'Unbekanntes Gerät';
+  const os = /iPhone|iPad/.test(a) ? 'iPhone/iPad' : /Android/.test(a) ? 'Android' : /Mac OS/.test(a) ? 'Mac' : /Windows/.test(a) ? 'Windows' : /Linux/.test(a) ? 'Linux' : '';
+  const br = /Edg\//.test(a) ? 'Edge' : /Firefox\//.test(a) ? 'Firefox' : /Chrome\//.test(a) ? 'Chrome' : /Safari\//.test(a) ? 'Safari' : /curl/.test(a) ? 'curl' : 'Browser';
+  return os ? `${br} auf ${os}` : br;
+}
+
+function render() {
+  const u = acct.user;
+  const rights = acct.admin ? 'Administrator – alles, auch die Konfiguration' :
+    [acct.overview ? 'Übersicht' : '', acct.reports ? 'Berichte deiner Fahrzeuge' : '', (acct.loadpoints || []).length ? `${acct.loadpoints.length} Wallbox${acct.loadpoints.length === 1 ? '' : 'en'}` : '',
+     (acct.vehicles || []).length ? `${acct.vehicles.length} Fahrzeug${acct.vehicles.length === 1 ? '' : 'e'}` : ''].filter(Boolean).join(' · ') || 'noch keine Freigaben – bitte an den Administrator wenden';
+  $('profile').innerHTML = `<form class="inner" id="pf">
+    <h2>${iconSVG('user', 20)} ${esc(u.name || u.login)}<span class="chip">${acct.admin ? 'Administrator' : 'Benutzer'}</span></h2>
+    <p class="why" style="margin:0">Angemeldet als <b>${esc(u.login)}</b>. Freigaben: ${esc(rights)}.</p>
+    <div class="row2"><label class="f" for="pName">Name<input type="text" id="pName" value="${esc(u.name || '')}" autocomplete="name"></label>
+      <label class="f" for="pMail">E-Mail<input type="text" id="pMail" value="${esc(u.email || '')}" autocomplete="email" inputmode="email"></label></div>
+    <div class="actions"><span class="err" id="pErr"></span><button type="submit" class="btn">Speichern</button>
+      <button type="button" class="btn" id="logout">${iconSVG('logout', 15)} Abmelden</button></div></form>`;
+  $('pf').addEventListener('submit', async e => {
+    e.preventDefault();
+    try { await send('PUT', 'api/me', {name: $('pName').value, email: $('pMail').value}); $('pErr').textContent = 'Gespeichert.'; }
+    catch (x) { $('pErr').textContent = x.message; }
+  });
+  $('logout').onclick = async () => { await fetch('api/auth/logout', {method: 'POST'}); location.href = 'login'; };
+
+  $('password').innerHTML = `<form class="inner" id="pwf">
+    <h2>${iconSVG('key', 20)} Passwort</h2>
+    <p class="why" style="margin:0">Mindestens 10 Zeichen. Alle anderen Geräte werden danach abgemeldet.</p>
+    ${u.hasPassword ? '<label class="f" for="pwOld">Bisheriges Passwort<input type="password" id="pwOld" autocomplete="current-password"></label>' : ''}
+    <div class="row2"><label class="f" for="pwNew">Neues Passwort<input type="password" id="pwNew" autocomplete="new-password"></label>
+      <label class="f" for="pwNew2">Wiederholen<input type="password" id="pwNew2" autocomplete="new-password"></label></div>
+    <div class="actions"><span class="err" id="pwErr"></span><button type="submit" class="btn">${u.hasPassword ? 'Passwort ändern' : 'Passwort festlegen'}</button></div></form>`;
+  $('pwf').addEventListener('submit', async e => {
+    e.preventDefault();
+    if ($('pwNew').value !== $('pwNew2').value) { $('pwErr').textContent = 'Die Passwörter stimmen nicht überein.'; return; }
+    try { await send('PUT', 'api/me/password', {current: $('pwOld') ? $('pwOld').value : '', password: $('pwNew').value}); $('pwErr').textContent = 'Passwort geändert.'; load(); }
+    catch (x) { $('pwErr').textContent = x.message; }
+  });
+
+  const ids = acct.identities || [];
+  const pname = id => (providers.find(p => p.id === id) || {}).name || id;
+  const open = providers.filter(p => !ids.some(i => i.provider === p.id));
+  $('logins').innerHTML = `<h2>${iconSVG('lock', 20)} Anmelden mit</h2>
+    <p class="why">${providers.length ? 'Verbinde einen Anmeldedienst, dann kannst du dich auch damit anmelden – z. B. mit Pocket ID per Passkey.' : 'Noch kein Anmeldedienst eingerichtet (Pocket ID, Google …). Das macht ein Administrator unter Konfiguration → Benutzer + Gruppen.'}</p>
+    <div class="list">${ids.map(i => `<div class="item"><div><b>${esc(pname(i.provider))}</b><div class="meta">${esc(i.email || i.name || i.subject)} · verbunden ${when(i.created)}</div></div>
+      <button type="button" class="btn" data-unlink="${esc(i.provider)}" data-subject="${esc(i.subject)}">Trennen</button></div>`).join('')}
+      ${open.map(p => `<div class="item"><div><b>${esc(p.name)}</b><div class="meta">nicht verbunden</div></div>
+      <a class="btn primary" href="api/auth/oidc/${encodeURIComponent(p.id)}/start?purpose=link">Verbinden</a></div>`).join('')}</div>`;
+
+  $('sessions').innerHTML = `<h2>${iconSVG('device', 20)} Angemeldete Geräte</h2>
+    <p class="why">Eine Anmeldung bleibt bis zu 180 Tage nach der letzten Nutzung gültig. Die Konfiguration braucht danach eine kurze Bestätigung.</p>
+    <div class="list">${(acct.sessions || []).map(s => `<div class="item"><div><b>${esc(agentName(s.agent))}</b>${s.current ? '<span class="chip ok">dieses Gerät</span>' : ''}
+      <div class="meta">angemeldet ${when(s.created)} · zuletzt ${when(s.lastSeen)}</div></div>
+      ${s.current ? '' : `<button type="button" class="btn" data-end="${esc(s.id)}">Abmelden</button>`}</div>`).join('')}</div>`;
+}
+
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-end]');
+  if (b) { await send('DELETE', 'api/me/sessions/' + encodeURIComponent(b.dataset.end)).catch(x => alert(x.message)); load(); }
+  const u = e.target.closest('[data-unlink]');
+  if (u && confirm('Diesen Anmeldeweg trennen?')) {
+    await send('DELETE', `api/me/identities/${encodeURIComponent(u.dataset.unlink)}/${encodeURIComponent(u.dataset.subject)}`).catch(x => alert(x.message));
+    load();
+  }
+});
+
+let providers = [];
+async function load() {
+  const [me, st] = await Promise.all([fetch('api/me').then(r => r.json()), fetch('api/auth/state').then(r => r.json()).catch(() => ({}))]);
+  acct = me;
+  providers = st.providers || [];
+  render();
+}
+// message from a login service (linked, failed)
+const msg = new URLSearchParams(location.search).get('msg');
+if (msg) {
+  document.querySelector('main').insertAdjacentHTML('afterbegin', `<div class="flash">${esc(msg)}</div>`);
+  history.replaceState(null, '', location.pathname);
+}
+load();
+</script>
+</body>
+</html>

@@ -16,9 +16,6 @@
 <link rel="stylesheet" href="common.css">
 <style>
   .filters { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:16px; }
-  .seg { display:inline-grid; grid-auto-flow:column; gap:3px; padding:3px; border-radius:12px; background:var(--card); box-shadow:var(--shadow); }
-  .seg button { font:inherit; font-size:13px; font-weight:550; border:0; background:transparent; color:var(--muted); padding:0 12px; height:32px; line-height:32px; border-radius:9px; cursor:pointer; }
-  .seg button[aria-pressed=true] { background:var(--fg); color:var(--bg); }
   /* Safari ignores padding on native selects: draw them ourselves, same height as the segment controls */
   .filters select { -webkit-appearance:none; appearance:none; font:inherit; font-size:13px; font-weight:550; line-height:1; color:var(--fg); height:38px; border:0; box-shadow:var(--shadow); border-radius:12px; padding:0 34px 0 14px;
     background:var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%238a948f' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 13px center; cursor:pointer; }
@@ -132,7 +129,7 @@ const kwhTxt = wh => num(wh / 1000, wh >= 100000 ? 0 : 1);
 const euro = ct => (ct / 100).toLocaleString('de-DE', {style: 'currency', currency: 'EUR'});
 const big = (v, unit) => `${esc(v)}<small>${unit}</small>`;
 const KIND_WORD = {charging: ['Ladevorgang', 'Ladevorgänge'], heating: ['Heizphase', 'Heizphasen'], run: ['Lauf', 'Läufe'], '': ['Lauf', 'Läufe']};
-const MODE = {external: 'Extern', pv: 'PV', minpv: 'Min+PV', fast: 'Schnell'};
+const MODE = {off: 'Aus', external: 'Extern', pv: 'Überschuss', pv1: '1-phasig + PV', minpv: 'Min+PV', fast: 'Schnell'};
 const MONTHS = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
 
 const F = {kind: 'charging', asset: '', vehicle: ''};
@@ -194,7 +191,12 @@ const query = extra => {
 };
 
 async function init() {
-  const [as, all] = await Promise.all([fetch('api/assets').then(r => r.json()), fetch('api/runs/summary').then(r => r.json())]);
+  const me = await voltibri.me;
+  if (me && !me.admin) { // users: charging of their vehicles only
+    F.kind = 'charging';
+    $('kinds').hidden = true;
+  }
+  const [as, all] =await Promise.all([fetch('api/assets').then(r => r.json()), fetch('api/runs/summary').then(r => r.json())]);
   as.forEach(a => assets[a.id] = a);
   fillAssets(all);
   sync();

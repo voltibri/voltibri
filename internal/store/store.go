@@ -152,6 +152,70 @@ var migrations = []string{
 		import_id  INTEGER REFERENCES imports(id), -- NULL = measured
 		PRIMARY KEY (asset_id, slot)
 	) WITHOUT ROWID`,
+	// plan vs. actual per 15-minute slot: the first plan of the slot's day
+	// (the "Soll") and the measured state of charge at the end of the slot
+	`CREATE TABLE plan_slots (
+		slot        INTEGER PRIMARY KEY, -- unix seconds of slot start
+		plan_at     INTEGER,             -- when the plan was made
+		plan_pv_w   REAL,
+		plan_load_w REAL,
+		plan_soc    REAL,
+		soc         REAL                 -- measured, end of slot
+	)`,
+	// users, groups, external logins, sessions and invites (see package auth)
+	`CREATE TABLE users (
+		id       TEXT PRIMARY KEY,
+		login    TEXT NOT NULL UNIQUE COLLATE NOCASE,
+		name     TEXT NOT NULL DEFAULT '',
+		email    TEXT NOT NULL DEFAULT '',
+		role     TEXT NOT NULL DEFAULT 'user',
+		password TEXT NOT NULL DEFAULT '', -- argon2id hash, '' = no password
+		disabled INTEGER NOT NULL DEFAULT 0,
+		created  INTEGER NOT NULL
+	)`,
+	`CREATE TABLE groups (
+		id    TEXT PRIMARY KEY,
+		name  TEXT NOT NULL,
+		perms TEXT NOT NULL DEFAULT '{}' -- JSON: overview, reports, loadpoints, vehicles
+	)`,
+	`CREATE TABLE user_groups (
+		user_id  TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+		PRIMARY KEY (user_id, group_id)
+	)`,
+	`CREATE TABLE identities (
+		provider TEXT NOT NULL,
+		subject  TEXT NOT NULL,
+		user_id  TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		email    TEXT NOT NULL DEFAULT '',
+		name     TEXT NOT NULL DEFAULT '',
+		created  INTEGER NOT NULL,
+		PRIMARY KEY (provider, subject)
+	)`,
+	`CREATE TABLE sessions (
+		id             TEXT PRIMARY KEY, -- sha-256 of the cookie token
+		user_id        TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		created        INTEGER NOT NULL,
+		last_seen      INTEGER NOT NULL,
+		auth_at        INTEGER NOT NULL,
+		elevated_until INTEGER NOT NULL DEFAULT 0,
+		method         TEXT NOT NULL DEFAULT '',
+		agent          TEXT NOT NULL DEFAULT ''
+	)`,
+	`CREATE TABLE invites (
+		token   TEXT PRIMARY KEY, -- sha-256 of the link token
+		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		expires INTEGER NOT NULL
+	)`,
+	// external login services (OpenID Connect, e.g. Pocket ID or Google)
+	`CREATE TABLE login_providers (
+		id            TEXT PRIMARY KEY,
+		name          TEXT NOT NULL,
+		issuer        TEXT NOT NULL,
+		client_id     TEXT NOT NULL,
+		client_secret TEXT NOT NULL DEFAULT '', -- encrypted
+		created       INTEGER NOT NULL
+	)`,
 }
 
 // Open opens (and creates or migrates) the database in dataDir.

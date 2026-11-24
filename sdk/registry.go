@@ -25,6 +25,7 @@ const (
 // DeviceConfig is the configuration passed to a driver factory.
 type DeviceConfig struct {
 	ID     string
+	Name   string // display name (optional)
 	Type   string
 	Mode   ControlMode
 	DryRun bool           // log writes instead of executing them
@@ -55,6 +56,7 @@ const (
 	CapTariff         Capability = "tariff"          // TariffSource
 	CapVehicles       Capability = "vehicles"        // VehicleProvider
 	CapOAuth          Capability = "oauth"           // OAuthAuthorizer
+	CapHeat           Capability = "heat"            // HeatSource
 )
 
 // Category groups drivers in user interfaces.

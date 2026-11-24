@@ -260,7 +260,7 @@ func Assets(cfg *config.Config) []Asset {
 	out := []Asset{}
 	for _, d := range cfg.Devices {
 		switch k := config.KindOf(d); k {
-		case config.KindForecast, config.KindTariff, config.KindVehicleAccount:
+		case config.KindForecast, config.KindTariff, config.KindVehicleAccount, config.KindVehicle:
 		default:
 			name := d.Name
 			if name == "" {

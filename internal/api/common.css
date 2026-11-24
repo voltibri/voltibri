@@ -110,3 +110,11 @@ a.navlink:hover { text-decoration:underline; }
 .setup fieldset.roles legend { font-size:12px; color:var(--muted); padding:0 4px; }
 .setup .row2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
 .setup input[type=date] { font:inherit; font-size:14px; color:var(--fg); background:var(--card); border:1px solid var(--line); border-radius:8px; padding:6px 9px; width:100%; box-sizing:border-box; }
+
+[hidden] { display:none !important; }
+
+/* segmented buttons (reports periods, chart ranges) */
+.seg { display:inline-grid; grid-auto-flow:column; gap:3px; padding:3px; border-radius:12px; background:var(--card); box-shadow:var(--shadow); }
+.seg button { font:inherit; font-size:13px; font-weight:550; border:0; background:transparent; color:var(--muted); padding:0 12px; height:32px; line-height:32px; border-radius:9px; cursor:pointer; }
+.seg button[aria-pressed=true] { background:var(--fg); color:var(--bg); }
+.card .seg { background:var(--bg); box-shadow:none; }
