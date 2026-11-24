@@ -42,16 +42,14 @@
   @keyframes ovalin { from { opacity:0; transform:scale(.6); } }
   @media (prefers-reduced-motion: reduce) { .hpoval.pop { animation:none; } }
   .hpoval text { font-family:ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; font-variant-numeric:tabular-nums; }
-  .hpoval .ho-h { font-size:13px; font-weight:650; fill:var(--fg); }
+  .hpoval .ho-h { font-size:12px; font-weight:650; fill:var(--fg); }
   .hpoval .ho-st { font-size:11px; font-weight:500; fill:var(--muted); }
-  .hpoval .ho-x { font-size:16px; fill:var(--muted); }
-  .hpoval .ho-cop { font-size:28px; font-weight:300; letter-spacing:-.04em; fill:var(--fg); }
+  .hpoval .ho-cop { font-size:22px; font-weight:300; letter-spacing:-.04em; fill:var(--fg); }
   .hpoval .ho-lbl { font-size:9px; font-weight:700; letter-spacing:.1em; fill:var(--muted); }
-  .hpoval .ho-big { font-size:26px; font-weight:300; letter-spacing:-.03em; fill:var(--fg); }
+  .hpoval .ho-big { font-size:21px; font-weight:300; letter-spacing:-.03em; fill:var(--fg); }
   .hpoval .ho-u { font-size:11px; font-weight:600; letter-spacing:0; fill:var(--muted); }
-  .hpoval .ho-sm { font-size:10.5px; fill:var(--muted); }
+  .hpoval .ho-sm { font-size:10px; fill:var(--muted); }
   .hpoval .ho-b { font-weight:650; fill:var(--fg); }
-  .hpoval .ho-sp { font-size:10.5px; font-weight:650; fill:var(--fg); }
   .hpoval .ho-err { font-size:10.5px; fill:var(--warn); }
   #flow { width:100%; height:auto; display:block; margin:0 auto; overflow:visible; }
   #flow text { font-variant-numeric:tabular-nums; }
@@ -374,7 +372,7 @@ function expanded(items, kind) {
 // the heat pump node (details known) and the heating devices next to it
 const isHP = (c, st) => c.icon === 'heatpump' && (st.heat || []).length && !(c.count > 1);
 const isHeating = c => c.icon === 'heatpump' || c.icon === 'water';
-const OVAL_W = 330, OVAL_H = 196; // the opened heat pump (drawn in heatOval)
+const OVAL_W = 290, OVAL_H = 150; // the opened heat pump (drawn in heatOval)
 
 function layout(st) {
   const P = expanded(st.producers, 'producers');
@@ -408,8 +406,15 @@ function layout(st) {
     Ww = Math.max(W, OVAL_W + 24);
     const dx = (Ww - W) / 2;
     for (const k in nodes) nodes[k].x += dx;
-    // below the circle, clear of the nodes on its lower arc
-    nodes[hp.id] = {x: Ww / 2, y: H / 2 + R + NODE_R + 16 + OVAL_H / 2, a: Math.PI / 2, oval: true};
+    // as close as possible: on the heat pump's own place, pushed down only
+    // as far as the neighbouring nodes need
+    let top = H / 2 + R - NODE_R;
+    for (const c of C) {
+      if (c.id === hp.id) continue;
+      const n = nodes[c.id];
+      if (Math.abs(n.x - Ww / 2) < OVAL_W / 2 + NODE_R + 4) top = Math.max(top, n.y + NODE_R + 8);
+    }
+    nodes[hp.id] = {x: Ww / 2, y: top + OVAL_H / 2, a: Math.PI / 2, oval: true};
     Hh = nodes[hp.id].y + OVAL_H / 2 + 8;
   }
 
@@ -515,7 +520,7 @@ function drawFlow(st) {
     if (isHP(c, st) && nodes[c.id].oval) {
       const n = nodes[c.id], x = n.x - OVAL_W / 2, y = n.y - OVAL_H / 2;
       g += `<g class="tog hpoval${hpPop ? ' pop' : ''}" data-heat role="button" tabindex="0" aria-expanded="true" aria-label="Wärmepumpe: Details zuklappen">
-        <rect class="ho-bg" x="${x}" y="${y}" width="${OVAL_W}" height="${OVAL_H}" rx="44" fill="var(--node)" stroke="${COLORS.consumer}" stroke-width="2"/>
+        <rect class="ho-bg" x="${x}" y="${y}" width="${OVAL_W}" height="${OVAL_H}" rx="38" fill="var(--node)" stroke="${COLORS.consumer}" stroke-width="2"/>
         ${heatOval(x, y, st.heat[0], c)}</g>`;
     } else g += isHP(c, st)
       ? `<g class="tog hpnode" data-heat role="button" tabindex="0" aria-expanded="false" aria-label="Wärmepumpe: Details anzeigen">${inner}</g>`
@@ -997,57 +1002,53 @@ $('vehDlg').addEventListener('change', async e => {
 let hpOpen = false, hpPop = false;
 const num1 = v => v.toLocaleString('de-DE', {minimumFractionDigits: 1, maximumFractionDigits: 1});
 // the opened heat pump, drawn in plain SVG (no HTML inside SVG: Safari
-// places foreignObject content wrongly). Layout inside the oval:
-//   name · state                                  ×
-//   ( COP half ring )   Wärme 3,9 kW
-//                       [Strom|Umwelt ────────]
-//   RL 30,8°  ▬▬▬ Δ 2,5 K ▬▬▬  VL 33,3°
-//   außen −4,9° · Warmwasser 50,2°
+// places foreignObject content wrongly). Compact layout inside the oval:
+//         Wärmepumpe · Heizbetrieb
+//   ( COP )   WÄRME 3,9 kW
+//             [Strom|Umwelt]  Strom 920 W · Umwelt 3,0 kW
+//   RL 30,8°  ▬▬▬▬ band ▬▬▬▬  VL 33,3°
+//      Δ 2,5 K · außen −4,9° · Warmwasser 50,2°
 function heatOval(x, y, h, c) {
   const W = OVAL_W, cx = x + W / 2, t = (dx, dy, txt, cls, anchor = 'start') => `<text x="${(x + dx).toFixed(1)}" y="${(y + dy).toFixed(1)}" class="${cls}" text-anchor="${anchor}">${txt}</text>`;
   const cop = h.cop, th = h.thermalW != null ? Math.max(0, h.thermalW) : null;
   const el = h.electricW != null ? Math.max(0, h.electricW) : c.powerW;
   const col = cop == null ? 'var(--muted)' : cop < 2.5 ? 'var(--warn)' : cop < 3.5 ? 'var(--solar)' : 'var(--accent)';
-  let g = '';
-  // header
-  g += `<text x="${cx}" y="${y + 30}" text-anchor="middle" class="ho-h">${esc(c.name || h.name || 'Wärmepumpe')}${h.state ? `<tspan class="ho-st" dx="6">· ${esc(h.state)}</tspan>` : ''}</text>`;
-  g += t(W - 34, 31, '×', 'ho-x', 'middle');
-  // COP: half ring
-  const gx = x + 84, gy = y + 112, R = 40, C = Math.PI * R, frac = cop != null ? Math.max(0, Math.min(1, (cop - 1) / 6)) : 0;
+  let g = `<text x="${cx}" y="${y + 23}" text-anchor="middle" class="ho-h">${esc(c.name || h.name || 'Wärmepumpe')}${h.state ? `<tspan class="ho-st" dx="5">· ${esc(h.state)}</tspan>` : ''}</text>`;
+  // COP half ring
+  const gx = x + 64, gy = y + 80, R = 30, C = Math.PI * R, frac = cop != null ? Math.max(0, Math.min(1, (cop - 1) / 6)) : 0;
   const arcD = `M${gx - R} ${gy} A${R} ${R} 0 0 1 ${gx + R} ${gy}`;
-  g += `<path d="${arcD}" fill="none" stroke="var(--track)" stroke-width="9" stroke-linecap="round"/>`;
-  g += `<path d="${arcD}" fill="none" stroke="${col}" stroke-width="9" stroke-linecap="round" stroke-dasharray="${(C * frac).toFixed(1)} ${C.toFixed(1)}"/>`;
-  g += `<text x="${gx}" y="${gy - 6}" text-anchor="middle" class="ho-cop">${cop != null ? num1(cop) : '–'}</text>`;
+  g += `<path d="${arcD}" fill="none" stroke="var(--track)" stroke-width="8" stroke-linecap="round"/>`;
+  g += `<path d="${arcD}" fill="none" stroke="${col}" stroke-width="8" stroke-linecap="round" stroke-dasharray="${(C * frac).toFixed(1)} ${C.toFixed(1)}"/>`;
+  g += `<text x="${gx}" y="${gy - 4}" text-anchor="middle" class="ho-cop">${cop != null ? num1(cop) : '–'}</text>`;
   g += `<text x="${gx}" y="${gy + 9}" text-anchor="middle" class="ho-lbl">COP</text>`;
   // heat output and where it comes from
-  const rx = 150, rw = W - rx - 36;
-  g += t(rx, 66, 'WÄRMELEISTUNG', 'ho-lbl');
-  g += t(rx, 92, th != null ? `${num1(th / 1000)}<tspan class="ho-u" dx="2">kW</tspan>` : '–', 'ho-big');
+  const rx = 116, rw = W - rx - 30;
+  g += t(rx, 46, 'WÄRME', 'ho-lbl');
+  g += t(rx, 67, th != null ? `${num1(th / 1000)}<tspan class="ho-u" dx="2">kW</tspan>` : '–', 'ho-big');
   if (th > 0 && el != null) {
     const e = Math.min(el, th), ew = rw * e / th;
-    g += `<rect x="${x + rx}" y="${y + 101}" width="${rw}" height="7" rx="3.5" fill="var(--track)"/>`;
-    g += `<rect x="${x + rx}" y="${y + 101}" width="${(rw - ew).toFixed(1)}" height="7" rx="3.5" fill="var(--accent)" transform="translate(${ew.toFixed(1)} 0)"/>`;
-    g += `<rect x="${x + rx}" y="${y + 101}" width="${ew.toFixed(1)}" height="7" rx="3.5" fill="var(--grid)"/>`;
-    g += t(rx, 121, `Strom ${kw(e)} + Umwelt ${kw(th - e)}`, 'ho-sm');
+    g += `<rect x="${x + rx}" y="${y + 74}" width="${rw}" height="6" rx="3" fill="var(--accent)"/>`;
+    g += `<rect x="${x + rx}" y="${y + 74}" width="${Math.max(6, ew).toFixed(1)}" height="6" rx="3" fill="var(--grid)"/>`;
+    g += t(rx, 92, `Strom ${kw(e)} · Umwelt ${kw(th - e)}`, 'ho-sm');
   }
-  // flow / return: a scale zoomed around both, the band is the spread
+  // flow / return on a scale zoomed around both; the band is the spread
+  const foot = [];
   if (h.flowC != null && h.returnC != null) {
     const a = Math.min(h.returnC, h.flowC), b = Math.max(h.returnC, h.flowC);
     const mid = (a + b) / 2, half = Math.max(10, (b - a) / 2 + 5);
     const lo = Math.floor((mid - half) / 5) * 5, hi = Math.ceil((mid + half) / 5) * 5;
-    const sx = 92, sw = W - 2 * sx, px = v => x + sx + sw * Math.max(0, Math.min(1, (v - lo) / (hi - lo)));
-    const ly = y + 150;
-    // rects, not lines: a gradient on a line has a zero-height box and stays invisible
+    const sx = 84, sw = W - 2 * sx, px = v => x + sx + sw * Math.max(0, Math.min(1, (v - lo) / (hi - lo)));
+    const ly = y + 113;
     g += `<rect x="${x + sx}" y="${ly - 1.5}" width="${sw}" height="3" rx="1.5" fill="url(#hoTemp)" opacity=".4"/>`;
-    const bw = Math.max(9, px(b) - px(a) + 9);
-    g += `<rect x="${(px(a) - 4.5).toFixed(1)}" y="${ly - 4.5}" width="${bw.toFixed(1)}" height="9" rx="4.5" fill="url(#hoBand)"/>`;
-    g += t(sx - 10, 154, `RL <tspan class="ho-b">${num1(h.returnC)}°</tspan>`, 'ho-sm', 'end');
-    g += t(W - sx + 10, 154, `VL <tspan class="ho-b">${num1(h.flowC)}°</tspan>`, 'ho-sm');
-    g += `<text x="${cx}" y="${ly - 9}" text-anchor="middle" class="ho-sp">Spreizung ${num1(h.flowC - h.returnC)} K</text>`;
+    g += `<rect x="${(px(a) - 4).toFixed(1)}" y="${ly - 4}" width="${Math.max(8, px(b) - px(a) + 8).toFixed(1)}" height="8" rx="4" fill="url(#hoBand)"/>`;
+    g += t(sx - 8, 117, `RL <tspan class="ho-b">${num1(h.returnC)}°</tspan>`, 'ho-sm', 'end');
+    g += t(W - sx + 8, 117, `VL <tspan class="ho-b">${num1(h.flowC)}°</tspan>`, 'ho-sm');
+    foot.push(`<tspan class="ho-b">Δ ${num1(h.flowC - h.returnC)} K</tspan>`);
   }
-  const foot = [h.outdoorC != null ? `außen ${num1(h.outdoorC)}°` : '', h.hotWaterC != null ? `Warmwasser ${num1(h.hotWaterC)}°` : ''].filter(Boolean).join('  ·  ');
-  if (foot) g += `<text x="${cx}" y="${y + 178}" text-anchor="middle" class="ho-sm">${foot}</text>`;
-  if (h.error) g += `<text x="${cx}" y="${y + 178}" text-anchor="middle" class="ho-err">${esc(h.error)}</text>`;
+  if (h.outdoorC != null) foot.push(`außen ${num1(h.outdoorC)}°`);
+  if (h.hotWaterC != null) foot.push(`WW ${num1(h.hotWaterC)}°`);
+  if (h.error) g += `<text x="${cx}" y="${y + 136}" text-anchor="middle" class="ho-err">${esc(h.error)}</text>`;
+  else if (foot.length) g += `<text x="${cx}" y="${y + 136}" text-anchor="middle" class="ho-sm">${foot.join(' · ')}</text>`;
   return `<defs><linearGradient id="hoTemp"><stop offset="0" stop-color="#4a90d9"/><stop offset=".6" stop-color="#e8a317"/><stop offset="1" stop-color="#d9534f"/></linearGradient>
     <linearGradient id="hoBand"><stop offset="0" stop-color="#4a90d9"/><stop offset="1" stop-color="#e8743b"/></linearGradient></defs>${g}`;
 }
@@ -1056,12 +1057,16 @@ function toggleHeat(e) {
   if (!n || (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ')) return;
   e.preventDefault(); e.stopPropagation();
   hpOpen = !hpOpen; hpPop = hpOpen;
+  if (hpOpen) open = null; // one opened thing at a time
   if (window._last) drawFlow(window._last);
   const f = $('flow').querySelector('[data-heat]'); if (f) f.focus();
 }
 $('flow').addEventListener('click', toggleHeat, true);
 $('flow').addEventListener('keydown', toggleHeat, true);
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && hpOpen) { hpOpen = false; if (window._last) drawFlow(window._last); } });
+// a click anywhere else (another group, the page) closes it again
+const closeHeat = () => { if (!hpOpen) return; hpOpen = false; if (window._last) drawFlow(window._last); };
+document.addEventListener('click', e => { if (!e.target.closest('[data-heat]')) closeHeat(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeHeat(); });
 
 // --- vehicle & charge plan of a wallbox (dialog from the tile) ---
 let lpDlgId = null;
