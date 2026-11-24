@@ -381,17 +381,11 @@ function expanded(items, kind) {
 
 // the heat pump node (details known) and the heating devices next to it
 const isHP = (c, st) => c.icon === 'heatpump' && (st.heat || []).length && !(c.count > 1);
-const isHeating = c => c.icon === 'heatpump' || c.icon === 'water';
 
 function layout(st) {
   const P = expanded(st.producers, 'producers');
-  // consumers: heating in the bottom centre (heat pump first, heating rods
-  // right next to it), the others split to both sides, "rest" at the end
-  let C = expanded(st.consumers, 'consumers');
-  const heat = C.filter(isHeating).sort((a, b) => (b.icon === 'heatpump') - (a.icon === 'heatpump'));
-  const other = C.filter(c => !isHeating(c));
-  const left = other.slice(0, Math.ceil(other.length / 2)), right = other.slice(left.length);
-  C = [...left, ...heat, ...right, {id:'_rest', name:'Übriges Haus', icon:'house', powerW: st.restW, rest:true}];
+  // consumers in their own order, centred on the bottom
+  const C = expanded(st.consumers, 'consumers').concat([{id:'_rest', name:'Übriges Haus', icon:'house', powerW: st.restW, rest:true}]);
   const S = [...P.map(p => p.id), '_grid', ...(st.hasBattery ? ['_battery'] : [])];
   const N = S.length + C.length;
   const step = 2 * Math.PI / Math.max(N, 4);
@@ -404,11 +398,7 @@ function layout(st) {
     nodes[id] = {x: W / 2 + R * Math.cos(a), y: H / 2 + R * Math.sin(a), a};
   });
   arc(S, -Math.PI / 2, 1);
-  // the arc runs right to left: put the heat pump on the bottom centre
-  const ids = C.map(c => c.id), hpi = C.findIndex(c => isHP(c, st));
-  let centre = Math.PI / 2;
-  if (hpi >= 0) centre += (hpi - (ids.length - 1) / 2) * step;
-  arc(ids, centre, -1);
+  arc(C.map(c => c.id), Math.PI / 2, -1);
   P.forEach(p => links.push({a: p.id, b: '_home', w: p.powerW, color: COLORS.producer}));
   C.forEach(c => links.push({a: '_home', b: c.id, w: c.powerW, color: COLORS.consumer}));
   links.push(st.gridW >= 0 ? {a:'_grid', b:'_home', w: st.gridW, color: COLORS.grid}
