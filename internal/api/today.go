@@ -13,15 +13,19 @@ import (
 
 // todayInfo are the day totals for the overview (from the load profile).
 type todayInfo struct {
-	Since          time.Time `json:"since"` // start of the data (midnight, or later on the first day)
-	PVWh           float64   `json:"pvWh"`
-	LoadWh         float64   `json:"loadWh"`
-	GridImportWh   float64   `json:"gridImportWh"`
-	GridExportWh   float64   `json:"gridExportWh"`
-	Autarky        *float64  `json:"autarky,omitempty"` // share of the load not from the grid
-	SelfUse        *float64  `json:"selfUse,omitempty"` // share of the PV used in the house
-	ForecastRestWh float64   `json:"forecastRestWh"`    // PV still expected until midnight
-	Covered        bool      `json:"covered"`           // data since midnight
+	Since          time.Time          `json:"since"` // start of the data (midnight, or later on the first day)
+	PVWh           float64            `json:"pvWh"`
+	LoadWh         float64            `json:"loadWh"`
+	GridImportWh   float64            `json:"gridImportWh"`
+	GridExportWh   float64            `json:"gridExportWh"`
+	GridCostCt     float64            `json:"gridCostCt,omitempty"` // cost of the grid import (where prices are known)
+	BatteryInWh    float64            `json:"batteryInWh"`          // charged into the home battery
+	BatteryOutWh   float64            `json:"batteryOutWh"`         // discharged from the home battery
+	PVByDevice     map[string]float64 `json:"pvByDevice,omitempty"` // generation per PV device
+	Autarky        *float64           `json:"autarky,omitempty"`    // share of the load not from the grid
+	SelfUse        *float64           `json:"selfUse,omitempty"`    // share of the PV used in the house
+	ForecastRestWh float64            `json:"forecastRestWh"`       // PV still expected until midnight
+	Covered        bool               `json:"covered"`              // data since midnight
 }
 
 // today returns the totals since midnight: PV, load, grid, autarky and the
@@ -53,12 +57,17 @@ func (h *handler) today(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case pv[s.Asset]:
 			t.PVWh += s.ExportWh
+			if t.PVByDevice == nil {
+				t.PVByDevice = map[string]float64{}
+			}
+			t.PVByDevice[s.Asset] += s.ExportWh
 		case s.Asset == cfg.Roles.Grid+".grid":
-			t.GridImportWh, t.GridExportWh = s.ImportWh, s.ExportWh
+			t.GridImportWh, t.GridExportWh, t.GridCostCt = s.ImportWh, s.ExportWh, s.CostCt
 		case s.Asset == cfg.Roles.Battery+".battery":
 			batIn, batOut = s.ImportWh, s.ExportWh
 		}
 	}
+	t.BatteryInWh, t.BatteryOutWh = batIn, batOut
 	t.LoadWh = math.Max(0, t.PVWh+t.GridImportWh-t.GridExportWh+batOut-batIn)
 	if t.LoadWh > 0 {
 		a := math.Max(0, math.Min(1, 1-t.GridImportWh/t.LoadWh))

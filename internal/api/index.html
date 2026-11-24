@@ -33,24 +33,33 @@
     .stat .big { font-size:22px; } .stat .big small { font-size:11px; }
     .stat .eyebrow { font-size:9.5px; letter-spacing:.04em; } .stat .sub { font-size:10.5px; line-height:1.3; }
   }
-  /* heat pump: opens into an oval below the circle (energy flow) */
-  .hpnode > circle:first-of-type { transition:stroke-width .15s; }
-  .hpoval { cursor:pointer; outline:none; }
-  .hpoval > .ho-bg { filter:drop-shadow(0 6px 18px rgba(0,0,0,.10)); }
-  .hpoval:focus-visible > .ho-bg { stroke-width:3.5; }
-  .hpoval.pop { animation:ovalin .28s ease-out; transform-origin:50% 0; transform-box:fill-box; }
-  @keyframes ovalin { from { opacity:0; transform:scale(.6); } }
-  @media (prefers-reduced-motion: reduce) { .hpoval.pop { animation:none; } }
-  .hpoval text { font-family:ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; font-variant-numeric:tabular-nums; }
-  .hpoval .ho-h { font-size:12px; font-weight:650; fill:var(--fg); }
-  .hpoval .ho-st { font-size:11px; font-weight:500; fill:var(--muted); }
-  .hpoval .ho-cop { font-size:22px; font-weight:300; letter-spacing:-.04em; fill:var(--fg); }
-  .hpoval .ho-lbl { font-size:9px; font-weight:700; letter-spacing:.1em; fill:var(--muted); }
-  .hpoval .ho-big { font-size:21px; font-weight:300; letter-spacing:-.03em; fill:var(--fg); }
-  .hpoval .ho-u { font-size:11px; font-weight:600; letter-spacing:0; fill:var(--muted); }
-  .hpoval .ho-sm { font-size:10px; fill:var(--muted); }
-  .hpoval .ho-b { font-weight:650; fill:var(--fg); }
-  .hpoval .ho-err { font-size:10.5px; fill:var(--warn); }
+  /* details below the energy flow (click on grid, battery, PV, house, heat pump) */
+  .selnode.on > circle:first-of-type { stroke-width:4; filter:drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 45%, transparent)); }
+  .fdetail { grid-column:1 / -1; border-top:1px solid var(--line); padding-top:14px; animation:din .22s ease-out; }
+  @keyframes din { from { opacity:0; transform:translateY(-6px); } }
+  @media (prefers-reduced-motion: reduce) { .fdetail { animation:none; } }
+  .dhead { display:flex; align-items:center; gap:7px; color:var(--muted); margin-bottom:10px; }
+  .dhead b { color:var(--fg); font-size:14px; }
+  .dtiles { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:10px; }
+  .dtile { background:var(--card-2); border:1px solid var(--line); border-radius:16px; padding:12px 14px; display:flex; flex-direction:column; gap:4px; min-width:0; }
+  .dtile.wide { grid-column:span 2; }
+  .dtile .eyebrow { font-size:10.5px; }
+  .dtile .dv { font-size:26px; font-weight:300; letter-spacing:-.03em; line-height:1.1; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .dtile .dv small { font-size:12px; font-weight:500; color:var(--muted); margin-left:3px; letter-spacing:0; }
+  .dtile .ds { font-size:12px; color:var(--muted); }
+  .dcop { position:relative; width:84px; height:46px; margin-top:2px; }
+  .dcop .dring { width:84px; height:46px; display:block; }
+  .dcop b { position:absolute; left:0; right:0; bottom:-2px; text-align:center; font-size:24px; font-weight:300; letter-spacing:-.03em; font-variant-numeric:tabular-nums; }
+  .dbar { display:flex; height:7px; border-radius:4px; overflow:hidden; background:var(--track); margin-top:4px; }
+  .dbar i { display:block; height:100%; }
+  .dtemp { position:relative; height:7px; border-radius:4px; margin-top:4px; background:linear-gradient(90deg, rgba(74,144,217,.25), rgba(232,163,23,.25), rgba(217,83,79,.25)); }
+  .dtemp i { position:absolute; top:0; bottom:0; border-radius:4px; background:linear-gradient(90deg, #4a90d9, #e8743b); }
+  .drow { display:flex; align-items:baseline; gap:8px; font-size:13px; padding:3px 0; border-top:1px solid var(--line); }
+  .drow:first-of-type { border-top:0; }
+  .drow span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .drow b { font-weight:600; font-variant-numeric:tabular-nums; }
+  .drow em { font-style:normal; color:var(--muted); font-size:12px; width:64px; text-align:right; font-variant-numeric:tabular-nums; }
+  @media (max-width:760px) { .dtiles { grid-template-columns:1fr 1fr; } .dtile .dv { font-size:22px; } }
   #flow { width:100%; height:auto; display:block; margin:0 auto; overflow:visible; }
   #flow text { font-variant-numeric:tabular-nums; }
   .track { fill:none; stroke:var(--track); stroke-width:2; }
@@ -279,6 +288,7 @@
       <div class="stat"><span class="eyebrow"><i class="dot" style="background:var(--solar)"></i>Erzeugt heute</span><span class="big num" id="tPV">–</span><span class="sub" id="tPVSub"></span></div>
       <div class="stat" data-perm="forecast"><span class="eyebrow"><i class="dot" style="background:var(--solar);opacity:.45"></i>Prognose Rest</span><span class="big num" id="tRest">–</span><span class="sub">bis Mitternacht</span></div>
     </div>
+    <div class="fdetail" id="flowDetail" hidden aria-live="polite"></div>
     <div class="err" id="errors"></div>
   </section>
 
@@ -372,7 +382,6 @@ function expanded(items, kind) {
 // the heat pump node (details known) and the heating devices next to it
 const isHP = (c, st) => c.icon === 'heatpump' && (st.heat || []).length && !(c.count > 1);
 const isHeating = c => c.icon === 'heatpump' || c.icon === 'water';
-const OVAL_W = 290, OVAL_H = 150; // the opened heat pump (drawn in heatOval)
 
 function layout(st) {
   const P = expanded(st.producers, 'producers');
@@ -400,24 +409,6 @@ function layout(st) {
   let centre = Math.PI / 2;
   if (hpi >= 0) centre += (hpi - (ids.length - 1) / 2) * step;
   arc(ids, centre, -1);
-  let Hh = H, Ww = W;
-  const hp = hpi >= 0 ? C[hpi] : null;
-  if (hp && hpOpen) { // the opened heat pump leaves the circle downwards as an oval
-    Ww = Math.max(W, OVAL_W + 24);
-    const dx = (Ww - W) / 2;
-    for (const k in nodes) nodes[k].x += dx;
-    // as close as possible: on the heat pump's own place, pushed down only
-    // as far as the neighbouring nodes need
-    let top = H / 2 + R - NODE_R;
-    for (const c of C) {
-      if (c.id === hp.id) continue;
-      const n = nodes[c.id];
-      if (Math.abs(n.x - Ww / 2) < OVAL_W / 2 + NODE_R + 4) top = Math.max(top, n.y + NODE_R + 8);
-    }
-    nodes[hp.id] = {x: Ww / 2, y: top + OVAL_H / 2, a: Math.PI / 2, oval: true};
-    Hh = nodes[hp.id].y + OVAL_H / 2 + 8;
-  }
-
   P.forEach(p => links.push({a: p.id, b: '_home', w: p.powerW, color: COLORS.producer}));
   C.forEach(c => links.push({a: '_home', b: c.id, w: c.powerW, color: COLORS.consumer}));
   links.push(st.gridW >= 0 ? {a:'_grid', b:'_home', w: st.gridW, color: COLORS.grid}
@@ -425,7 +416,7 @@ function layout(st) {
   if (st.hasBattery)
     links.push(st.batteryW >= 0 ? {a:'_battery', b:'_home', w: st.batteryW, color: COLORS.battery}
                                 : {a:'_home', b:'_battery', w: -st.batteryW, color: COLORS.battery});
-  return {W: Ww, H: Hh, R, nodes, links, P, C};
+  return {W, H, R, nodes, links, P, C};
 }
 
 // straight line between the rims of two circles
@@ -478,11 +469,10 @@ function drawFlow(st) {
   const svg = $('flow');
   const {W, H, R, nodes, links, P, C} = layout(st);
   svg.setAttribute('viewBox', `0 0 ${W.toFixed(0)} ${H.toFixed(0)}`);
-  svg.classList.toggle('hpopen', hpOpen);
   svg.style.maxWidth = (W * SCALE).toFixed(0) + 'px'; // same node size for any number of nodes
   const maxW = Math.max(1500, ...links.map(l => l.w));
   const home = nodes._home;
-  const rOf = id => id === '_home' ? HOME_R + 4 : nodes[id].oval ? OVAL_H / 2 + 4 : (id === '_battery' ? NODE_R + 8 : NODE_R + 4);
+  const rOf = id => id === '_home' ? HOME_R + 4 : (id === '_battery' ? NODE_R + 8 : NODE_R + 4);
   let g = '';
   // the members of an open group are joined by an arc on the circle
   const mem = [...P, ...C].filter(x => x.member).map(x => nodes[x.id].a);
@@ -516,29 +506,22 @@ function drawFlow(st) {
     const inner = node(nodes[c.id], {r: NODE_R, ic: c.icon || 'plug', color: c.rest ? 'var(--muted)' : COLORS.consumer,
       value: kw(c.powerW), title: tip(c, st) + (cl ? ' · ' + cl.text : '') + (hp ? ' · Klick für Details' : ''), count: c.count,
       ring: cl ? cl.ring : undefined, ringColor: cl ? cl.color : undefined, extra});
-    // the heat pump opens into an oval with its details (COP, heat output, temperatures)
-    if (isHP(c, st) && nodes[c.id].oval) {
-      const n = nodes[c.id], x = n.x - OVAL_W / 2, y = n.y - OVAL_H / 2;
-      g += `<g class="tog hpoval${hpPop ? ' pop' : ''}" data-heat role="button" tabindex="0" aria-expanded="true" aria-label="Wärmepumpe: Details zuklappen">
-        <rect class="ho-bg" x="${x}" y="${y}" width="${OVAL_W}" height="${OVAL_H}" rx="38" fill="var(--node)" stroke="${COLORS.consumer}" stroke-width="2"/>
-        ${heatOval(x, y, st.heat[0], c)}</g>`;
-    } else g += isHP(c, st)
-      ? `<g class="tog hpnode" data-heat role="button" tabindex="0" aria-expanded="false" aria-label="Wärmepumpe: Details anzeigen">${inner}</g>`
-      : wrap(c, inner);
+    // nodes with details (heat pump) open tiles below the flow
+    g += isHP(c, st) ? selWrap('hp', inner, 'Wärmepumpe') : wrap(c, inner);
   });
   const gridState = Math.abs(st.gridW) < 15 ? 'ausgeglichen' : (st.gridW > 0 ? 'Bezug' : 'Einspeisung');
   const gl = circuitLoad('grid', st);
-  g += `<g>${node(nodes._grid, {r: NODE_R, ic: 'grid', color: st.gridW >= 0 ? COLORS.grid : 'var(--export)',
+  g += selWrap('grid', node(nodes._grid, {r: NODE_R, ic: 'grid', color: st.gridW >= 0 ? COLORS.grid : 'var(--export)',
     value: kw(Math.abs(st.gridW)), title: `Netz · ${gridState} · ${kw(Math.abs(st.gridW))}` + (gl ? ` · ${gl.text}` : ''),
-    ring: gl ? gl.ring : undefined, ringColor: gl ? gl.color : undefined, extra: gl ? gl.extra : undefined})}</g>`;
+    ring: gl ? gl.ring : undefined, ringColor: gl ? gl.color : undefined, extra: gl ? gl.extra : undefined}), 'Netz');
   if (st.hasBattery) {
     const batState = Math.abs(st.batteryW) < 15 ? 'Ruhe' : (st.batteryW < 0 ? 'lädt' : 'entlädt');
-    g += `<g>${node(nodes._battery, {r: NODE_R, ic: 'battery', color: COLORS.battery, value: kw(Math.abs(st.batteryW)),
-      ring: st.soc, extra: pct(st.soc), title: `Batterie ${pct(st.soc)} · ${batState} · ${kw(Math.abs(st.batteryW))}`})}</g>`;
+    g += selWrap('battery', node(nodes._battery, {r: NODE_R, ic: 'battery', color: COLORS.battery, value: kw(Math.abs(st.batteryW)),
+      ring: st.soc, extra: pct(st.soc), title: `Batterie ${pct(st.soc)} · ${batState} · ${kw(Math.abs(st.batteryW))}`}), 'Hausbatterie');
   }
-  g += `<g>${node(home, {r: HOME_R, ic: 'house', color: COLORS.home, value: kw(st.loadW), title: `Hausverbrauch · ${kw(st.loadW)}`})}</g>`;
+  g += selWrap('home', node(home, {r: HOME_R, ic: 'house', color: COLORS.home, value: kw(st.loadW), title: `Hausverbrauch · ${kw(st.loadW)}`}), 'Haus');
   svg.innerHTML = g;
-  popOpen = false; hpPop = false;
+  popOpen = false;
 }
 
 // click on a group expands it (and closes any other), click on one of its
@@ -550,6 +533,9 @@ function toggleGroup(e) {
   e.preventDefault();
   const same = t && open && open.key === t.dataset.toggle && open.kind === t.dataset.kind;
   open = t && !same ? {key: t.dataset.toggle, kind: t.dataset.kind} : null;
+  // the PV group shows its details below; other groups close them
+  sel = open && open.key === 'pv' ? 'pv' : (sel === 'pv' ? null : sel);
+  if (window._last) renderDetails(window._last);
   popOpen = !!open;
   if (window._last) drawFlow(window._last);
   if (t && e.type === 'keydown') { // keep keyboard focus on the toggled group
@@ -998,115 +984,102 @@ $('vehDlg').addEventListener('change', async e => {
   await send('PUT', 'api/vehicles/' + card.dataset.veh, s);
 });
 
-// --- heat pump details: the heat pump node opens into an oval ---
-let hpOpen = false, hpPop = false;
+// --- details below the energy flow: a click on a node opens tiles ---
+let sel = null;            // 'hp' | 'grid' | 'battery' | 'home' | 'pv'
+let today = null;          // last /api/today
 const num1 = v => v.toLocaleString('de-DE', {minimumFractionDigits: 1, maximumFractionDigits: 1});
-// the opened heat pump, drawn in plain SVG (no HTML inside SVG: Safari
-// places foreignObject content wrongly). Compact layout inside the oval:
-//         Wärmepumpe · Heizbetrieb
-//   ( COP )   WÄRME 3,9 kW
-//             [Strom|Umwelt]  Strom 920 W · Umwelt 3,0 kW
-//   RL 30,8°  ▬▬▬▬ band ▬▬▬▬  VL 33,3°
-//      Δ 2,5 K · außen −4,9° · Warmwasser 50,2°
-function heatOval(x, y, h, c) {
-  const W = OVAL_W, cx = x + W / 2, t = (dx, dy, txt, cls, anchor = 'start') => `<text x="${(x + dx).toFixed(1)}" y="${(y + dy).toFixed(1)}" class="${cls}" text-anchor="${anchor}">${txt}</text>`;
-  const cop = h.cop, th = h.thermalW != null ? Math.max(0, h.thermalW) : null;
-  const el = h.electricW != null ? Math.max(0, h.electricW) : c.powerW;
-  const col = cop == null ? 'var(--muted)' : cop < 2.5 ? 'var(--warn)' : cop < 3.5 ? 'var(--solar)' : 'var(--accent)';
-  let g = `<text x="${cx}" y="${y + 23}" text-anchor="middle" class="ho-h">${esc(c.name || h.name || 'Wärmepumpe')}${h.state ? `<tspan class="ho-st" dx="5">· ${esc(h.state)}</tspan>` : ''}</text>`;
-  // COP half ring
-  const gx = x + 64, gy = y + 80, R = 30, C = Math.PI * R, frac = cop != null ? Math.max(0, Math.min(1, (cop - 1) / 6)) : 0;
-  const arcD = `M${gx - R} ${gy} A${R} ${R} 0 0 1 ${gx + R} ${gy}`;
-  g += `<path d="${arcD}" fill="none" stroke="var(--track)" stroke-width="8" stroke-linecap="round"/>`;
-  g += `<path d="${arcD}" fill="none" stroke="${col}" stroke-width="8" stroke-linecap="round" stroke-dasharray="${(C * frac).toFixed(1)} ${C.toFixed(1)}"/>`;
-  g += `<text x="${gx}" y="${gy - 4}" text-anchor="middle" class="ho-cop">${cop != null ? num1(cop) : '–'}</text>`;
-  g += `<text x="${gx}" y="${gy + 9}" text-anchor="middle" class="ho-lbl">COP</text>`;
-  // heat output and where it comes from
-  const rx = 116, rw = W - rx - 30;
-  g += t(rx, 46, 'WÄRME', 'ho-lbl');
-  g += t(rx, 67, th != null ? `${num1(th / 1000)}<tspan class="ho-u" dx="2">kW</tspan>` : '–', 'ho-big');
-  if (th > 0 && el != null) {
-    const e = Math.min(el, th), ew = rw * e / th;
-    g += `<rect x="${x + rx}" y="${y + 74}" width="${rw}" height="6" rx="3" fill="var(--accent)"/>`;
-    g += `<rect x="${x + rx}" y="${y + 74}" width="${Math.max(6, ew).toFixed(1)}" height="6" rx="3" fill="var(--grid)"/>`;
-    g += t(rx, 92, `Strom ${kw(e)} · Umwelt ${kw(th - e)}`, 'ho-sm');
-  }
-  // flow / return on a scale zoomed around both; the band is the spread
-  const foot = [];
-  if (h.flowC != null && h.returnC != null) {
-    const a = Math.min(h.returnC, h.flowC), b = Math.max(h.returnC, h.flowC);
-    const mid = (a + b) / 2, half = Math.max(10, (b - a) / 2 + 5);
-    const lo = Math.floor((mid - half) / 5) * 5, hi = Math.ceil((mid + half) / 5) * 5;
-    const sx = 84, sw = W - 2 * sx, px = v => x + sx + sw * Math.max(0, Math.min(1, (v - lo) / (hi - lo)));
-    const ly = y + 113;
-    g += `<rect x="${x + sx}" y="${ly - 1.5}" width="${sw}" height="3" rx="1.5" fill="url(#hoTemp)" opacity=".4"/>`;
-    g += `<rect x="${(px(a) - 4).toFixed(1)}" y="${ly - 4}" width="${Math.max(8, px(b) - px(a) + 8).toFixed(1)}" height="8" rx="4" fill="url(#hoBand)"/>`;
-    g += t(sx - 8, 117, `RL <tspan class="ho-b">${num1(h.returnC)}°</tspan>`, 'ho-sm', 'end');
-    g += t(W - sx + 8, 117, `VL <tspan class="ho-b">${num1(h.flowC)}°</tspan>`, 'ho-sm');
-    foot.push(`<tspan class="ho-b">Δ ${num1(h.flowC - h.returnC)} K</tspan>`);
-  }
-  if (h.outdoorC != null) foot.push(`außen ${num1(h.outdoorC)}°`);
-  if (h.hotWaterC != null) foot.push(`WW ${num1(h.hotWaterC)}°`);
-  if (h.error) g += `<text x="${cx}" y="${y + 136}" text-anchor="middle" class="ho-err">${esc(h.error)}</text>`;
-  else if (foot.length) g += `<text x="${cx}" y="${y + 136}" text-anchor="middle" class="ho-sm">${foot.join(' · ')}</text>`;
-  return `<defs><linearGradient id="hoTemp"><stop offset="0" stop-color="#4a90d9"/><stop offset=".6" stop-color="#e8a317"/><stop offset="1" stop-color="#d9534f"/></linearGradient>
-    <linearGradient id="hoBand"><stop offset="0" stop-color="#4a90d9"/><stop offset="1" stop-color="#e8743b"/></linearGradient></defs>${g}`;
+const kwhS = wh => (wh / 1000).toLocaleString('de-DE', {maximumFractionDigits: wh >= 10000 ? 0 : 1});
+function selWrap(key, inner, name) {
+  return `<g class="tog selnode${sel === key ? ' on' : ''}" data-sel="${key}" role="button" tabindex="0" aria-pressed="${sel === key}" aria-label="${esc(name)}: Details ${sel === key ? 'ausblenden' : 'anzeigen'}">${inner}</g>`;
 }
-function toggleHeat(e) {
-  const n = e.target.closest('[data-heat]');
+const tile = (label, value, sub = '', extra = '') => `<div class="dtile"><span class="eyebrow">${label}</span><b class="dv">${value}</b>${extra}${sub ? `<span class="ds">${sub}</span>` : ''}</div>`;
+const unit = (v, u) => `${v}<small>${u}</small>`;
+
+function detailTiles(st) {
+  const t = today || {};
+  switch (sel) {
+  case 'hp': {
+    const h = (st.heat || [])[0];
+    if (!h) return '';
+    const c = (st.consumers || []).find(x => x.icon === 'heatpump') || {};
+    const cop = h.cop, th = h.thermalW != null ? Math.max(0, h.thermalW) : null, el = h.electricW != null ? Math.max(0, h.electricW) : c.powerW;
+    const col = cop == null ? 'var(--muted)' : cop < 2.5 ? 'var(--warn)' : cop < 3.5 ? 'var(--solar)' : 'var(--accent)';
+    const R = 34, C = Math.PI * R, frac = cop != null ? Math.max(0, Math.min(1, (cop - 1) / 6)) : 0;
+    const ring = `<svg class="dring" viewBox="0 0 84 46" aria-hidden="true"><path d="M8 42 A34 34 0 0 1 76 42" fill="none" stroke="var(--track)" stroke-width="8" stroke-linecap="round"/>
+      <path d="M8 42 A34 34 0 0 1 76 42" fill="none" stroke="${col}" stroke-width="8" stroke-linecap="round" stroke-dasharray="${(C * frac).toFixed(1)} ${C.toFixed(1)}"/></svg>`;
+    let split = '';
+    if (th > 0 && el != null) { const e = Math.min(el, th); split = `<span class="dbar"><i style="width:${(100 * e / th).toFixed(1)}%;background:var(--grid)"></i><i style="flex:1;background:var(--accent)"></i></span>`;
+      split += `<span class="ds">Strom ${kw(e)} · Umwelt ${kw(th - e)}</span>`; }
+    let temp = '–', band = '';
+    if (h.flowC != null && h.returnC != null) {
+      const a = Math.min(h.returnC, h.flowC), b = Math.max(h.returnC, h.flowC), mid = (a + b) / 2, half = Math.max(10, (b - a) / 2 + 5);
+      const lo = Math.floor((mid - half) / 5) * 5, hi = Math.ceil((mid + half) / 5) * 5, x = v => 100 * (v - lo) / (hi - lo);
+      temp = `${num1(h.flowC)}<small>/ ${num1(h.returnC)} °C</small>`;
+      band = `<span class="dtemp"><i style="left:${x(a).toFixed(1)}%;width:${Math.max(3, x(b) - x(a)).toFixed(1)}%"></i></span>`;
+    }
+    const copTile = `<div class="dtile"><span class="eyebrow">COP</span><span class="dcop">${ring}<b>${cop != null ? num1(cop) : '–'}</b></span>${h.state ? `<span class="ds">${esc(h.state)}</span>` : ''}</div>`;
+    return [copTile,
+      tile('Wärmeleistung', th != null ? unit(num1(th / 1000), 'kW') : '–', '', split),
+      tile('Vorlauf / Rücklauf', temp, h.flowC != null && h.returnC != null ? `Spreizung ${num1(h.flowC - h.returnC)} K` : '', band),
+      tile('Außen · Warmwasser', `${h.outdoorC != null ? num1(h.outdoorC) : '–'}<small>/ ${h.hotWaterC != null ? num1(h.hotWaterC) : '–'} °C</small>`, h.error || '')].join('');
+  }
+  case 'grid': {
+    const imp = st.gridW >= 0, ch = charging || {};
+    const gl = circuitLoad('grid', st);
+    return [tile(imp ? 'Bezug jetzt' : 'Einspeisung jetzt', unit(num1(Math.abs(st.gridW) / 1000), 'kW'), Math.abs(st.gridW) < 15 ? 'ausgeglichen' : imp ? 'aus dem Netz' : 'ins Netz'),
+      tile('Bezug heute', unit(kwhS(t.gridImportWh || 0), 'kWh'), t.gridCostCt ? 'ca. ' + money(t.gridCostCt, ch.currency) : ''),
+      tile('Einspeisung heute', unit(kwhS(t.gridExportWh || 0), 'kWh'), t.selfUse != null ? pct(t.selfUse) + ' der PV selbst genutzt' : ''),
+      gl ? tile('Hausanschluss', unit(Math.round(gl.a), 'A'), gl.text) : tile('Preis jetzt', ch.gridCt != null ? unit(num1(ch.gridCt), 'ct') : '–', ch.feedinCt != null ? 'Einspeisung ' + num1(ch.feedinCt) + ' ct' : '')].join('');
+  }
+  case 'battery': {
+    const w = st.batteryW, state = Math.abs(w) < 15 ? 'Ruhe' : w < 0 ? 'lädt' : 'entlädt';
+    const ring = `<span class="dbar"><i style="width:${(st.soc * 100).toFixed(0)}%;background:linear-gradient(90deg, var(--accent), var(--battery))"></i></span>`;
+    return [tile('Ladestand', unit(Math.round(st.soc * 100), '%'), '', ring),
+      tile(state === 'Ruhe' ? 'Leistung' : state === 'lädt' ? 'Lädt mit' : 'Entlädt mit', unit(num1(Math.abs(w) / 1000), 'kW'), state === 'Ruhe' ? 'in Ruhe' : ''),
+      tile('Heute', `${kwhS(t.batteryInWh || 0)}<small>kWh geladen</small>`, `${kwh(t.batteryOutWh || 0)} entladen`),
+      tile('Steuerung', st.controlled ? (st.chargeLimitW < 0 ? 'frei' : unit(num1(st.chargeLimitW / 1000), 'kW')) : 'Empfehlung',
+        [st.controlled ? 'Ladegrenze' : 'voltibri steuert die Batterie nicht', st.dischargeLimitW >= 0 ? 'Entladung max. ' + kw(st.dischargeLimitW) : ''].filter(Boolean).join(' · '))].join('');
+  }
+  case 'pv': {
+    const by = t.pvByDevice || {};
+    const rows = (st.producers || []).map(p => `<span class="drow"><span>${esc(p.name)}</span><b>${kw(p.powerW)}</b>${by[p.id] != null ? `<em>${kwh(by[p.id])}</em>` : ''}</span>`).join('');
+    // day total and forecast already stand next to the flow: here only what is new
+    return [tile('Erzeugung jetzt', unit(num1(st.pvW / 1000), 'kW'), st.loadW > 0 ? `deckt ${pct(Math.min(1, st.pvW / st.loadW))} des Verbrauchs` : ''),
+      rows ? `<div class="dtile wide"><span class="eyebrow">Anlagen · jetzt · heute</span>${rows}</div>` : ''].join('');
+  }
+  case 'home': {
+    const top = [...(st.consumers || [])].filter(c => c.powerW > 15).sort((a, b) => b.powerW - a.powerW).slice(0, 4)
+      .map(c => `<span class="drow"><span>${esc(c.name)}</span><b>${kw(c.powerW)}</b></span>`).join('');
+    return [tile('Verbrauch jetzt', unit(num1(st.loadW / 1000), 'kW')),
+      tile('Heute', unit(kwhS(t.loadWh || 0), 'kWh'), t.autarky != null ? `Autarkie ${pct(t.autarky)}` : ''),
+      `<div class="dtile wide"><span class="eyebrow">Größte Verbraucher jetzt</span>${top || '<span class="ds">–</span>'}<span class="drow"><span>übriges Haus</span><b>${kw(st.restW || 0)}</b></span></div>`].join('');
+  }
+  }
+  return '';
+}
+const SEL_TITLE = {hp: ['heatpump', 'Wärmepumpe'], grid: ['grid', 'Netz'], battery: ['battery', 'Hausbatterie'], pv: ['solar', 'PV'], home: ['house', 'Haus']};
+function renderDetails(st) {
+  const el = $('flowDetail'), html = sel && st ? detailTiles(st) : '';
+  el.hidden = !html;
+  if (!html) return;
+  const [ic, name] = SEL_TITLE[sel];
+  el.innerHTML = `<div class="dhead">${iconSVG(ic, 16)}<b>${name}</b></div><div class="dtiles">${html}</div>`;
+}
+async function select(key) {
+  sel = sel === key ? null : key;
+  if (sel && open) open = null; // one opened thing at a time
+  if (sel) { todayAt = 0; await refreshToday(); }
+  if (window._last) { drawFlow(window._last); renderDetails(window._last); }
+}
+function onSelect(e) {
+  const n = e.target.closest('[data-sel]');
   if (!n || (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ')) return;
   e.preventDefault(); e.stopPropagation();
-  hpOpen = !hpOpen; hpPop = hpOpen;
-  if (hpOpen) open = null; // one opened thing at a time
-  if (window._last) drawFlow(window._last);
-  const f = $('flow').querySelector('[data-heat]'); if (f) f.focus();
+  select(n.dataset.sel);
 }
-$('flow').addEventListener('click', toggleHeat, true);
-$('flow').addEventListener('keydown', toggleHeat, true);
-// a click anywhere else (another group, the page) closes it again
-const closeHeat = () => { if (!hpOpen) return; hpOpen = false; if (window._last) drawFlow(window._last); };
-document.addEventListener('click', e => { if (!e.target.closest('[data-heat]')) closeHeat(); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeHeat(); });
-
-// --- vehicle & charge plan of a wallbox (dialog from the tile) ---
-let lpDlgId = null;
-function renderLpDlg() {
-  const lp = (charging.loadpoints || []).find(l => l.id === lpDlgId);
-  if (!lp) { $('lpDlg').close(); return; }
-  const veh = vehicleOf(lp.vehicle), guest = lp.vehicle === 'guest', canEdit = charging.local && !lp.foreign;
-  const opts = [`<option value="">Automatisch erkennen${lp.connected && !lp.manual ? ' (' + esc(lp.vehicleName) + ')' : ''}</option>`,
-    `<option value="guest"${lp.manual && guest ? ' selected' : ''}>Gastfahrzeug</option>`,
-    ...(charging.vehicles || []).map(v => `<option value="${esc(v.key)}"${lp.manual && lp.vehicle === v.key ? ' selected' : ''}>${esc(v.name)}</option>`)];
-  $('lpInner').innerHTML = `<div class="pd-head"><div class="top"><span class="ic">${iconSVG('car', 22)}</span>
-      <div><h2 id="lpdTitle">Fahrzeug &amp; Ladeplan</h2><div class="sub">${esc(lp.name)} · ${lp.connected ? esc(lp.vehicleName) : 'kein Fahrzeug angesteckt'}</div></div>
-      <button type="button" class="x" data-lpclose aria-label="Schließen">×</button></div></div>
-    <div class="pd-body">
-      ${lp.connected && !lp.foreign ? `<div class="pform"><div><div class="lab">Welches Fahrzeug lädt?</div>
-        <select data-lpveh aria-label="Fahrzeug" ${canEdit ? '' : 'disabled'} style="width:100%;font-size:15px;padding:8px 10px;border-radius:10px">${opts.join('')}</select>
-        <div class="need">${lp.detecting ? 'voltibri fragt noch die Fahrzeugkonten ab (bis zu 10 min).' : 'Gilt bis zum Abstecken. „Automatisch“ erkennt das Auto über sein Fahrzeugkonto.'}</div>
-        ${guest && !lp.detecting ? `<div class="need">${esc(GUEST_POLICY[lp.guestPolicy] || '')}</div>` : ''}</div></div>` : ''}
-      ${veh ? `<div class="pform"><div class="lab">Ladeplan · ${esc(veh.name)}</div>${planSummary(veh, lp.plan, charging.local)}</div>` : '<div class="hint">Ladepläne gibt es für bekannte Fahrzeuge, nicht für Gäste.</div>'}
-    </div>
-    <div class="pd-foot"><button type="button" class="btn" data-lpclose>Fertig</button></div>`;
-}
-$('laden').addEventListener('click', e => {
-  const b = e.target.closest('[data-lpmore]');
-  if (!b) return;
-  lpDlgId = b.dataset.lpmore;
-  renderLpDlg();
-  $('lpDlg').showModal();
-});
-$('lpDlg').addEventListener('click', e => {
-  const d = $('lpDlg');
-  if (e.target === d || e.target.closest('[data-lpclose]')) return d.close();
-  const p = e.target.closest('[data-plans]');
-  if (p) { d.close(); openPlans(p.dataset.plans); }
-});
-$('lpDlg').addEventListener('change', async e => {
-  if (!e.target.matches('[data-lpveh]')) return;
-  await send('PUT', `api/loadpoints/${encodeURIComponent(lpDlgId)}/vehicle`, {vehicle: e.target.value});
-  renderLpDlg();
-});
+$('flow').addEventListener('click', onSelect, true);
+$('flow').addEventListener('keydown', onSelect, true);
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && sel) select(sel); });
 (() => { // result of an OAuth login
   const msg = new URLSearchParams(location.search).get('oauth');
   if (!msg) return;
@@ -1127,6 +1100,7 @@ async function refreshToday() {
   todayAt = Date.now();
   const t = await fetch('api/today').then(r => r.ok ? r.json() : null).catch(() => null);
   if (!t) return;
+  today = t;
   const kwhBig = wh => big((wh / 1000).toLocaleString('de-DE', {maximumFractionDigits: wh >= 10000 ? 0 : 1}) + ' kWh');
   const since = t.covered ? '' : ' seit ' + hm(t.since);
   $('tAut').innerHTML = t.autarky != null ? big(pct(t.autarky)) : '–';
@@ -1167,7 +1141,7 @@ async function refresh() {
   try {
     const [st, plan, hist] = await Promise.all([fetch('api/state').then(r => r.json()),
       can.forecast ? fetch('api/plan').then(r => r.json()) : null, can.forecast ? loadHistory() : []]);
-    if (can.flow) { drawFlow(st); refreshToday(); }
+    if (can.flow) { drawFlow(st); refreshToday(); renderDetails(st); }
     // the heat pump details live in the energy flow (click); the card is for users without it
     if (can.heat && !can.flow) renderHeat(st); else $('heat').hidden = true;
     if (plan) {
