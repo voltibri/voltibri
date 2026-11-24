@@ -357,7 +357,7 @@ func TestBatteryExclusion(t *testing.T) {
 
 func TestDecideOffAndPV1(t *testing.T) {
 	d := Decide(Input{Now: t0, Mode: ModeOff, Connected: true, SurplusW: 9000, MinA: 6, MaxA: 16, Phases: 3, PlanSlot: true})
-	if d.Enabled || !strings.Contains(d.Reason, "deaktiviert") {
+	if d.Enabled || !strings.Contains(d.Reason, "aus") {
 		t.Fatalf("off: %+v", d)
 	}
 	// 2 kW surplus: one phase with switching, 8 A
@@ -537,5 +537,19 @@ func TestFinishAndPhases(t *testing.T) {
 		if got := livePhases(c.st, c.on); got != c.want {
 			t.Errorf("phases %+v: %d", c.st, got)
 		}
+	}
+}
+
+func TestOffReason(t *testing.T) {
+	m, ch, _ := setup(t, config.Loadpoint{GuestMode: "off"}, fakeProvider{})
+	ch.st = sdk.ChargerStatus{Connected: true}
+	tick(m, 0, ch, 0, 0, 0, 500)
+	if r := m.Loadpoints()[0].Reason; !strings.Contains(r, "Gäste laden nicht automatisch") {
+		t.Fatalf("guest default off: %q", r)
+	}
+	m.SetOff("wb", true)
+	tick(m, time.Minute, ch, 0, 0, 0, 500)
+	if r := m.Loadpoints()[0].Reason; !strings.Contains(r, "Wallbox ausgeschaltet") {
+		t.Fatalf("wallbox off: %q", r)
 	}
 }

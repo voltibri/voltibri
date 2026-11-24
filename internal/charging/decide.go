@@ -114,7 +114,7 @@ func Decide(in Input) Decision {
 		return d
 	}
 	if in.Mode == ModeOff {
-		return off("Wallbox deaktiviert")
+		return off("Laden aus")
 	}
 	if !in.Connected {
 		return off("kein Fahrzeug angesteckt")

@@ -103,7 +103,7 @@
   /* tiles side by side: the same parts on the same height (rows shared via subgrid) */
   @supports (grid-template-rows: subgrid) {
     .lps { row-gap:0; }
-    .lp { display:grid; grid-template-rows:subgrid; grid-row:span 7; gap:0; margin-bottom:12px; align-content:start; }
+    .lp { display:grid; grid-template-rows:subgrid; grid-row:span 6; gap:0; margin-bottom:12px; align-content:start; }
     .lp > :not(.wbart):not(:empty) ~ :not(:empty) { margin-top:12px; }
   }
   /* big wallbox in the background; its light ring shows the state */
@@ -114,6 +114,10 @@
   .lp.st-connected .wbart { opacity:.09; color:var(--accent-2); }
   @media (prefers-reduced-motion: reduce) { .lp.st-charging .wbart .ring { animation:none; } }
   .lphead .lpname { display:flex; flex-direction:column; min-width:0; }
+  .lptop { margin-left:auto; display:flex; flex-direction:column; align-items:flex-end; gap:6px; flex:none; }
+  .lpmore { display:inline-flex; align-items:center; gap:5px; font:inherit; font-size:12px; font-weight:600; color:var(--accent); background:var(--card); border:1px solid var(--line); border-radius:99px; padding:3px 10px 3px 8px; cursor:pointer; }
+  .lpmore:hover { border-color:color-mix(in srgb, var(--accent) 45%, var(--line)); }
+  @media (max-width:420px) { .lpmore span { display:none; } .lpmore { padding:5px 7px; } }
   .lphead .lpname small { font-size:11px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .lphead .lpname b { font-size:18px; font-weight:650; letter-spacing:-.015em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .lphead .lpname b.none { color:var(--muted); font-weight:500; }
@@ -338,6 +342,7 @@
 </main>
 <dialog class="plans-dlg" id="plansDlg" aria-labelledby="pdTitle"><div class="pd" id="pdInner"></div></dialog>
 <dialog class="plans-dlg" id="vehDlg" aria-labelledby="vdTitle"><div class="pd" id="vehInner"></div></dialog>
+<dialog class="plans-dlg" id="lpDlg" aria-labelledby="lpdTitle"><div class="pd" id="lpInner"></div></dialog>
 <script src="common.js"></script>
 <script>
 const kw = w => (Math.abs(w) >= 1000 ? (w/1000).toFixed(1).replace('.', ',') + ' kW' : Math.round(w) + ' W');
@@ -699,29 +704,24 @@ function renderLoadpoint(lp) {
   const modeBtns = `<button data-mode="off" class="${mode === 'off' ? 'sel' : ''}" title="${esc(MODE_HELP.off)}"${canEdit ? '' : ' disabled'}>Aus</button>
     <span class="split${SMART.includes(mode) ? ' sel' : ''}"><button data-mode="${smart}" title="${esc(MODE_HELP[smart])}"${dis}>Smart <small>${MODE_LABEL[smart]}</small></button><button class="caret" data-smartmenu aria-haspopup="menu" aria-expanded="${smartOpen === lp.id}" aria-label="Strategie wählen"${dis}>▾</button></span>
     <button data-mode="fast" class="${mode === 'fast' ? 'sel' : ''}" title="${esc(MODE_HELP.fast)}"${dis}>Schnell</button>${menu}`;
-  let plan = '';
-  if (veh) plan = planSummary(veh, lp.plan, canEdit);
   const s = lp.session;
   const sess = s ? `<div class="sess"><span>Dieser Ladevorgang <b>${kwh(s.energyWh)}</b></span>
       <span>PV/Akku <b>${s.energyWh > 0 ? Math.round(100 * (s.pvWh + s.batteryWh) / s.energyWh) : 0} %</b></span>
       <span>${guest ? 'Verrechnung' : 'Kosten'} <b>${money(s.costCt, charging.currency)}</b></span></div>` : '';
   const who = (lp.card ? ` <span class="pill" title="Ladekarte dieses Ladevorgangs">${iconSVG('device', 11)} ${esc(lp.card)}</span>` : '') +
     (lp.connected && lp.sessionMode ? ' <span class="pill" title="Gilt nur für diesen Ladevorgang, bis zum Abstecken">nur jetzt</span>' : '');
-  // exactly 7 parts (empty ones too), so tiles side by side share the rows
+  // exactly 6 parts (empty ones too), so tiles side by side share the rows
   const st = !lp.connected ? 'free' : lp.charging ? 'charging' : 'connected';
   const pills = [lp.batteryExcluded ? '<span class="pill" title="Die Hausbatterie wird für diesen Ladevorgang zurückgehalten – Laden aus PV und Netz.">ohne Hausbatterie</span>' : '',
     !lp.owned ? '<span class="pill" title="voltibri schreibt nicht auf diese Wallbox (Modus „observed“) und zeigt nur, was es tun würde.">beobachtet</span>' : '', who].join('').trim();
-  const details = lp.connected || veh ? `<details class="more" data-k="lp:${esc(lp.id)}"><summary>Fahrzeug &amp; Ladeplan</summary><div>
-      ${lp.connected && !lp.foreign ? `<div class="vrow"><select data-vehsel aria-label="Fahrzeug" ${canEdit ? '' : 'disabled'}>${opts.join('')}</select>
-        ${guest && !lp.detecting ? `<span class="why">${esc(GUEST_POLICY[lp.guestPolicy] || '')}</span>` : ''}</div>` : ''}
-      ${plan}</div></details>` : '';
-  return `<div class="lp st-${st}" data-lp="${esc(lp.id)}">${WALLBOX_ART}<div class="lphead"><div class="lpname"><small>${esc(lp.name)}</small>${lp.connected ? `<b>${esc(lp.vehicleName)}</b>` : '<b class="none">kein Fahrzeug</b>'}</div><span class="pill${lp.charging ? ' on' : ''}" style="margin-left:auto">${status}</span></div>`
+  // vehicle and charge plan: a dialog from the top right of the tile
+  const more = (lp.connected && !lp.foreign) || veh ? `<button type="button" class="lpmore" data-lpmore="${esc(lp.id)}" aria-haspopup="dialog" title="Fahrzeug &amp; Ladeplan">${iconSVG('car', 15)}<span>Fahrzeug &amp; Ladeplan</span></button>` : '';
+  return `<div class="lp st-${st}" data-lp="${esc(lp.id)}">${WALLBOX_ART}<div class="lphead"><div class="lpname"><small>${esc(lp.name)}</small>${lp.connected ? `<b>${esc(lp.vehicleName)}</b>` : '<b class="none">kein Fahrzeug</b>'}</div><div class="lptop"><span class="pill${lp.charging ? ' on' : ''}">${status}</span>${more}</div></div>`
     + (pills ? `<div class="lpsub">${pills}</div>` : '<div></div>')
     + `<div class="lpviz">${gauge(lp)}<div class="lpinfo">${phasesView(lp)}${etaView(lp, veh)}${soc}</div></div>`
     + `<div class="modes" role="group" aria-label="Lademodus">${modeBtns}</div>`
     + (lp.connected && lp.reason ? `<div class="why">${esc(lp.reason)}</div>` : '<div></div>')
-    + (sess || '<div></div>')
-    + (details || '<div></div>') + '</div>';
+    + (sess || '<div></div>') + '</div>';
 }
 
 // vehicles dialog: state of charge, default mode and charge plan per vehicle
@@ -788,6 +788,7 @@ async function refreshCharging(force) {
   $('vehNote').hidden = !needLogin.length;
   $('vehNote').innerHTML = needLogin.map(p => `${esc(p.name)}: noch nicht angemeldet – Ladestand fehlt. ${charging.admin ? `<a class="btn primary" href="api/oauth/${encodeURIComponent(p.id)}/login">Bei ${esc(p.name)} anmelden</a>` : ''}`).join('<br>');
   if ($('vehDlg').open) renderVehiclesDlg();
+  if ($('lpDlg').open && !$('lpDlg').contains(document.activeElement && document.activeElement.tagName === 'SELECT' ? document.activeElement : null)) renderLpDlg();
   restoreDetails(box);
 }
 function vehicleSettings(key) { return JSON.parse(JSON.stringify(vehicleOf(key).settings)); }
@@ -1056,6 +1057,46 @@ function toggleHeat(e) {
 $('flow').addEventListener('click', toggleHeat, true);
 $('flow').addEventListener('keydown', toggleHeat, true);
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && hpOpen) { hpOpen = false; if (window._last) drawFlow(window._last); } });
+
+// --- vehicle & charge plan of a wallbox (dialog from the tile) ---
+let lpDlgId = null;
+function renderLpDlg() {
+  const lp = (charging.loadpoints || []).find(l => l.id === lpDlgId);
+  if (!lp) { $('lpDlg').close(); return; }
+  const veh = vehicleOf(lp.vehicle), guest = lp.vehicle === 'guest', canEdit = charging.local && !lp.foreign;
+  const opts = [`<option value="">Automatisch erkennen${lp.connected && !lp.manual ? ' (' + esc(lp.vehicleName) + ')' : ''}</option>`,
+    `<option value="guest"${lp.manual && guest ? ' selected' : ''}>Gastfahrzeug</option>`,
+    ...(charging.vehicles || []).map(v => `<option value="${esc(v.key)}"${lp.manual && lp.vehicle === v.key ? ' selected' : ''}>${esc(v.name)}</option>`)];
+  $('lpInner').innerHTML = `<div class="pd-head"><div class="top"><span class="ic">${iconSVG('car', 22)}</span>
+      <div><h2 id="lpdTitle">Fahrzeug &amp; Ladeplan</h2><div class="sub">${esc(lp.name)} · ${lp.connected ? esc(lp.vehicleName) : 'kein Fahrzeug angesteckt'}</div></div>
+      <button type="button" class="x" data-lpclose aria-label="Schließen">×</button></div></div>
+    <div class="pd-body">
+      ${lp.connected && !lp.foreign ? `<div class="pform"><div><div class="lab">Welches Fahrzeug lädt?</div>
+        <select data-lpveh aria-label="Fahrzeug" ${canEdit ? '' : 'disabled'} style="width:100%;font-size:15px;padding:8px 10px;border-radius:10px">${opts.join('')}</select>
+        <div class="need">${lp.detecting ? 'voltibri fragt noch die Fahrzeugkonten ab (bis zu 10 min).' : 'Gilt bis zum Abstecken. „Automatisch“ erkennt das Auto über sein Fahrzeugkonto.'}</div>
+        ${guest && !lp.detecting ? `<div class="need">${esc(GUEST_POLICY[lp.guestPolicy] || '')}</div>` : ''}</div></div>` : ''}
+      ${veh ? `<div class="pform"><div class="lab">Ladeplan · ${esc(veh.name)}</div>${planSummary(veh, lp.plan, charging.local)}</div>` : '<div class="hint">Ladepläne gibt es für bekannte Fahrzeuge, nicht für Gäste.</div>'}
+    </div>
+    <div class="pd-foot"><button type="button" class="btn" data-lpclose>Fertig</button></div>`;
+}
+$('laden').addEventListener('click', e => {
+  const b = e.target.closest('[data-lpmore]');
+  if (!b) return;
+  lpDlgId = b.dataset.lpmore;
+  renderLpDlg();
+  $('lpDlg').showModal();
+});
+$('lpDlg').addEventListener('click', e => {
+  const d = $('lpDlg');
+  if (e.target === d || e.target.closest('[data-lpclose]')) return d.close();
+  const p = e.target.closest('[data-plans]');
+  if (p) { d.close(); openPlans(p.dataset.plans); }
+});
+$('lpDlg').addEventListener('change', async e => {
+  if (!e.target.matches('[data-lpveh]')) return;
+  await send('PUT', `api/loadpoints/${encodeURIComponent(lpDlgId)}/vehicle`, {vehicle: e.target.value});
+  renderLpDlg();
+});
 (() => { // result of an OAuth login
   const msg = new URLSearchParams(location.search).get('oauth');
   if (!msg) return;

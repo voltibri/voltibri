@@ -810,6 +810,9 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 				d.Reason += fmt.Sprintf(" · Lastmanagement: höchstens %.0f A (%s)", maxA, v.LimitBy)
 			}
 		}
+		if mode == ModeOff { // say why it is off and how to start
+			d.Reason = offReason(v.Off, v.SessionMode, guest, v.Connected)
+		}
 		lp.state = d.State
 		v.Target, v.Reason = d.State, d.Reason
 		v.ActivePhases, v.PhaseCurrentA, v.Finish = livePhases(st, v.Charging), 0, nil
@@ -1080,4 +1083,19 @@ func finish(st sdk.VehicleStatus, capacityWh float64, plan *Schedule, charging b
 		f.At = now.Add(time.Duration(f.NeedWh / powerW * float64(time.Hour))).Truncate(time.Minute)
 	}
 	return f
+}
+
+// offReason explains why a loadpoint does not charge in mode "off".
+func offReason(wallboxOff, sessionMode, guest, connected bool) string {
+	switch {
+	case wallboxOff:
+		return "Wallbox ausgeschaltet – mit „Smart“ oder „Schnell“ wieder einschalten"
+	case !connected:
+		return "kein Fahrzeug angesteckt"
+	case sessionMode:
+		return "Laden aus für diesen Ladevorgang – bis zum Abstecken"
+	case guest:
+		return "Gäste laden nicht automatisch (Standard der Wallbox: Aus) – per Knopf oder Ladekarte starten"
+	}
+	return "Standardmodus des Fahrzeugs ist „Aus“ – per Knopf starten"
 }
