@@ -16,8 +16,9 @@
   --glow:radial-gradient(1100px 420px at 15% -10%, rgba(44,203,182,.08), transparent 60%), radial-gradient(900px 380px at 100% -15%, rgba(246,185,59,.06), transparent 55%);
 } }
 * { box-sizing:border-box; }
-html { background:var(--bg); }
-body { margin:0; font:15px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; background:var(--glow), var(--bg); background-repeat:no-repeat; color:var(--fg); -webkit-font-smoothing:antialiased; }
+/* the glow sits on the root, so collapsing margins of the first element never show a plain band above it */
+html { background:var(--glow), var(--bg); background-repeat:no-repeat; min-height:100%; }
+body { margin:0; font:15px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; background:transparent; color:var(--fg); -webkit-font-smoothing:antialiased; }
 main { max-width:1080px; margin:0 auto; padding:max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 56px max(16px, env(safe-area-inset-left)); }
 a { color:var(--accent); }
 
