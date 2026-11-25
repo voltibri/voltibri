@@ -48,7 +48,7 @@ func levelFor(method, path string) level {
 		return levelForecast
 	case "/berichte", "/api/assets", "/api/sessions":
 		return levelReports
-	case "/api/battery", "/api/battery/boost":
+	case "/api/battery", "/api/battery/force", "/api/battery/boost":
 		return levelAdmin // runtime settings: no re-authentication like the configuration
 	case "/konfiguration", "/api/oauth/callback":
 		return levelAdmin
@@ -58,6 +58,10 @@ func levelFor(method, path string) level {
 		return levelPublic // the OIDC handlers check the session themselves
 	case strings.HasPrefix(path, "/api/me"):
 		return levelUser
+	case method == http.MethodPut && strings.HasPrefix(path, "/api/loads/") && strings.HasSuffix(path, "/priority"):
+		return levelAdmin // the order of all surplus loads
+	case strings.HasPrefix(path, "/api/loads"):
+		return levelUser // list, mode of a heating rod
 	case method == http.MethodPut && (strings.HasPrefix(path, "/api/vehicles/") || strings.HasPrefix(path, "/api/loadpoints/")):
 		return levelUser // checked per wallbox and vehicle in the handlers
 	case method == http.MethodGet && strings.HasPrefix(path, "/api/runs"):

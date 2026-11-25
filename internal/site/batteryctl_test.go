@@ -66,7 +66,7 @@ func TestBatterySettingsByCapability(t *testing.T) {
 	cfg := config.Default()
 	// only a charge limit: upper target yes, nothing else
 	s := &Site{cfg: cfg, batCtl: ctlOnly{}}
-	if f := s.batteryFeatures(); !f.MaxSoC || f.MinSoC || f.MaxDischarge || f.Boost {
+	if f := s.batteryFeatures(); !f.MaxSoC || f.MinSoC || f.MaxDischarge || f.ForceCharge {
 		t.Fatalf("charge limit only: %+v", f)
 	}
 	if err := s.SetBatterySettings(BatterySettings{MaxSoC: 0.9}); err != nil {
@@ -75,8 +75,8 @@ func TestBatterySettingsByCapability(t *testing.T) {
 	if err := s.SetBatterySettings(BatterySettings{MinSoC: 0.1}); err == nil {
 		t.Fatal("lower target accepted without discharge limit")
 	}
-	if err := s.StartBoost(0.8); err == nil {
-		t.Fatal("boost accepted without force charging")
+	if err := s.StartForceCharge(0.8); err == nil {
+		t.Fatal("force charging accepted without force charger")
 	}
 	// no control at all
 	s = &Site{cfg: cfg}
@@ -86,7 +86,7 @@ func TestBatterySettingsByCapability(t *testing.T) {
 	// everything
 	bat := &forceBat{}
 	s = &Site{cfg: cfg, batCtl: bat, forceCh: bat}
-	if f := s.batteryFeatures(); !f.MaxSoC || !f.MinSoC || !f.MaxDischarge || !f.Boost {
+	if f := s.batteryFeatures(); !f.MaxSoC || !f.MinSoC || !f.MaxDischarge || !f.ForceCharge {
 		t.Fatalf("all: %+v", f)
 	}
 	for _, bad := range []BatterySettings{{MaxSoC: 0.5, MinSoC: 0.45}, {MinSoC: 0.95}, {MaxSoC: 0.1}, {MaxDischargeW: -1}} {
@@ -102,17 +102,17 @@ func TestBatterySettingsByCapability(t *testing.T) {
 	}
 }
 
-func TestBoost(t *testing.T) {
+func TestForceCharge(t *testing.T) {
 	cfg := config.Default()
 	cfg.Battery.MaxChargeW = 4000
 	bat := &forceBat{}
 	cache := sdk.NewMemCache()
 	s := &Site{cfg: cfg, batCtl: bat, forceCh: bat, batCache: cache, discharge: -1, plan: planner.Plan{}}
 	s.state.SoC = 0.4
-	if err := s.StartBoost(0.3); err == nil {
-		t.Fatal("boost below the SoC accepted")
+	if err := s.StartForceCharge(0.3); err == nil {
+		t.Fatal("force charging below the SoC accepted")
 	}
-	if err := s.StartBoost(0.8); err != nil {
+	if err := s.StartForceCharge(0.8); err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
@@ -123,27 +123,27 @@ func TestBoost(t *testing.T) {
 	// the limits are not written while forcing
 	s.writeLimits(ctx, true)
 	if len(bat.charge) != 0 {
-		t.Fatalf("limits written during boost: %v", bat.charge)
+		t.Fatalf("limits written during force charging: %v", bat.charge)
 	}
-	// a new site (configuration change) continues the boost
+	// a new site (configuration change) continues the force charging
 	s2 := &Site{cfg: cfg, batCtl: bat, forceCh: bat, batCache: cache}
 	s2.loadBattery()
-	if s2.boost == nil || s2.boost.TargetSoC != 0.8 {
-		t.Fatalf("boost not restored: %+v", s2.boost)
+	if s2.force == nil || s2.force.TargetSoC != 0.8 {
+		t.Fatalf("force charging not restored: %+v", s2.force)
 	}
-	// target reached: boost ends, back to the plan
+	// target reached: force charging ends, back to the plan
 	s.updateForce(ctx, 0.8, 0)
-	if s.boost != nil || s.forcing || len(bat.charge) != 1 {
-		t.Fatalf("boost %+v forcing %v limits %v", s.boost, s.forcing, bat.charge)
+	if s.force != nil || s.forcing || len(bat.charge) != 1 {
+		t.Fatalf("force %+v forcing %v limits %v", s.force, s.forcing, bat.charge)
 	}
 	s3 := &Site{cfg: cfg, batCtl: bat, forceCh: bat, batCache: cache}
 	s3.loadBattery()
-	if s3.boost != nil {
-		t.Fatal("ended boost restored")
+	if s3.force != nil {
+		t.Fatal("ended force charging restored")
 	}
-	// an old boost expires
-	s.boost = &Boost{TargetSoC: 0.9, Since: time.Now().Add(-boostMax)}
-	if w := s.forceWant(0.5, 0, -1); w != 0 || s.boost != nil {
-		t.Fatalf("expired boost: %v %+v", w, s.boost)
+	// an old force charging expires
+	s.force = &ForceCharge{TargetSoC: 0.9, Since: time.Now().Add(-forceMax)}
+	if w := s.forceWant(0.5, 0, -1); w != 0 || s.force != nil {
+		t.Fatalf("expired force charging: %v %+v", w, s.force)
 	}
 }

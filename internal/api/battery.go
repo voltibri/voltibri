@@ -9,15 +9,17 @@ import (
 	"github.com/voltibri/voltibri/internal/site"
 )
 
-// Battery settings (charge targets, max. discharge power) and the boost are
-// runtime settings for administrators, like the charging settings: they do
-// not create configuration versions. What can be set depends on the
+// Battery settings (charge targets, max. discharge power, boost), the force
+// charging and ending the automatic boost (the battery helps the surplus loads) are runtime
+// settings for administrators, like the charging settings: they do not
+// create configuration versions. What can be set depends on the
 // capabilities of the battery driver (features in GET /api/battery).
 
 func (h *handler) batteryRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/battery", h.getBattery)
 	mux.HandleFunc("PUT /api/battery", h.putBattery)
-	mux.HandleFunc("POST /api/battery/boost", h.postBoost)
+	mux.HandleFunc("POST /api/battery/force", h.postForce)
+	mux.HandleFunc("DELETE /api/battery/force", h.deleteForce)
 	mux.HandleFunc("DELETE /api/battery/boost", h.deleteBoost)
 }
 
@@ -51,7 +53,7 @@ func (h *handler) putBattery(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.BatteryInfo())
 }
 
-func (h *handler) postBoost(w http.ResponseWriter, r *http.Request) {
+func (h *handler) postForce(w http.ResponseWriter, r *http.Request) {
 	s := h.battery(w)
 	if s == nil {
 		return
@@ -62,8 +64,20 @@ func (h *handler) postBoost(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	if err := s.StartBoost(req.TargetSoC); err != nil {
+	if err := s.StartForceCharge(req.TargetSoC); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.BatteryInfo())
+}
+
+func (h *handler) deleteForce(w http.ResponseWriter, r *http.Request) {
+	s := h.battery(w)
+	if s == nil {
+		return
+	}
+	if err := s.StopForceCharge(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "Zwangsladung konnte nicht beendet werden", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, s.BatteryInfo())

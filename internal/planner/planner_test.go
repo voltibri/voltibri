@@ -156,3 +156,45 @@ func maxSoCUntil(p Plan, until time.Time) float64 {
 	}
 	return m
 }
+
+func TestAutoTargets(t *testing.T) {
+	ac := AutoConfig{FloorSunny: 0.05, FloorCloudy: 0.2}
+	now := time.Date(2026, 6, 15, 14, 0, 0, 0, berlin)
+	day := func(peak float64) Input {
+		return Input{Now: now, Battery: battery(0.5), TempC: math.NaN(),
+			Slots: slots(now, 40, func(t time.Time) float64 { return summerPV(t, peak) }, nil)}
+	}
+	// sunny tomorrow: empty down to 5 %, charge only what the night needs:
+	// 400 W × ~8.5 h × 1.2 = ~4.1 kWh of 13.8 kWh (÷0.95) ≈ 31 % + 5 % + 5 % -> 45 %
+	sun := AutoTargets(day(8000), constLoad{400}, DefaultConfig(), ac)
+	if sun.MinSoC != 0.05 || sun.MaxSoC < 0.35 || sun.MaxSoC > 0.5 || sun.DayFill == nil || *sun.DayFill < 1 || sun.Morning == nil || sun.Morning.Day() != 16 {
+		t.Fatalf("sunny: %+v", sun)
+	}
+	// more consumption in the night: higher
+	if got := AutoTargets(day(8000), constLoad{800}, DefaultConfig(), ac); got.MaxSoC <= sun.MaxSoC {
+		t.Fatalf("night need: %+v vs %+v", got, sun)
+	}
+	// dull tomorrow: keep 20 %, charge fully
+	dull := AutoTargets(day(900), constLoad{400}, DefaultConfig(), ac)
+	if dull.MinSoC != 0.2 || dull.MaxSoC != 1 {
+		t.Fatalf("dull: %+v", dull)
+	}
+	// in between: interpolated, charges fully
+	mid := AutoTargets(day(2500), constLoad{400}, DefaultConfig(), ac)
+	if mid.MinSoC <= 0.05 || mid.MinSoC >= 0.2 || mid.MaxSoC != 1 {
+		t.Fatalf("between: %+v", mid)
+	}
+	// a fixed upper target applies always
+	fixed := ac
+	fixed.MaxSoC = 0.8
+	if got := AutoTargets(day(8000), constLoad{400}, DefaultConfig(), fixed); got.MaxSoC != 0.8 || got.MinSoC != 0.05 {
+		t.Fatalf("fixed sunny: %+v", got)
+	}
+	if got := AutoTargets(day(900), constLoad{400}, DefaultConfig(), fixed); got.MaxSoC != 0.8 {
+		t.Fatalf("fixed dull: %+v", got)
+	}
+	// no forecast
+	if got := AutoTargets(Input{Now: now, Battery: battery(0.5)}, constLoad{400}, DefaultConfig(), ac); got.MinSoC != 0.2 || got.MaxSoC != 1 {
+		t.Fatalf("no data: %+v", got)
+	}
+}

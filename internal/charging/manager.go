@@ -102,6 +102,9 @@ type Loadpoint struct {
 	LimitA          *float64  `json:"limitA,omitempty"`          // load management: max current per phase right now
 	LimitBy         string    `json:"limitBy,omitempty"`         // circuit that limits
 	BatteryExcluded bool      `json:"batteryExcluded,omitempty"` // the home battery is held back for this charging
+	Boosting        bool      `json:"boosting,omitempty"`        // the home battery adds power (boost)
+	Priority        int       `json:"priority"`                  // surplus order: higher first (0-10)
+	Top             bool      `json:"top,omitempty"`             // first before all others for today
 	Foreign         bool      `json:"foreign,omitempty"`         // set by the API: another user's vehicle is connected (details hidden)
 	ActivePhases    int       `json:"activePhases"`              // phases the car draws on right now (0 = not charging)
 	PhaseCurrentA   float64   `json:"phaseCurrentA"`             // current per active phase right now
@@ -127,6 +130,28 @@ type SiteInput struct {
 	Chargers        map[string]sdk.ChargerStatus // corrected power
 	BatteryPriority bool                         // PV goes to the home battery first
 	Circuits        *circuit.Tree                // load management (nil: no fuses configured)
+	// Alloc shares the surplus between all surplus loads (wallboxes and
+	// heating rods) in priority order; nil: the loadpoints in configuration
+	// order, each sees the whole surplus minus what the ones before took.
+	Alloc Allocator
+	// BoostW: power the home battery may add for boosted loads now (0 =
+	// the battery is at its boost limit); AutoBoost: the battery's automatic
+	// boost runs, every surplus mode gets the boost.
+	BoostW    float64
+	AutoBoost bool
+	Priority  map[string]int  // priority per loadpoint (shown only)
+	Top       map[string]bool // first before all others for today (shown only)
+}
+
+// Allocator shares the surplus between the surplus loads in priority order.
+type Allocator interface {
+	// Rank is the position of the loadpoint in the order (lower first).
+	Rank(id string) int
+	// Avail is the surplus for the loadpoint including what it draws now;
+	// boost: the battery's boost power on top.
+	Avail(id string, boost bool) float64
+	// Take books what the loadpoint draws from now on.
+	Take(id string, w float64, boost bool)
 }
 
 // Result tells the site about guest charging.
@@ -609,9 +634,15 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 			taken[lp.view.Vehicle] = true
 		}
 	}
-	for _, lp := range m.lps {
+	lps := m.lps
+	if in.Alloc != nil {
+		lps = append([]*lpRuntime(nil), m.lps...)
+		sort.SliceStable(lps, func(i, j int) bool { return in.Alloc.Rank(lps[i].view.ID) < in.Alloc.Rank(lps[j].view.ID) })
+	}
+	for _, lp := range lps {
 		st := in.Chargers[lp.view.ID]
 		v := &lp.view
+		v.Priority, v.Top = in.Priority[v.ID], in.Top[v.ID]
 		wasConnected := v.Connected
 		v.Connected, v.Charging, v.PowerW = st.Connected, st.Charging, st.PowerW
 		if !lp.ticked { // first tick: continue a session interrupted by a restart
@@ -726,7 +757,7 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 		// plan
 		v.Plan = nil
 		planSlot := false
-		if veh, ok := m.vehicles[v.Vehicle]; ok && v.Connected && (v.Mode == ModePV || v.Mode == ModePV1 || v.Mode == ModeMinPV) {
+		if veh, ok := m.vehicles[v.Vehicle]; ok && v.Connected && v.Mode.Surplus() {
 			if p, target := nextPlan(vs.Plans, in.Now, m.loc); !target.IsZero() {
 				powerW := lp.cfg.MaxCurrentA * Voltage * float64(lp.cfg.Phases)
 				if vs.MaxPowerW > 0 {
@@ -778,8 +809,23 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 			res.ExcludedW += v.PowerW
 		}
 
-		surplus := Surplus(in.GridW, in.BatteryW, v.PowerW, prio)
-		surplus = math.Min(surplus, remaining)
+		// boost: by hand (mode) or the battery's automatic boost
+		wantBoost := mode == ModeBoost || (in.AutoBoost && mode.Surplus())
+		boosted := wantBoost && in.BoostW > 0 && !v.BatteryExcluded
+		v.Boosting = boosted && v.Connected
+		var surplus float64
+		if in.Alloc != nil {
+			surplus = in.Alloc.Avail(v.ID, boosted)
+			if prio && !in.BatteryPriority { // the battery's charging power stays with it
+				surplus -= math.Max(0, -in.BatteryW)
+			}
+		} else {
+			surplus = Surplus(in.GridW, in.BatteryW, v.PowerW, prio && !boosted)
+			if boosted {
+				surplus += in.BoostW
+			}
+			surplus = math.Min(surplus, remaining)
+		}
 		// load management: the circuits (sub-distribution, house fuse) cap the current
 		maxA, own := lp.cfg.MaxCurrentA, circuit.Phases{}
 		v.LimitA, v.LimitBy = nil, ""
@@ -798,6 +844,14 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 			MinPowerW: vs.MinPowerW, MaxPowerW: vs.MaxPowerW, Prev: lp.state})
 		if guest && lp.cfg.Guest == config.GuestBatteryFirst && v.Mode == ModeFast {
 			d.Reason = "Gast: Batterie hat Vorrang – " + d.Reason
+		}
+		switch {
+		case boosted && d.Enabled && !planSlot:
+			d.Reason += fmt.Sprintf(" · Boost: Hausbatterie gibt bis zu %.1f kW dazu", in.BoostW/1000)
+		case mode == ModeBoost && v.BatteryExcluded:
+			d.Reason = "Boost ohne Hausbatterie (für dieses Fahrzeug ausgeschlossen) – " + d.Reason
+		case mode == ModeBoost && in.BoostW <= 0:
+			d.Reason = "Boost: Hausbatterie ist an ihrer Boost-Grenze – " + d.Reason
 		}
 		if v.Detecting {
 			d.Reason = "Fahrzeug wird erkannt (bis zu 10 min), solange gelten die Gast-Einstellungen – " + d.Reason
@@ -832,9 +886,24 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 			}
 			in.Circuits.Commit(v.ID, own, next)
 		}
-		if mode != ModeExternal && d.Enabled {
+		switch {
+		case in.Alloc != nil: // what it draws from now on
+			w := v.PowerW // external, observed: keeps drawing what it draws
+			if lp.ctl != nil && mode != ModeExternal {
+				w = 0
+				if d.Enabled && v.Connected {
+					w = d.CurrentA * Voltage * float64(d.Phases)
+					// a car that takes clearly less (its own limit) leaves the
+					// rest to the next loads; one amp more to ramp up
+					if v.Charging && v.PowerW > 0 && v.PowerW < 0.8*w {
+						w = v.PowerW + Voltage*float64(d.Phases)
+					}
+				}
+			}
+			in.Alloc.Take(v.ID, w, boosted)
+		case mode != ModeExternal && d.Enabled:
 			remaining = math.Max(0, surplus-d.CurrentA*Voltage*float64(d.Phases))
-		} else if mode != ModeExternal {
+		case mode != ModeExternal:
 			remaining = math.Max(0, surplus)
 		}
 		m.apply(ctx, lp, mode, d)

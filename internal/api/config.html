@@ -44,6 +44,10 @@
   dl.kv dt { font-size:12px; color:var(--muted); }
   dl.kv dd { margin:0; font-size:14px; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
   .sublabel { font-size:12px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; margin:16px 0 4px; }
+  .rgrid { display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:10px 18px; padding-top:10px; border-top:1px solid var(--line); }
+  .rgrid label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--muted); min-width:0; }
+  .rgrid select { font-size:14px; }
+  .rgrid .why { font-size:11px; line-height:1.35; }
   .sublabel .linkbtn { text-transform:none; letter-spacing:0; margin-left:8px; font-weight:500; }
   .load { display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-variant-numeric:tabular-nums; }
   .ubar { width:140px; height:8px; border-radius:4px; background:var(--track); overflow:hidden; }
@@ -127,6 +131,8 @@ const AREAS = [
   {key: 'prices', title: 'Prognose + Preise', icon: 'solar', pick: ['forecast', 'tariff'],
    why: 'PV-Prognose, Strompreise und Tarife.'},
   {key: 'strategy', title: 'Batteriestrategie', icon: 'battery', why: 'Wie voltibri die Hausbatterie lädt.'},
+  {key: 'surplus', title: 'PV-Überschuss', icon: 'solar',
+   why: 'Wer den PV-Überschuss bekommt: die Hausbatterie, dann Wallboxen und Heizstäbe nach Priorität. Und wie viel die Batterie beim Boost dazugibt.'},
   {key: 'users', title: 'Benutzer + Gruppen', icon: 'users',
    why: 'Wer sich anmelden darf. Administratoren dürfen alles; Benutzer sehen nur, was ihre Gruppen freigeben – z. B. zwei Wallboxen und ein Fahrzeug.'},
   {key: 'system', title: 'System', icon: 'grid', why: 'Allgemeine Einstellungen und Versionen der Konfiguration.'},
@@ -292,7 +298,7 @@ function extraSection(area) {
       sectionKV('battery', [D.state && D.state.hasBattery ? ['Ladestand jetzt', pctv(D.state.soc)] : null]);
   }
   if (area === 'wallbox') {
-    return kv([['Batterie zuerst bis', pctv((c.charging && c.charging.batteryPrioritySoC) || 0.5)]]) + cardsSection();
+    return cardsSection();
   }
   if (area === 'prices') {
     const t = c.tariffs || {};
@@ -430,8 +436,75 @@ $('sec').addEventListener('click', e => {
 });
 
 function strategySection() {
-  return sectionKV('planner') + `<p class="why" style="margin:10px 0 0">Änderungen wirken ab der nächsten Planung (spätestens nach 15 Minuten, nach dem Speichern sofort).</p>`;
+  return sectionKV('planner') + `<p class="why" style="margin:10px 0 0">Änderungen wirken ab der nächsten Planung (spätestens nach 15 Minuten, nach dem Speichern sofort).</p>` + autoLimitsSection();
 }
+
+// ---- runtime battery settings (api/battery, api/loads): saved on change, no configuration version ----
+const rOpts = (val, vs, txt) => {
+  if (!vs.includes(val)) vs = [...vs, val].sort((a, b) => a - b); // a value off the grid stays selectable
+  return vs.map(v => `<option value="${v}"${v === val ? ' selected' : ''}>${txt(v)}</option>`).join('');
+};
+const rSteps = (min, max, st) => { const vs = []; for (let v = min; v <= max + 1e-9; v += st) vs.push(Math.round(v)); return vs; };
+const rSel = (key, lab, val, vs, txt, why) => `<label>${esc(lab)}<select data-bat="${key}"${D.local ? '' : ' disabled'}>${rOpts(val, vs, txt)}</select>${why ? `<span class="why">${esc(why)}</span>` : ''}</label>`;
+const rPct = v => Math.round((v || 0) * 100);
+
+function autoLimitsSection() {
+  const b = D.bat, f = (b && b.features) || {};
+  if (!b || !(f.maxSoc || f.minSoc || f.maxDischarge)) return '';
+  const s = b.settings || {}, capW = b.maxDischargeW > 0 ? b.maxDischargeW : 10000;
+  const items = [];
+  if (f.minSoc) {
+    items.push(rSel('autoFloorSunny', 'Unten vor einem Sonnentag', rPct(s.autoFloorSunny), rSteps(5, 50, 5), v => v + ' %', 'So weit darf die Batterie in der Nacht vor einem Tag entladen, dessen Überschuss sie wieder füllt.'));
+    items.push(rSel('autoFloorCloudy', 'Unten vor einem trüben Tag', rPct(s.autoFloorCloudy), rSteps(5, 90, 5), v => v + ' %', 'Diese Reserve bleibt vor einem trüben Tag; dazwischen wird gleitend gerechnet.'));
+  }
+  if (f.maxSoc) items.push(rSel('autoMaxSoc', 'Oben', rPct(s.autoMaxSoc), [0, ...rSteps(50, 100, 5)], v => v === 0 ? 'automatisch' : v + ' %', 'Automatisch: vor einem Sonnentag nur, was die Nacht braucht, sonst voll. Oder eine feste Obergrenze.'));
+  if (f.maxDischarge) items.push(rSel('maxDischargeW', 'Max. Entladeleistung', s.maxDischargeW > 0 ? Math.min(s.maxDischargeW, capW) : capW, rSteps(Math.min(500, capW), capW, 250), v => v >= capW ? 'unbegrenzt' : kw(v), 'Höchstens so viel gibt die Batterie ans Haus ab.'));
+  return `<div class="sublabel">Automatische Ladegrenzen</div><div class="rgrid">${items.join('')}</div>
+    <p class="why" style="margin:8px 0 0">Gelten, wenn die Ladegrenzen in der Übersicht auf „Automatisch“ stehen. ${esc((b.auto && b.auto.reason) || '')}</p>`;
+}
+
+function surplusSection() {
+  const b = D.bat, f = (b && b.features) || {}, loads = D.loads || [];
+  if (!b && !loads.length) return '<div class="empty">Keine Hausbatterie und keine Verbraucher mit Überschuss-Steuerung.</div>';
+  const s = (b && b.settings) || {};
+  const KL = {'ev-charger': 'Wallbox', 'heating-rod': 'Heizstab'};
+  let out = '';
+  if (f.priority) out += `<div class="rgrid">${rSel('prioritySoc', 'Batterie hat Vorrang bis', rPct(s.prioritySoc != null ? s.prioritySoc : 0.5), rSteps(0, 100, 5), v => v === 0 ? 'nie' : v === 100 ? 'immer' : v + ' %',
+    'Darunter bekommt die Hausbatterie den Überschuss vor den Verbrauchern (außer der Batterieplan erwartet später genug Überschuss).')}</div>`;
+  if (loads.length) out += `<div class="sublabel">Priorität der Verbraucher</div><div class="rgrid">${loads.map(l =>
+    `<label>${esc(l.name)} · ${KL[l.kind] || ''}<select data-prio="${esc(l.id)}"${D.local ? '' : ' disabled'}>${rOpts(l.priority, rSteps(0, 10, 1), v => v + (v === 5 ? ' (Standard)' : ''))}</select></label>`).join('')}</div>
+    <p class="why" style="margin:8px 0 0">0–10, höher zuerst. Bei gleicher Priorität: Wallboxen vor Heizstäben, Warmwasser vor Heizung. In der Übersicht setzt „Heute zuerst“ einen Verbraucher bis Mitternacht vor alle anderen; ein Boost von Hand kommt immer zuerst.</p>`;
+  if (f.boost) out += `<div class="sublabel">Boost</div><div class="rgrid">
+    ${rSel('boostReserve', 'Reserve', rPct(s.boostReserve), rSteps(0, 50, 5), v => `${v} % · frei ${kw(Math.round(b.boostMaxW * (1 - v / 100) / 50) * 50)}`, 'Dieser Teil der Entladeleistung bleibt beim Boost frei und fängt Schwankungen ab.')}
+    ${rSel('boostStopSoc', 'Batterie gibt für Boost bis', rPct(s.boostStopSoc || 0.85), rSteps(10, 95, 5), v => v + ' %', 'Darunter gibt die Batterie nichts mehr für einen Boost her – auch nicht für einen von Hand.')}
+    ${rSel('boostStartSoc', 'Auto-Boost ab', rPct(s.boostStartSoc), rSteps(0, 100, 5), v => v === 0 ? 'aus' : v + ' %', 'Ab diesem Ladestand bekommen alle Überschuss-Verbraucher Batterieleistung dazu, nach Priorität (z. B. 95 % / 85 % für den Sägezahn).')}</div>
+    <p class="why" style="margin:8px 0 0">Ein Verbraucher im Boost (Lademodus „Boost“ am Auto, Modus „Boost“ am Heizstab, oder alle beim Auto-Boost) bekommt zum PV-Überschuss Leistung aus der Batterie – nie aus dem Netz.</p>`;
+  return out;
+}
+
+// the whole settings with one change (keeps everything else)
+function batBody(over) {
+  const s = D.bat.settings || {}, f = D.bat.features || {};
+  return Object.assign({limitMode: s.limitMode, manualFor: s.manualFor || 'morning',
+    maxSoc: f.maxSoc ? (s.maxSoc || 0) : 0, minSoc: f.minSoc ? (s.minSoc || 0) : 0, maxDischargeW: f.maxDischarge ? (s.maxDischargeW || 0) : 0,
+    autoFloorSunny: s.autoFloorSunny, autoFloorCloudy: s.autoFloorCloudy, autoMaxSoc: s.autoMaxSoc || 0,
+    prioritySoc: s.prioritySoc, boostReserve: s.boostReserve || 0, boostStopSoc: s.boostStopSoc, boostStartSoc: s.boostStartSoc || 0}, over);
+}
+async function saveRuntime(url, body) {
+  const r = await fetch(url, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}).catch(() => null);
+  const x = r ? await r.json().catch(() => null) : null;
+  if (!r || !r.ok) { alert((x && x.error) || 'Keine Verbindung.'); return load(); }
+  if (url === 'api/battery') D.bat = x; else D.loads = x;
+  render();
+}
+document.addEventListener('change', e => {
+  const t = e.target;
+  if (t.matches('[data-bat]')) {
+    const k = t.dataset.bat, capW = D.bat.maxDischargeW > 0 ? D.bat.maxDischargeW : 10000;
+    saveRuntime('api/battery', batBody({[k]: k === 'maxDischargeW' ? (+t.value >= capW ? 0 : +t.value) : +t.value / 100}));
+  }
+  if (t.matches('[data-prio]')) saveRuntime(`api/loads/${encodeURIComponent(t.dataset.prio)}/priority`, {priority: +t.value});
+});
 
 function systemSection() {
   const s = D.cfg.site, v = D.version;
@@ -650,7 +723,7 @@ $('circ').addEventListener('click', e => {
 });
 
 // ---- charging cards and loadpoint settings ----
-const MODE_NAME = {off: 'Aus', pv: 'Überschuss', minpv: 'Min+PV', pv1: '1-phasig + PV', external: 'Extern', fast: 'Schnell'};
+const MODE_NAME = {off: 'Aus', pv: 'Überschuss', minpv: 'Min+PV', pv1: '1-phasig + PV', boost: 'Boost', external: 'Extern', fast: 'Schnell'};
 
 // every card a wallbox knows, plus cards that only exist in the settings
 function cardsSection() {
@@ -726,6 +799,7 @@ function render() {
     let inner;
     if (a.key === 'strategy') inner = strategySection();
     else if (a.key === 'grid') inner = gridSection();
+    else if (a.key === 'surplus') inner = surplusSection();
     else if (a.key === 'users') inner = `<div class="usersbody">${usersSection()}</div>`;
     else if (a.key === 'system') inner = systemSection();
     else {
@@ -757,10 +831,11 @@ async function load() {
   await voltibri.ready;
   const [cfg, status, state, charging, versions, imports, assets, runs, cards, runVehicles, users, groups, prov] = await Promise.all([j('api/config'), j('api/status'), j('api/state'),
     j('api/charging'), j('api/config/versions'), j('api/imports'), j('api/assets'), j('api/runs/summary'), j('api/charging/cards'), j('api/runs/vehicles?kind=charging'), j('api/users'), j('api/groups'), j('api/auth/providers')]);
+  const [bat, loads] = await Promise.all([j('api/battery'), j('api/loads')]);
   window._cards = cards || {known: [], settings: []};
   if (!cfg) { $('banner').hidden = false; $('banner').className = 'banner err'; $('banner').textContent = 'Konfiguration konnte nicht geladen werden.'; return; }
   D = {cfg: cfg.config, version: cfg.version, readOnly: cfg.readOnly, status: status || {}, state, charging: charging || {}, versions: versions || [], imports: imports || [], assets: assets || [], runs: runs || [], runVehicles: runVehicles || [], users: users || [], groups: groups || [], providers: (prov || {}).providers || [], redirectUri: (prov || {}).redirectUri,
-       local: charging ? charging.local !== false : true};
+       local: charging ? charging.local !== false : true, bat: bat && bat.hasBattery ? bat : null, loads: loads || []};
   D.cfg.roles = D.cfg.roles || {};
   D.cfg.site = D.cfg.site || {};
   D.cfg.battery = D.cfg.battery || {};

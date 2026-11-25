@@ -23,13 +23,13 @@ func TestVisibleState(t *testing.T) {
 		return auth.NewPrincipal(auth.User{Role: auth.RoleUser, Groups: []string{"g"}}, auth.Session{}, []auth.Group{g})
 	}
 
-	// flow without heat details: heating devices as one total per kind, no COP
+	// flow without heat details: heat pump and rods as one total, no COP
 	v := visibleState(perms(auth.Group{Flow: true}), st, cfg)
-	if v.Heat != nil || v.Errors != nil || len(v.Consumers) != 3 {
+	if v.Heat != nil || v.Errors != nil || len(v.Consumers) != 2 {
 		t.Fatalf("flow only: %+v", v)
 	}
-	if c := v.Consumers[1]; c.ID != "heat:heating-rod" || c.PowerW != 150 || c.Group != "" {
-		t.Fatalf("heating rods not combined: %+v", v.Consumers)
+	if c := v.Consumers[0]; c.ID != "heat:heizung" || c.PowerW != 1050 || c.Group != "" {
+		t.Fatalf("heating not combined: %+v", v.Consumers)
 	}
 	// with heat details: unchanged
 	if v := visibleState(perms(auth.Group{Flow: true, Heat: true}), st, cfg); len(v.Consumers) != 4 || v.Heat == nil {

@@ -129,7 +129,7 @@ const kwhTxt = wh => num(wh / 1000, wh >= 100000 ? 0 : 1);
 const euro = ct => (ct / 100).toLocaleString('de-DE', {style: 'currency', currency: 'EUR'});
 const big = (v, unit) => `${esc(v)}<small>${unit}</small>`;
 const KIND_WORD = {charging: ['Ladevorgang', 'Ladevorgänge'], heating: ['Heizphase', 'Heizphasen'], run: ['Lauf', 'Läufe'], '': ['Lauf', 'Läufe']};
-const MODE = {off: 'Aus', external: 'Extern', pv: 'Überschuss', pv1: '1-phasig + PV', minpv: 'Min+PV', fast: 'Schnell'};
+const MODE = {off: 'Aus', external: 'Extern', pv: 'Überschuss', pv1: '1-phasig + PV', minpv: 'Min+PV', boost: 'Boost', fast: 'Schnell'};
 const MONTHS = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
 
 const F = {kind: 'charging', asset: '', vehicle: ''};

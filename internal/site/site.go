@@ -55,12 +55,13 @@ type State struct {
 	SoC             float64              `json:"soc"`
 	HasBattery      bool                 `json:"hasBattery"`
 	LimitW          float64              `json:"chargeLimitW"`
-	DischargeLimitW float64              `json:"dischargeLimitW"`    // -1 = battery not held back
-	ExcludedW       float64              `json:"excludedW"`          // load the battery must not supply
-	Excluded        []string             `json:"excluded,omitempty"` // devices held back from the battery
-	Heat            []HeatReading        `json:"heat,omitempty"`     // heat pumps: heat output, COP, temperatures
-	Controlled      bool                 `json:"controlled"`         // voltibri actively controls the battery
-	Boost           *Boost               `json:"boost,omitempty"`    // the battery charges now up to a target
+	DischargeLimitW float64              `json:"dischargeLimitW"`       // -1 = battery not held back
+	ExcludedW       float64              `json:"excludedW"`             // load the battery must not supply
+	Excluded        []string             `json:"excluded,omitempty"`    // devices held back from the battery
+	Heat            []HeatReading        `json:"heat,omitempty"`        // heat pumps: heat output, COP, temperatures
+	Controlled      bool                 `json:"controlled"`            // voltibri actively controls the battery
+	ForceCharge     *ForceCharge         `json:"forceCharge,omitempty"` // the battery charges now up to a target
+	Boost           *Boost               `json:"boost,omitempty"`       // the battery helps the surplus loads
 	DryRun          bool                 `json:"dryRun"`
 	Producers       []Reading            `json:"producers"`
 	Consumers       []Reading            `json:"consumers"`
@@ -78,7 +79,16 @@ type Reading struct {
 	PowerW  float64 `json:"powerW"`
 	Mode    string  `json:"mode"`
 	Group   string  `json:"group"`             // overview groups devices with the same group
-	Circuit string  `json:"circuit,omitempty"` // sub-distribution the device belongs to
+	Kind    string  `json:"kind,omitempty"`    // asset kind (heat-pump, heating-rod, ...)
+	HeatUse string  `json:"heatUse,omitempty"` // heating rods: hotwater or heating
+	Step    int     `json:"step,omitempty"`    // loads in steps: current step (phases on)
+	Steps   int     `json:"steps,omitempty"`   // loads in steps: number of steps
+	// surplus loads in steps (heating rods): runtime mode and priority
+	LoadMode LoadMode `json:"loadMode,omitempty"`
+	Priority *int     `json:"priority,omitempty"`
+	Boosting bool     `json:"boosting,omitempty"` // the home battery adds power (boost)
+	Top      bool     `json:"top,omitempty"`      // first before all others for today
+	Circuit  string   `json:"circuit,omitempty"`  // sub-distribution the device belongs to
 }
 
 type producer struct {
@@ -106,14 +116,21 @@ type Site struct {
 	pvf       sdk.PVForecaster
 	tariff    sdk.TariffSource
 
-	charge   *charging.Manager
-	forceCh  sdk.BatteryForceCharger // battery can be force-charged (guest policy forceBattery)
-	forcing  bool
-	forceErr bool
-	batCache sdk.Cache       // battery settings and boost (nil without store)
-	batSet   BatterySettings // runtime settings (targets, max. discharge)
-	boost    *Boost          // running boost
-	guard    socGuard        // charge targets with hysteresis
+	charge     *charging.Manager
+	flex       *flexState              // surplus loads (heating rods in steps)
+	forceCh    sdk.BatteryForceCharger // battery can be force-charged (guest policy forceBattery)
+	forcing    bool
+	forceErr   bool
+	batCache   sdk.Cache              // battery settings, force charging and boost (nil without store)
+	batSet     BatterySettings        // runtime settings (targets, max. discharge, boost)
+	force      *ForceCharge           // running force charging
+	boost      *Boost                 // running boost
+	boostHold  bool                   // automatic boost stopped by hand: no new start until the SoC fell below the start
+	boostEmpty bool                   // the battery is at the boost stop SoC (with hysteresis)
+	guard      socGuard               // charge targets with hysteresis
+	loadCache  sdk.Cache              // load settings (priority, mode)
+	loadSet    map[string]LoadSetting // load settings per device
+	auto       planner.Targets        // automatic charge targets (from the last plan)
 
 	model     *forecast.LoadModel
 	hist      History
@@ -157,6 +174,7 @@ func New(cfg *config.Config, hist History) (*Site, error) {
 	}()
 	s.circuits = circuitNodes(cfg)
 	s.discharge = -1
+	s.batSet = BatterySettings{BoostReserve: boostReserveDef, BoostStopSoC: boostStopDefault}
 	now := time.Now()
 	for _, dc := range cfg.Devices {
 		if dc.Retired(now) {
@@ -213,12 +231,15 @@ func New(cfg *config.Config, hist History) (*Site, error) {
 	if cp, ok := hist.(CacheProvider); ok {
 		settings = cp.Cache("charging")
 		s.batCache = cp.Cache(batNS)
+		s.loadCache = cp.Cache(loadsNS)
 	}
-	s.loadBattery()
+	s.loadLoads()
 	sessions, _ := hist.(run.Store)
+	s.flex = newFlex(cfg, s.devices)
 	if s.charge, err = charging.New(cfg, loc, s.devices, settings, sessions); err != nil {
 		return nil, err
 	}
+	s.loadBattery() // after the loads: whether a boost is possible depends on them
 	if id := cfg.Roles.PVForecast; id != "" {
 		if s.pvf, ok = s.devices[id].(sdk.PVForecaster); !ok {
 			return nil, fmt.Errorf("roles.pvForecast: device %q provides no PV forecast", id)
@@ -248,16 +269,19 @@ func meta(cfg *config.Config, id, defIcon string, producer bool) Reading {
 			}
 			r.Mode = d.Mode
 			r.Group = d.Group
+			r.HeatUse = d.HeatUse
 		}
 	}
 	if r.Group == "" {
 		r.Group = defaultGroup(r, kind, producer)
 	}
+	r.Kind = kind
 	return r
 }
 
 // defaultGroup derives the overview group: all producers form "pv", consumers
-// are grouped by icon (all cars, all heat pumps, ...), anything else stands alone.
+// are grouped by kind or icon (all cars, all heating, ...), anything else
+// stands alone. Heat pump and heating rods heat the same buffer: "heizung".
 func defaultGroup(r Reading, kind string, producer bool) string {
 	if producer {
 		return "pv"
@@ -265,10 +289,8 @@ func defaultGroup(r Reading, kind string, producer bool) string {
 	switch kind {
 	case config.KindEVCharger:
 		return "wallboxen"
-	case config.KindHeatPump:
-		return "waermepumpe"
-	case config.KindHeatingRod:
-		return "warmwasser"
+	case config.KindHeatPump, config.KindHeatingRod:
+		return "heizung"
 	case config.KindAppliance, config.KindClimate:
 		if r.Icon == "plug" || r.Icon == "" {
 			return "haushalt" // household appliances share one bubble
@@ -277,10 +299,8 @@ func defaultGroup(r Reading, kind string, producer bool) string {
 	switch r.Icon {
 	case "car":
 		return "wallboxen"
-	case "heatpump":
-		return "waermepumpe"
-	case "water":
-		return "warmwasser"
+	case "heatpump", "water":
+		return "heizung"
 	}
 	return r.ID
 }
@@ -445,6 +465,10 @@ func (s *Site) measure(ctx context.Context) bool {
 		}
 		r := c.meta
 		r.PowerW = math.Max(0, s.power(c.meta.ID, w))
+		if sg, ok := s.devices[c.meta.ID].(sdk.Stager); ok {
+			r.Steps = sg.Steps()
+			r.Step, _ = sg.Step(ctx) // cached by the driver
+		}
 		known += r.PowerW
 		st.Consumers = append(st.Consumers, r)
 	}
@@ -466,11 +490,29 @@ func (s *Site) measure(ctx context.Context) bool {
 			}
 		}
 	}
-	guestW, excludedW, forceW := s.updateCharging(ctx, st, chargers, tree)
+	// the surplus loads (wallboxes, heating rods) share the surplus by
+	// priority; the battery adds boost power for boosted loads
+	boostW, autoBoost := 0.0, false
+	if s.bat != nil {
+		boostW, autoBoost = s.updateBoost(st.SoC, st.Time)
+	}
+	alloc := s.newAllocator(ctx, st.Time, surplusInput{gridW: st.GridW, batteryW: st.BatteryW,
+		batteryFirst: s.batteryFirst(st) && !autoBoost, boostW: boostW, autoBoost: autoBoost,
+		loadpoints: s.charge.Loadpoints(), chargers: chargerPowers(chargers), rodPowers: readingPowers(st.Consumers)})
+	guestW, excludedW, forceW := s.updateCharging(ctx, st, chargers, tree, alloc, boostW, autoBoost)
+	alloc.finish()
+	for i, c := range st.Consumers {
+		if l := s.flex.load(c.ID); l != nil {
+			ls := s.setting(c.ID)
+			st.Consumers[i].LoadMode, st.Consumers[i].Priority, st.Consumers[i].Top = ls.Mode, &ls.Priority, ls.top(st.Time)
+			st.Consumers[i].Boosting = alloc.rodBoosting(c.ID) && l.step > 0
+			st.Consumers[i].Step = l.step
+		}
+	}
 	if s.bat != nil {
 		s.updateForce(ctx, st.SoC, forceW)
 		s.mu.RLock()
-		st.Boost = s.boost
+		st.ForceCharge, st.Boost = s.force, s.boost
 		s.mu.RUnlock()
 	}
 	st.Heat = s.readHeat(ctx)
@@ -525,6 +567,7 @@ func (s *Site) replan(ctx context.Context) {
 	from := series.SlotStart(now)
 	to := from.Add(48 * time.Hour)
 
+	s.expireManual(now)
 	s.mu.RLock()
 	soc, bs := s.state.SoC, s.batSet
 	s.mu.RUnlock()
@@ -542,6 +585,7 @@ func (s *Site) replan(ctx context.Context) {
 		in.Battery.MaxDischargeW = bs.MaxDischargeW
 	}
 	var plan planner.Plan
+	var auto planner.Targets
 	if s.bat == nil || s.pvf == nil {
 		plan = planner.Make(planner.Input{Now: now}, nil, s.cfg.Planner)
 		plan.Reasons = append(plan.Reasons, "Batterie oder PV-Prognose nicht konfiguriert (roles.battery / roles.pvForecast).")
@@ -569,10 +613,17 @@ func (s *Site) replan(ctx context.Context) {
 			}
 			in.Slots = append(in.Slots, planner.InputSlot{Start: p.Start, PVW: p.Value, SpotCt: spot})
 		}
+		// automatic charge targets first: the plan works with the targets that apply
+		auto = planner.AutoTargets(in, s.model, s.cfg.Planner, bs.autoConfig())
+		eff := s.effective(bs, auto)
+		in.Battery.MinSoC, in.Battery.MaxSoC = math.Max(b.MinSoC, eff.MinSoC), 1
+		if eff.MaxSoC > 0 {
+			in.Battery.MaxSoC = math.Max(in.Battery.MinSoC, eff.MaxSoC)
+		}
 		plan = planner.Make(in, s.model, s.cfg.Planner)
 	}
 	s.mu.Lock()
-	s.plan = plan
+	s.plan, s.auto = plan, auto
 	s.mu.Unlock()
 	s.savePlan(ctx, plan)
 	slog.Info("plan", "mode", plan.Mode, "targetSoC", fmt.Sprintf("%.0f%%", 100*plan.TargetSoC), "limitW", plan.CurrentLimitW(), "reason", first(plan.Reasons))
@@ -588,28 +639,50 @@ func first(s []string) string {
 func (s *Site) apply(ctx context.Context) { s.writeLimits(ctx, true) }
 
 // updateCharging runs the loadpoints and returns the guest charging power.
-func (s *Site) updateCharging(ctx context.Context, st State, chargers map[string]sdk.ChargerStatus, tree *circuit.Tree) (guestW, excludedW, forceW float64) {
+func (s *Site) updateCharging(ctx context.Context, st State, chargers map[string]sdk.ChargerStatus, tree *circuit.Tree,
+	alloc *allocator, boostW float64, autoBoost bool) (guestW, excludedW, forceW float64) {
 	if !s.charge.HasLoadpoints() {
 		return 0, 0, 0
 	}
-	s.mu.RLock()
-	plan := s.plan
-	s.mu.RUnlock()
-	prio := s.cfg.Charging.BatteryPrioritySoC
-	if prio == 0 {
-		prio = 0.5
+	prios, top := map[string]int{}, map[string]bool{}
+	for _, lp := range s.cfg.Charging.Loadpoints {
+		ls := s.setting(lp.Charger)
+		prios[lp.Charger], top[lp.Charger] = ls.Priority, ls.top(st.Time)
 	}
-	// the battery keeps PV first while it is low, unless the battery plan
-	// expects enough surplus later anyway
-	batteryFirst := st.HasBattery && st.SoC < prio && plan.Mode != planner.ModeDelay
 	res := s.charge.Update(ctx, charging.SiteInput{Now: st.Time, GridW: st.GridW, BatteryW: st.BatteryW, PVW: st.PVW, LoadW: st.LoadW,
-		Chargers: chargers, BatteryPriority: batteryFirst, Circuits: tree})
+		Chargers: chargers, BatteryPriority: s.batteryFirst(st) && !autoBoost, Circuits: tree, Alloc: alloc,
+		BoostW: boostW, AutoBoost: autoBoost, Priority: prios, Top: top})
 
 	return res.GuestW, res.ExcludedW, res.ForceBatteryW
 }
 
+// batteryFirst: the battery keeps PV first while it is low, unless the
+// battery plan expects enough surplus later anyway.
+func (s *Site) batteryFirst(st State) bool {
+	s.mu.RLock()
+	plan, bs := s.plan, s.batSet
+	s.mu.RUnlock()
+	return st.HasBattery && st.SoC < s.prioritySoC(bs) && plan.Mode != planner.ModeDelay
+}
+
+func chargerPowers(cs map[string]sdk.ChargerStatus) map[string]float64 {
+	m := make(map[string]float64, len(cs))
+	for id, c := range cs {
+		m[id] = c.PowerW
+	}
+	return m
+}
+
+func readingPowers(rs []Reading) map[string]float64 {
+	m := make(map[string]float64, len(rs))
+	for _, r := range rs {
+		m[r.ID] = r.PowerW
+	}
+	return m
+}
+
 // updateForce force-charges the battery for a guest (policy forceBattery:
-// charge as if the guest was not there) or a boost, and returns to the
+// charge as if the guest was not there) or a force charging, and returns to the
 // battery plan afterwards.
 func (s *Site) updateForce(ctx context.Context, soc, guestForceW float64) {
 	s.mu.RLock()

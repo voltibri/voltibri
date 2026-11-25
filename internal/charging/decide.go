@@ -11,6 +11,9 @@
 //   - minpv:    always charge with at least the minimum power, more with
 //     surplus
 //   - fast:     charge with maximum power
+//   - boost:    PV surplus plus power from the home battery (down to the
+//     boost limit of the battery, never from the grid); a boosted vehicle
+//     comes before all other surplus loads
 //
 // A charge plan (target SoC by a time) overlays pv and minpv: in the slots
 // the plan needs, the vehicle charges fast.
@@ -32,15 +35,22 @@ const (
 	ModePV1      Mode = "pv1" // PV surplus on one phase only (starts at 1.4 kW)
 	ModeMinPV    Mode = "minpv"
 	ModeFast     Mode = "fast"
+	ModeBoost    Mode = "boost" // PV surplus + home battery
 )
 
 // Valid reports whether m is a known mode.
 func (m Mode) Valid() bool {
 	switch m {
-	case ModeOff, ModeExternal, ModePV, ModePV1, ModeMinPV, ModeFast:
+	case ModeOff, ModeExternal, ModePV, ModePV1, ModeMinPV, ModeFast, ModeBoost:
 		return true
 	}
 	return false
+}
+
+// Surplus reports whether the mode follows the PV surplus (and takes part
+// in the priority order of the surplus loads).
+func (m Mode) Surplus() bool {
+	return m == ModePV || m == ModePV1 || m == ModeMinPV || m == ModeBoost
 }
 
 // Voltage per phase used to convert power and current.
@@ -112,6 +122,9 @@ func Decide(in Input) Decision {
 	if in.Mode == ModeExternal {
 		d.Reason = "extern gesteuert – voltibri greift nicht ein"
 		return d
+	}
+	if in.Mode == ModeBoost { // the surplus includes the battery's share
+		in.Mode = ModePV
 	}
 	if in.Mode == ModeOff {
 		return off("Laden aus")

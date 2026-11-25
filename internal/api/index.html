@@ -47,9 +47,26 @@
   .dtile .dv { font-size:26px; font-weight:300; letter-spacing:-.03em; line-height:1.1; font-variant-numeric:tabular-nums; white-space:nowrap; }
   .dtile .dv small { font-size:12px; font-weight:500; color:var(--muted); margin-left:3px; letter-spacing:0; }
   .dtile .ds { font-size:12px; color:var(--muted); }
-  .dcop { position:relative; width:84px; height:46px; margin-top:2px; }
-  .dcop .dring { width:84px; height:46px; display:block; }
-  .dcop b { position:absolute; left:0; right:0; bottom:-2px; text-align:center; font-size:24px; font-weight:300; letter-spacing:-.03em; font-variant-numeric:tabular-nums; }
+  /* heat pump: COP and heat output in one bar – the heat split into power and
+     environment, a notch per kWh of power: the COP is how often the power fits */
+  .dhead2 { display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
+  .dhead2 > span { font-size:15px; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .dhead2 > span small { font-size:11px; font-weight:600; letter-spacing:.04em; color:var(--muted); }
+  .dhead2 > span b { font-size:20px; font-weight:400; }
+  .dcop { position:relative; display:flex; height:12px; border-radius:6px; overflow:hidden; background:var(--track); margin:6px 0 4px; }
+  .dcop i { display:block; height:100%; transition:width .6s ease; }
+  .dcop u { position:absolute; top:0; bottom:0; width:2px; margin-left:-1px; background:var(--card-2); }
+  .dlegend { display:flex; flex-wrap:wrap; column-gap:12px; row-gap:2px; font-size:12px; color:var(--muted); }
+  .dlegend span { white-space:nowrap; }
+  .dlegend i { display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:5px; }
+  /* cost: today, yesterday, average – label and amount, a bar below */
+  .dcost { display:flex; flex-direction:column; gap:8px; margin-top:4px; }
+  .dcrow { display:grid; grid-template-columns:minmax(0, 1fr) auto; align-items:baseline; column-gap:8px; row-gap:3px; font-size:12px; color:var(--muted); }
+  .dcrow .dcbar { grid-column:1 / -1; }
+  .dcrow b { font-size:13px; font-weight:600; color:var(--fg); font-variant-numeric:tabular-nums; }
+  .dcbar { height:7px; border-radius:4px; background:var(--track); overflow:hidden; }
+  .dcbar i { display:block; height:100%; border-radius:4px; background:var(--grid); opacity:.55; }
+  .dcbar i.now { background:var(--accent); opacity:1; }
   .dbar { display:flex; height:7px; border-radius:4px; overflow:hidden; background:var(--track); margin-top:4px; }
   .dbar i { display:block; height:100%; }
   .dtemp { position:relative; height:7px; border-radius:4px; margin-top:4px; background:linear-gradient(90deg, rgba(74,144,217,.25), rgba(232,163,23,.25), rgba(217,83,79,.25)); }
@@ -58,14 +75,18 @@
   .drow:first-of-type { border-top:0; }
   .drow span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .drow b { font-weight:600; font-variant-numeric:tabular-nums; }
+  .drow b.off { color:var(--muted); font-weight:500; }
+  .drow .dsteps { display:inline-flex; gap:3px; flex:none; align-self:center; }
+  .drow .dsteps i { width:7px; height:12px; border-radius:2px; background:var(--track); }
+  .drow .dsteps i.on { background:var(--solar); }
+  .drow .duse { display:block; font-style:normal; font-size:11px; color:var(--muted); width:auto; text-align:left; }
   .drow em { font-style:normal; color:var(--muted); font-size:12px; width:64px; text-align:right; font-variant-numeric:tabular-nums; }
   @media (max-width:760px) { .dtiles { grid-template-columns:1fr 1fr; } .dtile .dv { font-size:22px; } }
-  /* battery: charge targets on the SoC bar, settings and boost below the tiles */
+  /* battery: charge targets on the SoC bar, boost, force charging and settings below the tiles */
   .dsoc { position:relative; overflow:visible; }
   .dsoc i { border-radius:4px; }
   .dsoc .dmark { position:absolute; top:-3px; bottom:-3px; width:2px; margin-left:-1px; background:var(--fg); opacity:.55; border-radius:1px; }
   .bctl { margin-top:12px; }
-  .bctl .pform { gap:18px; }
   .bctl .bnote { margin:0; font-size:13px; color:var(--muted); }
   .bbox { display:flex; flex-direction:column; gap:10px; padding-bottom:16px; border-bottom:1px solid var(--line); }
   .bbox.on { flex-direction:row; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
@@ -73,6 +94,32 @@
   .bbox.on span { font-size:12px; color:var(--muted); }
   .bbox .btn, .bact .btn { align-self:flex-start; display:inline-flex; align-items:center; gap:6px; }
   .bctl .pform .err { margin:0; }
+  .bctl .pform { gap:16px; }
+  .bgrp { display:flex; flex-direction:column; gap:8px; }
+  .bgrp > header { display:flex; align-items:center; gap:6px 12px; flex-wrap:wrap; }
+  .bgrp h3 { margin:0; font-size:14px; }
+  .bgrp header small { color:var(--muted); font-size:12px; flex:1 1 220px; min-width:0; }
+  .bgrp header .btn { display:inline-flex; align-items:center; gap:6px; }
+  .bgrp header select { width:auto; }
+  .bgrp header .navlink { font-size:12px; }
+  .topbtn { font:inherit; font-size:11px; padding:2px 8px; border-radius:999px; border:1px solid var(--line); background:none; color:var(--muted); cursor:pointer; }
+  .topbtn[aria-pressed=true] { color:var(--accent); border-color:var(--accent); background:var(--accent-soft); }
+  .bgrid { display:grid; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr)); gap:8px; }
+  .bt { display:flex; flex-direction:column; gap:4px; padding:8px 10px; border:1px solid var(--line); border-radius:10px; min-width:0; }
+  .bt > span { font-size:11px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .bt select { width:100%; min-width:0; }
+  .bt b { font-size:17px; font-weight:600; font-variant-numeric:tabular-nums; }
+  .bt.ro { background:color-mix(in srgb, var(--track) 45%, transparent); border-style:dashed; }
+  .bt .btn { display:inline-flex; align-items:center; justify-content:center; gap:6px; }
+  .seg { display:inline-flex; border:1px solid var(--line); border-radius:999px; padding:2px; }
+  .seg button { font:inherit; font-size:12px; padding:3px 10px; border:0; border-radius:999px; background:none; color:var(--muted); cursor:pointer; }
+  .seg button[aria-pressed=true] { background:var(--accent-soft); color:var(--accent); font-weight:600; }
+  .rmode { display:inline-flex; gap:2px; margin-left:auto; }
+  .rmode button { font:inherit; font-size:11px; padding:2px 7px; border-radius:999px; border:1px solid var(--line); background:none; color:var(--muted); cursor:pointer; }
+  .rmode button[aria-pressed=true] { color:var(--fg); border-color:var(--muted); background:var(--track); }
+  .rmode button.b[aria-pressed=true] { color:var(--battery); border-color:var(--battery); background:color-mix(in srgb, var(--battery) 12%, transparent); }
+  .drow .rmeta { display:flex; align-items:center; gap:8px; flex:0 0 100%; width:100%; font-size:11px; color:var(--muted); white-space:normal; overflow:visible; }
+  .drow.rod { flex-wrap:wrap; }
   #flow { width:100%; height:auto; display:block; margin:0 auto; overflow:visible; }
   #flow text { font-variant-numeric:tabular-nums; }
   .track { fill:none; stroke:var(--track); stroke-width:2; }
@@ -107,7 +154,7 @@
   /* tiles side by side: the same parts on the same height (rows shared via subgrid) */
   @supports (grid-template-rows: subgrid) {
     .lps { row-gap:0; }
-    .lp { display:grid; grid-template-rows:subgrid; grid-row:span 6; gap:0; margin-bottom:12px; align-content:start; }
+    .lp { display:grid; grid-template-rows:subgrid; grid-row:span 4; gap:0; margin-bottom:12px; align-content:start; }
     .lp > :not(:empty) ~ :not(:empty) { margin-top:12px; }
   }
   .lphead .lpname { display:flex; flex-direction:column; min-width:0; }
@@ -133,26 +180,29 @@
   .socbar i { position:absolute; inset:0 auto 0 0; background:linear-gradient(90deg, var(--accent), var(--battery)); border-radius:4px; }
   .socbar b { position:absolute; top:0; bottom:0; width:2px; background:var(--fg); opacity:.5; }
   .socline { display:flex; justify-content:space-between; font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; margin-top:4px; }
-  .modes { position:relative; display:grid; grid-template-columns:1fr 1.6fr 1fr; gap:3px; padding:3px; border-radius:12px; background:var(--track); }
-  .modes .split { display:flex; border-radius:9px; }
-  .modes .split > button:first-child { flex:1; border-radius:9px 0 0 9px; }
-  .modes .split > button.caret { flex:none; width:30px; padding:0; border-radius:0 9px 9px 0; }
-  .modes .split.sel { background:var(--card); box-shadow:0 1px 3px rgba(0,0,0,.12); }
-  .modes .split.sel > button { color:var(--accent); }
-  .modes .split.sel > button.caret { border-left:1px solid var(--line); }
-  .modes button small { font-size:11px; font-weight:500; opacity:.8; margin-left:3px; }
-  .smartmenu { position:absolute; z-index:20; left:3px; right:3px; top:calc(100% + 6px); display:flex; flex-direction:column; gap:2px; padding:6px;
+  /* the mode: a button on the wallbox, its menu opens below */
+  .wbmode { position:absolute; left:18px; top:132px; width:96px; height:34px; display:flex; align-items:center; justify-content:center; gap:.25em;
+    font:inherit; font-size:12.5px; font-weight:650; white-space:nowrap; padding:0 .4em; border-radius:99px; cursor:pointer;
+    border:1px solid var(--line); background:var(--card); color:var(--fg); }
+  .wbmode svg { flex:none; opacity:.75; }
+  .wbmode.m-sun { background:color-mix(in srgb, var(--solar) 16%, var(--card)); border-color:color-mix(in srgb, var(--solar) 50%, var(--line)); color:color-mix(in srgb, var(--solar) 65%, var(--fg)); }
+  .wbmode.m-fast { background:var(--accent-soft); border-color:color-mix(in srgb, var(--accent) 50%, var(--line)); color:var(--accent); }
+  .wbmode.m-boost { background:color-mix(in srgb, var(--battery) 16%, var(--card)); border-color:color-mix(in srgb, var(--battery) 50%, var(--line)); color:color-mix(in srgb, var(--battery) 70%, var(--fg)); }
+  .wbmode.m-off, .wbmode.m-none { color:var(--muted); }
+  .wbmode:hover:not(:disabled) { border-color:var(--muted); }
+  .wbmode:disabled { cursor:default; }
+  .modemenu { position:absolute; z-index:20; right:0; top:172px; width:300px; max-width:calc(100vw - 48px); display:flex; flex-direction:column; gap:2px; padding:6px;
     background:var(--card); border:1px solid var(--line); border-radius:14px; box-shadow:0 12px 32px rgba(0,0,0,.18); }
-  .smartmenu button { display:flex; flex-direction:column; align-items:flex-start; gap:2px; text-align:left; padding:8px 10px !important; border-radius:10px !important; color:var(--fg) !important; }
-  .smartmenu button:hover:not(:disabled) { background:var(--track) !important; }
-  .smartmenu button[aria-checked=true] { background:var(--accent-soft) !important; }
-  .smartmenu button[aria-checked=true] b { color:var(--accent); }
-  .smartmenu button span { font-size:12px; color:var(--muted); font-weight:400; }
-  .smartmenu button:disabled { opacity:.5; }
-  .modes button { font:inherit; font-size:13px; font-weight:550; border:0; background:transparent; color:var(--muted); padding:6px 4px; border-radius:9px; cursor:pointer; }
-  .modes button.sel { background:var(--card); color:var(--fg); box-shadow:0 1px 3px rgba(0,0,0,.12); }
-  .modes button:disabled { cursor:default; }
-  .modes button:disabled:not(.sel) { opacity:.6; }
+  .modemenu button { display:grid; grid-template-columns:20px 1fr; column-gap:10px; align-items:start; text-align:left; font:inherit; font-size:13px;
+    border:0; background:transparent; color:var(--fg); padding:8px 10px; border-radius:10px; cursor:pointer; }
+  .modemenu button svg { grid-row:span 2; margin-top:1px; color:var(--muted); }
+  .modemenu button b { font-weight:600; }
+  .modemenu button span { font-size:12px; color:var(--muted); }
+  .modemenu button:hover:not(:disabled) { background:var(--track); }
+  .modemenu button[aria-checked=true] { background:var(--accent-soft); }
+  .modemenu button[aria-checked=true] b, .modemenu button[aria-checked=true] svg { color:var(--accent); }
+  .modemenu button:disabled { opacity:.5; cursor:default; }
+  .lp:has(.modemenu) { overflow:visible; z-index:5; }
   .lp details.more > div { display:flex; flex-direction:column; gap:10px; margin-top:10px; }
   /* charge plan dialog */
   dialog.plans-dlg { border:0; padding:0; border-radius:24px; background:var(--card); color:var(--fg); width:min(560px, calc(100vw - 24px)); max-height:calc(100dvh - 24px); box-shadow:0 24px 60px rgba(0,0,0,.28); }
@@ -226,36 +276,39 @@
   .days { display:flex; gap:3px; }
   .days label { font-size:11px; display:flex; flex-direction:column; align-items:center; gap:1px; }
   .sess { display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--muted); }
-  /* wallbox tile: power gauge | phases, vehicle, end of charging */
-  .lpviz { display:grid; grid-template-columns:minmax(0, 1fr) 118px; gap:14px; align-items:center; }
-  .wbviz { width:118px; height:auto; display:block; overflow:visible; }
+  /* wallbox tile: the wallbox (power gauge, phases, mode) and the car it charges */
+  .wbscene { display:grid; grid-template-columns:minmax(0, 1fr) 124px; align-items:stretch; }
+  .wbleft { display:flex; flex-direction:column; gap:8px; min-width:0; container-type:inline-size; }
+  .wbcar { display:block; width:100%; margin-top:auto; padding-top:8px; overflow:visible; box-sizing:content-box; }
+  .wbbox { position:relative; }
+  @container (max-width: 250px) { .wbleft .lpmore span { display:none; } .wbleft .lpmore { padding:5px 7px; } }
+  .wbviz { width:124px; height:200px; display:block; overflow:visible; }
   .wbviz .wv-body { fill:var(--card-2); stroke:var(--line); stroke-width:1.5; }
+  .wbviz.st-off .wv-body { fill:var(--track); }
+  .wbviz .wv-dot { fill:var(--track); }
+  :is(.wbviz, .wbcar) .wv-car { fill:var(--card-2); stroke:var(--line); stroke-width:1.5; }
+  :is(.wbviz, .wbcar) .wv-ghost { fill:none; stroke:var(--muted); stroke-width:1.3; stroke-dasharray:4 4; opacity:.7; }
+  :is(.wbviz, .wbcar) .wv-wheel { fill:var(--card); stroke:var(--muted); stroke-width:3; }
+  .wbcar .wv-ghost.wv-wheel { stroke-width:1.3; }
+  :is(.wbviz, .wbcar) .wv-soc { font-size:15px; font-weight:650; fill:var(--fg); font-variant-numeric:tabular-nums; }
+  :is(.wbviz, .wbcar) .wv-t { font-size:10px; fill:var(--muted); }
   .wbviz .wv-trk { fill:none; stroke:var(--track); stroke-width:7; stroke-linecap:round; }
   .wbviz .wv-val { fill:none; stroke-width:7; stroke-linecap:round; transition:stroke-dasharray .6s ease; }
   .wbviz .wv-p { font-size:23px; font-weight:300; letter-spacing:-.04em; fill:var(--fg); font-variant-numeric:tabular-nums; }
   .wbviz .wv-u { font-size:10px; font-weight:600; fill:var(--muted); letter-spacing:0; }
-  .wbviz .wv-m { font-size:8.5px; fill:var(--muted); }
-  .wbviz .wv-s { font-size:11px; font-weight:650; }
-  .wbviz.st-charging .wv-led, .wbviz.st-charging .wv-val { animation:gpulse 2.4s ease-in-out infinite; }
-  .wbviz .wv-flow { stroke-dasharray:6 6; animation:wvflow 1.2s linear infinite; }
+  .wbviz .wv-m { font-size:10.5px; fill:var(--muted); font-variant-numeric:tabular-nums; }
+  .wbviz.st-charging .wv-val { animation:gpulse 2.4s ease-in-out infinite; }
+  :is(.wbviz, .wbcar) .wv-flow { stroke-dasharray:6 6; animation:wvflow 1.2s linear infinite; }
   @keyframes wvflow { to { stroke-dashoffset:-12; } }
   @keyframes gpulse { 50% { opacity:.6; } }
-  @media (prefers-reduced-motion: reduce) { .wbviz * { animation:none !important; } }
+  @media (prefers-reduced-motion: reduce) { .wbviz *, .wbcar * { animation:none !important; } }
   .lpinfo { display:flex; flex-direction:column; gap:10px; min-width:0; }
-  .phases { display:flex; align-items:flex-end; gap:10px; }
-  .phases .ph { display:flex; flex-direction:column; align-items:center; gap:3px; font-size:10px; font-weight:600; color:var(--muted); }
-  .phases .bar { width:10px; height:30px; border-radius:5px; background:var(--track); position:relative; overflow:hidden; }
-  .phases .bar i { position:absolute; left:0; right:0; bottom:0; background:var(--accent); border-radius:5px; transition:height .6s ease; }
-  .phases .ph.on { color:var(--fg); }
-  .phases .txt { font-size:12px; color:var(--muted); line-height:1.35; margin-left:2px; }
-  .phases .txt b { color:var(--fg); font-weight:600; }
   .eta { display:flex; gap:9px; align-items:flex-start; font-size:13px; line-height:1.3; }
   .eta svg { flex:none; color:var(--accent); margin-top:1px; }
   .eta b { font-size:15px; font-weight:650; font-variant-numeric:tabular-nums; }
   .eta span { display:block; font-size:12px; color:var(--muted); }
   .eta.muted svg { color:var(--muted); }
   .socbar u { position:absolute; top:-3px; bottom:-3px; width:2px; background:var(--accent-2); text-decoration:none; }
-  @media (max-width: 420px) { .lpviz { grid-template-columns:minmax(0, 1fr) 100px; gap:10px; } .wbviz { width:100px; } }
   .sess b { color:var(--fg); font-variant-numeric:tabular-nums; }
   /* the wallboxes sit on the page itself (no card around the cards) */
   /* law of proximity: the heading sits clearly closer to its wallboxes than to the card above */
@@ -360,7 +413,7 @@ function icon(name, x, y, color, size = 24) {
 // Overview groups: devices with the same "group" form one bubble; a click on
 // a group opens its devices in an overlay.
 const GROUPS = {pv: {name: 'PV', icon: 'solar'}, wallboxen: {name: 'Wallboxen', icon: 'car'},
-                waermepumpe: {name: 'Wärmepumpe', icon: 'heatpump'}, warmwasser: {name: 'Warmwasser', icon: 'water'},
+                heizung: {name: 'Heizung', icon: 'heatpump'}, waermepumpe: {name: 'Wärmepumpe', icon: 'heatpump'}, warmwasser: {name: 'Warmwasser', icon: 'water'},
                 haushalt: {name: 'Haushalt', icon: 'plug'}};
 
 function membersOf(items, key) { return items.filter(x => (x.group || x.id) === key); }
@@ -396,7 +449,13 @@ function expanded(items, kind) {
 }
 
 // the heat pump node (details known) and the heating devices next to it
-const isHP = (c, st) => c.icon === 'heatpump' && (st.heat || []).length && !(c.count > 1);
+// heating: the heat pump and the heating rods heat the same buffer (group
+// "heizung"); a click opens the heating details instead of expanding it
+const isHeat = (c, st) => c.toggle === 'heizung' || (c.icon === 'heatpump' && (st.heat || []).length && !(c.count > 1));
+const heatMembers = st => (st.consumers || []).filter(x => x.group === 'heizung');
+// heating rods by kind (the icon is free to choose)
+const isRod = x => x.kind ? x.kind === 'heating-rod' : x.icon === 'water';
+const rodOn = st => heatMembers(st).some(x => isRod(x) && x.powerW > 15);
 
 function layout(st) {
   const P = expanded(st.producers, 'producers');
@@ -442,10 +501,12 @@ function node(n, {r, ic, color, value, title, ring, ringColor, extra, count}) {
          `<circle cx="${n.x}" cy="${n.y}" r="${r+4}" fill="none" stroke="${ringColor || color}" stroke-width="3.5" stroke-linecap="round"
             stroke-dasharray="${(c*ring).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 ${n.x} ${n.y})"/>`;
   }
-  const iy = n.y - (extra ? 11 : 7);
-  g += icon(ic, n.x, iy, color, extra ? 18 : 20);
-  g += `<text x="${n.x}" y="${iy + (extra ? 22 : 24)}" text-anchor="middle" font-size="${r > NODE_R ? 14 : 12.5}" font-weight="600" fill="var(--fg)">${value}</text>`;
-  if (extra) g += `<text x="${n.x}" y="${iy + 34}" text-anchor="middle" font-size="10.5" fill="var(--muted)">${extra}</text>`;
+  // with a second line (COP, state of charge) the content moves up so that
+  // it stays inside the circle
+  const iy = n.y - (extra ? 13 : 7);
+  g += icon(ic, n.x, iy, color, extra ? 16 : 20);
+  g += `<text x="${n.x}" y="${extra ? n.y + 5 : iy + 24}" text-anchor="middle" font-size="${r > NODE_R ? 14 : 12.5}" font-weight="600" fill="var(--fg)">${value}</text>`;
+  if (extra) g += `<text x="${n.x}" y="${n.y + 17}" text-anchor="middle" font-size="9.5" fill="var(--muted)">${extra}</text>`;
   if (count > 1) { // always top right on the rim
     const bx = n.x + r * 0.71, by = n.y - r * 0.71;
     g += `<circle cx="${bx.toFixed(1)}" cy="${by.toFixed(1)}" r="10" fill="${color}" stroke="var(--card)" stroke-width="2.5"/>` +
@@ -507,13 +568,15 @@ function drawFlow(st) {
   C.forEach(c => {
     const cl = !c.member && c.circuit ? circuitLoad(c.circuit, st) : null;
     // heat pump: show the COP under the power (from a heat source, e.g. ESPHome)
+    // heating: the COP while only the heat pump runs, "+ Heizstab" when a backup rod runs too
     const hp = c.icon === 'heatpump' && (st.heat || []).find(h => h.cop != null);
-    const extra = cl ? cl.extra : hp ? 'COP ' + hp.cop.toFixed(1).replace('.', ',') : undefined;
+    const heatExtra = c.toggle === 'heizung' && rodOn(st) ? '+ Stab' : hp ? 'COP ' + hp.cop.toFixed(1).replace('.', ',') : undefined;
+    const extra = cl ? cl.extra : heatExtra;
     const inner = node(nodes[c.id], {r: NODE_R, ic: c.icon || 'plug', color: c.rest ? 'var(--muted)' : COLORS.consumer,
       value: kw(c.powerW), title: tip(c, st) + (cl ? ' · ' + cl.text : '') + (hp ? ' · Klick für Details' : ''), count: c.count,
       ring: cl ? cl.ring : undefined, ringColor: cl ? cl.color : undefined, extra});
     // nodes with details (heat pump) open tiles below the flow
-    g += isHP(c, st) ? selWrap('hp', inner, 'Wärmepumpe') : wrap(c, inner);
+    g += isHeat(c, st) ? selWrap('hp', inner, 'Heizung') : wrap(c, inner);
   });
   const gridState = Math.abs(st.gridW) < 15 ? 'ausgeglichen' : (st.gridW > 0 ? 'Bezug' : 'Einspeisung');
   const gl = circuitLoad('grid', st);
@@ -553,16 +616,18 @@ $('flow').addEventListener('click', toggleGroup);
 $('flow').addEventListener('keydown', toggleGroup);
 
 // --- charging panel ---
-const MODE_LABEL = {off: 'Aus', pv: 'Überschuss', minpv: 'Min+PV', pv1: '1-phasig + PV', external: 'Extern', fast: 'Schnell'};
+const MODE_LABEL = {off: 'Aus', pv: 'Überschuss', minpv: 'Min+PV', pv1: '1-phasig + PV', boost: 'Boost', external: 'Extern', fast: 'Schnell'};
 const MODE_HELP = {off: 'Wallbox gesperrt – es wird nicht geladen.',
   pv: 'Nur mit PV-Überschuss laden.', minpv: 'Immer mit Mindestleistung, mehr bei Überschuss.',
   pv1: 'Nur Überschuss, immer einphasig: startet schon ab 1,4 kW und regelt feiner.',
   external: 'Ein anderes System steuert (z. B. Neogrid). voltibri sperrt, gibt frei und regelt nichts, protokolliert nur.',
-  fast: 'Mit maximaler Leistung laden.'};
-// "Smart" groups the strategies that decide by themselves
-const SMART = ['pv', 'minpv', 'pv1', 'external'];
-const lastSmart = id => { try { const m = localStorage.getItem('voltibri.smart.' + id); return SMART.includes(m) ? m : 'pv'; } catch (e) { return 'pv'; } };
-let smartOpen = null; // loadpoint whose strategy menu is open
+  fast: 'Mit maximaler Leistung laden.',
+  boost: 'PV-Überschuss plus Leistung aus der Hausbatterie (bis zur Boost-Grenze der Batterie), nie aus dem Netz. Kommt vor allen anderen Verbrauchern – z. B. kurz vor der Abfahrt.'};
+// the modes in the menu, with the short label for the button on the wallbox
+const CHARGE_MODES = ['off', 'pv', 'minpv', 'pv1', 'boost', 'fast', 'external'];
+const MODE_SHORT = {off: 'Aus', pv: 'Überschuss', minpv: 'Min+PV', pv1: '1-ph. + PV', boost: 'Boost', external: 'Extern', fast: 'Schnell'};
+const MODE_ICON = {off: 'power', pv: 'solar', minpv: 'solar', pv1: 'solar', boost: 'battery', external: 'plug', fast: 'bolt'};
+let modeOpen = null; // loadpoint whose mode menu is open
 const GUEST_POLICY = {share: 'Gast darf PV nutzen, wird zum Netzpreis verrechnet', batteryFirst: 'Batterie hat Vorrang vor Gästen',
   forceBattery: 'Batterie lädt weiter wie ohne Gast (eigener Zähler)'};
 // which charge modes keep the home battery out of EV charging
@@ -587,42 +652,78 @@ function planText(p) {
   return `${soc} bis ${new Date(p.at).toLocaleString('de-DE', {weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'})}`;
 }
 
-// the wallbox itself: its display shows the charging power (ring against
-// what is possible now) and the state; the cable leads to the car
-function wallboxViz(lp) {
+// the car and the wallbox charging it: the car (left, under the name) fills
+// up with its state of charge, the cable gets thicker with every phase. The
+// wallbox (right, from the top of the tile) shows the charging power (ring
+// against what is possible now), a dot per phase and the mode button.
+const CAR = 'M0 60v-20q2-8 12-10l20-3 14-16q4-4 12-4h22q8 0 12 8l8 14q4 4 4 12v19z'; // 100 × 53, front right
+const CAR_T = 'translate(100 0) scale(-1 1)';
+const CABLE_Y = 46; // cable height in the car (72 px high) = 26 px above the bottom of the wallbox
+function wallboxViz(lp, veh, left, control) {
   const maxW = Math.max(1, (lp.limitA != null ? Math.min(lp.limitA, lp.maxCurrent) : lp.maxCurrent) * (lp.activePhases || lp.phases || 3) * 230);
   const st = lp.off && !lp.charging ? 'off' : !lp.connected ? 'free' : lp.foreign ? 'busy' : lp.charging ? 'charging' : 'connected';
   const col = {charging: 'var(--accent)', connected: 'var(--accent-2)', busy: 'var(--accent-2)', free: 'var(--muted)', off: 'var(--muted)'}[st];
   const label = {charging: 'lädt', connected: 'angesteckt', busy: 'belegt', free: 'frei', off: 'ausgeschaltet'}[st];
-  const R = 34, C = 2 * Math.PI * R, arc = C * 0.75;
+  const R = 38, C = 2 * Math.PI * R, arc = C * 0.75;
   const frac = lp.connected ? Math.max(0, Math.min(1, lp.powerW / maxW)) : 0;
-  const kwTxt = (lp.powerW / 1000).toLocaleString('de-DE', {minimumFractionDigits: 1, maximumFractionDigits: 1});
+  const num = (v, d) => v.toLocaleString('de-DE', {minimumFractionDigits: d, maximumFractionDigits: d});
+  const icon = name => `<g transform="translate(52 52)" fill="none" stroke="var(--muted)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]}</g>`;
   const centre = lp.connected
-    ? `<text x="60" y="61" text-anchor="middle" class="wv-p">${kwTxt}<tspan class="wv-u" dx="1">kW</tspan></text>
-       <text x="60" y="76" text-anchor="middle" class="wv-m">von ${(maxW / 1000).toLocaleString('de-DE', {maximumFractionDigits: 1})} kW</text>`
-    : `<g transform="translate(48 49)" fill="none" stroke="var(--muted)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICONS.plug}</g>`;
-  const cable = lp.connected
-    ? `<path d="M60 134v8c0 16 30 12 30 30" fill="none" stroke="${col}" stroke-width="5" stroke-linecap="round"${st === 'charging' ? ' class="wv-flow"' : ''}/>`
-    : `<path d="M60 134v8c0 14 -26 10 -26 24" fill="none" stroke="var(--muted)" stroke-width="5" stroke-linecap="round" opacity=".5"/>
-       <rect x="27" y="164" width="14" height="10" rx="3" fill="var(--muted)" opacity=".5"/>`;
-  return `<svg class="wbviz st-${st}" viewBox="0 0 120 178" role="img" aria-label="${esc(label)}${lp.connected ? ', ' + kw(lp.powerW) + ' von ' + kw(maxW) : ''}">
-    <rect x="12" y="4" width="96" height="130" rx="26" class="wv-body"/>
-    <circle cx="60" cy="60" r="${R}" class="wv-trk" stroke-dasharray="${arc.toFixed(1)} ${C.toFixed(1)}" transform="rotate(135 60 60)"/>
-    <circle cx="60" cy="60" r="${R}" class="wv-val" stroke="${col}" stroke-dasharray="${(arc * frac).toFixed(1)} ${C.toFixed(1)}" transform="rotate(135 60 60)"/>
-    ${centre}
-    <circle cx="${60 - label.length * 3.1 - 6}" cy="113" r="3.5" fill="${col}" class="wv-led"/>
-    <text x="${60 + 4}" y="117" text-anchor="middle" class="wv-s" fill="${col === 'var(--muted)' ? 'var(--muted)' : 'var(--fg)'}">${label}</text>
-    ${cable}</svg>`;
+    ? `<text x="64" y="70" text-anchor="middle" class="wv-p">${num(lp.powerW / 1000, 1)}<tspan class="wv-u" dx="1">kW</tspan></text>`
+    : icon(st === 'off' ? 'power' : 'plug');
+  // a dot per phase of the wallbox, lit while the car draws on it
+  const n = lp.phases || 3, act = lp.connected ? Math.min(n, lp.activePhases || 0) : 0;
+  const dots = Array.from({length: n}, (_, i) => `<circle cx="${64 + (i - (n - 1) / 2) * 12}" cy="90" r="3.5" class="wv-dot"${i < act ? ` style="fill:${col}"` : ''}/>`).join('');
+  const sub = lp.connected ? `von ${num(maxW / 1000, maxW % 1000 ? 1 : 0)} kW${act && lp.phaseCurrentA ? ' · ' + num(lp.phaseCurrentA, 0) + ' A' : ''}` : '';
+  const cw = [4, 3, 4.5, 6][act], flow = st === 'charging' ? ' class="wv-flow"' : '';
+  const plug = lp.connected
+    ? `<line x1="-2" x2="10" y1="174" y2="174" stroke="${col}" stroke-width="${cw}"${flow}/>`
+    : `<path d="M10 174c-12 0-10 12-10 20" fill="none" stroke="var(--muted)" stroke-width="5" stroke-linecap="round" opacity=".5"/>
+       <rect x="-6" y="192" width="12" height="9" rx="3" fill="var(--muted)" opacity=".5"/>`;
+  const box = `<svg class="wbviz st-${st}" viewBox="0 0 124 200" role="img" aria-label="Wallbox ${esc(label)}${lp.connected ? ', ' + kw(lp.powerW) + ' von ' + kw(maxW) + (act ? ', ' + act + '-phasig' : '') : ''}">
+    <rect x="8" y="1" width="115" height="198" rx="26" class="wv-body"/>
+    ${st === 'off' ? '' : `<circle cx="64" cy="64" r="${R}" class="wv-trk" stroke-dasharray="${arc.toFixed(1)} ${C.toFixed(1)}" transform="rotate(135 64 64)"/>
+    <circle cx="64" cy="64" r="${R}" class="wv-val" stroke="${col}" stroke-dasharray="${(arc * frac).toFixed(1)} ${C.toFixed(1)}" transform="rotate(135 64 64)"/>${dots}`}
+    ${centre}${sub ? `<text x="64" y="118" text-anchor="middle" class="wv-m">${sub}</text>` : ''}${plug}</svg>`;
+  let car;
+  if (lp.connected) {
+    const cid = 'wvc-' + String(lp.id).replace(/[^\w-]/g, '_');
+    const soc = veh && veh.soc != null && !lp.foreign ? veh.soc : null;
+    const mark = (x, c, t) => `<line x1="${(100 * x).toFixed(1)}" x2="${(100 * x).toFixed(1)}" y1="0" y2="62" stroke="${c}" stroke-width="1.5" stroke-dasharray="3 3"><title>${t}</title></line>`;
+    car = `<defs><clipPath id="${cid}"><path d="${CAR}" transform="${CAR_T}"/></clipPath></defs>
+      <line x1="96" x2="100%" y1="${CABLE_Y}" y2="${CABLE_Y}" stroke="${col}" stroke-width="${cw}"${flow}/>
+      <path d="${CAR}" transform="${CAR_T}" class="wv-car"/>
+      ${soc != null ? `<g clip-path="url(#${cid})"><rect x="0" y="0" width="${(100 * soc).toFixed(1)}" height="64" fill="${col}" opacity=".28"/>
+        ${veh.limitSoc != null ? mark(veh.limitSoc, 'var(--fg)', 'Ladelimit im Auto ' + pct(veh.limitSoc)) : ''}
+        ${lp.finish && lp.finish.basis === 'plan' ? mark(lp.finish.targetSoc, 'var(--accent-2)', 'Ziel laut Ladeplan ' + pct(lp.finish.targetSoc)) : ''}</g>` : ''}
+      <circle cx="24" cy="62" r="9" class="wv-wheel"/><circle cx="78" cy="62" r="9" class="wv-wheel"/>
+      ${soc != null ? `<text x="50" y="48" text-anchor="middle" class="wv-soc">${pct(soc)}</text>` : lp.foreign ? '<text x="50" y="47" text-anchor="middle" class="wv-t">belegt</text>' : ''}
+      ${soc != null && veh.rangeKm != null ? `<text x="108" y="${CABLE_Y - 8}" class="wv-t">${Math.round(veh.rangeKm)} km</text>` : ''}`;
+  } else {
+    car = `<path d="${CAR}" transform="${CAR_T}" class="wv-ghost"/><circle cx="24" cy="62" r="9" class="wv-ghost wv-wheel"/><circle cx="78" cy="62" r="9" class="wv-ghost wv-wheel"/>
+      ${st === 'free' ? '<text x="50" y="47" text-anchor="middle" class="wv-t">Auto anstecken</text>' : ''}`;
+  }
+  return `<div class="wbscene st-${st}"><div class="wbleft">${left}<svg class="wbcar" height="72" aria-hidden="true">${car}</svg></div>
+    <div class="wbbox">${box}${control}</div></div>`;
 }
 
-// L1–L3: which phases the car draws on and the current per phase
-function phasesView(lp) {
-  if (!lp.connected || !lp.activePhases) return ''; // not charging: the status says it
-  const n = lp.activePhases, a = lp.phaseCurrentA || 0;
-  const h = n ? Math.max(8, Math.min(100, 100 * a / (lp.maxCurrent || 16))) : 0;
-  const bars = [1, 2, 3].map(i => `<span class="ph${i <= n ? ' on' : ''}"><span class="bar"><i style="height:${i <= n ? h.toFixed(0) : 0}%"></i></span>L${i}</span>`).join('');
-  const txt = `<b>${n}-phasig</b><br>${a.toLocaleString('de-DE', {maximumFractionDigits: 1})} A je Phase`;
-  return `<div class="phases" aria-label="Phasen">${bars}<span class="txt">${txt}</span></div>`;
+// the mode: a button on the wallbox, its menu lists every mode
+function modeControl(lp, canEdit) {
+  // without a car only "Aus" (the wallbox switched off) is a state to show
+  const mode = lp.connected ? lp.mode : (lp.off ? 'off' : '');
+  const cls = !mode ? 'none' : ['pv', 'minpv', 'pv1'].includes(mode) ? 'sun' : mode;
+  const open = modeOpen === lp.id;
+  const btn = `<button type="button" class="wbmode m-${cls}" data-modemenu aria-haspopup="menu" aria-expanded="${open}" title="${esc(mode ? 'Lademodus: ' + MODE_LABEL[mode] + ' – ' + MODE_HELP[mode] : 'Lademodus – gilt ab dem Anstecken')}"${canEdit ? '' : ' disabled'}>
+    ${mode ? MODE_SHORT[mode] : 'Bereit'}${canEdit ? '<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>' : ''}</button>`;
+  if (!open) return btn;
+  // "Aus" works anytime; the others need a car – or switch the wallbox on again
+  const items = CHARGE_MODES.map(m => {
+    const na = m === 'pv1' && !lp.canSwitch && lp.phases !== 1;
+    const dis = m !== 'off' && (na || (!lp.connected && !lp.off));
+    const help = na ? 'Nicht verfügbar: die Wallbox kann nicht auf eine Phase umschalten (oder wird nicht gesteuert).' : MODE_HELP[m];
+    return `<button type="button" role="menuitemradio" aria-checked="${m === mode}" data-mode="${m}"${dis ? ' disabled' : ''}>${iconSVG(MODE_ICON[m], 18)}<b>${MODE_LABEL[m]}</b><span>${esc(help)}</span></button>`;
+  }).join('');
+  return btn + `<div class="modemenu" role="menu" aria-label="Lademodus">${items}</div>`;
 }
 
 // end of charging (at the current power) or the start of the charge plan
@@ -659,42 +760,25 @@ function renderLoadpoint(lp) {
   const opts = [`<option value="">Automatisch${lp.connected && !lp.manual ? ' (' + esc(lp.vehicleName) + ')' : ''}</option>`,
     `<option value="guest"${lp.manual && guest ? ' selected' : ''}>Gastfahrzeug</option>`,
     ...(charging.vehicles || []).map(v => `<option value="${esc(v.key)}"${lp.manual && lp.vehicle === v.key ? ' selected' : ''}>${esc(v.name)}</option>`)];
-  let soc = '';
-  if (veh && veh.soc != null) {
-    soc = `<div><div class="socbar"><i style="width:${(veh.soc * 100).toFixed(0)}%"></i>${veh.limitSoc != null ? `<b style="left:${(veh.limitSoc * 100).toFixed(0)}%" title="Ladelimit im Auto"></b>` : ''}${lp.finish && lp.finish.basis === 'plan' ? `<u style="left:${(lp.finish.targetSoc * 100).toFixed(0)}%" title="Ziel laut Ladeplan"></u>` : ''}</div>
-      <div class="socline"><span>${pct(veh.soc)}${veh.rangeKm != null ? ' · ' + Math.round(veh.rangeKm) + ' km' : ''}</span>
-      <span>${veh.limitSoc != null ? 'Limit ' + pct(veh.limitSoc) : ''}</span></div></div>`;
-  }
-  // without a car only "Aus" (the wallbox switched off) is a state to show
-  const mode = lp.connected ? lp.mode : (lp.off ? 'off' : '');
-  // Aus | Smart ▾ | Schnell – the Smart part remembers the last strategy
-  // "Aus" works anytime; the others need a car – or switch the wallbox on again
-  const dis = !canEdit || (!lp.connected && !lp.off) ? ' disabled' : '';
-  const smart = SMART.includes(mode) ? mode : lastSmart(lp.id);
-  const menu = smartOpen === lp.id ? `<div class="smartmenu" role="menu">${SMART.map(m => {
-      const na = m === 'pv1' && !lp.canSwitch && lp.phases !== 1;
-      return `<button role="menuitemradio" aria-checked="${m === mode}" data-mode="${m}"${na ? ' disabled' : ''}>
-        <b>${MODE_LABEL[m]}</b><span>${esc(na ? 'Nicht verfügbar: die Wallbox kann nicht auf eine Phase umschalten (oder wird nicht gesteuert).' : MODE_HELP[m])}</span></button>`;
-    }).join('')}</div>` : '';
-  const modeBtns = `<button data-mode="off" class="${mode === 'off' ? 'sel' : ''}" title="${esc(MODE_HELP.off)}"${canEdit ? '' : ' disabled'}>Aus</button>
-    <span class="split${SMART.includes(mode) ? ' sel' : ''}"><button data-mode="${smart}" title="${esc(MODE_HELP[smart])}"${dis}>Smart <small>${MODE_LABEL[smart]}</small></button><button class="caret" data-smartmenu aria-haspopup="menu" aria-expanded="${smartOpen === lp.id}" aria-label="Strategie wählen"${dis}>▾</button></span>
-    <button data-mode="fast" class="${mode === 'fast' ? 'sel' : ''}" title="${esc(MODE_HELP.fast)}"${dis}>Schnell</button>${menu}`;
   const s = lp.session;
   const sess = s ? `<div class="sess"><span>Dieser Ladevorgang <b>${kwh(s.energyWh)}</b></span>
       <span>PV/Akku <b>${s.energyWh > 0 ? Math.round(100 * (s.pvWh + s.batteryWh) / s.energyWh) : 0} %</b></span>
       <span>${guest ? 'Verrechnung' : 'Kosten'} <b>${money(s.costCt, charging.currency)}</b></span></div>` : '';
   const who = (lp.card ? ` <span class="pill" title="Ladekarte dieses Ladevorgangs">${iconSVG('device', 11)} ${esc(lp.card)}</span>` : '') +
     (lp.connected && lp.sessionMode ? ' <span class="pill" title="Gilt nur für diesen Ladevorgang, bis zum Abstecken">nur jetzt</span>' : '');
-  // exactly 6 parts (empty ones too), so tiles side by side share the rows
+  // exactly 4 parts (empty ones too), so tiles side by side share the rows
   const st = !lp.connected ? 'free' : lp.charging ? 'charging' : 'connected';
-  const pills = [lp.batteryExcluded ? '<span class="pill" title="Die Hausbatterie wird für diesen Ladevorgang zurückgehalten – Laden aus PV und Netz.">ohne Hausbatterie</span>' : '',
+  const pills = [lp.boosting ? '<span class="pill" title="Die Hausbatterie gibt Leistung zum PV-Überschuss dazu (Boost).">Boost</span>' : '',
+    lp.batteryExcluded ? '<span class="pill" title="Die Hausbatterie wird für diesen Ladevorgang zurückgehalten – Laden aus PV und Netz.">ohne Hausbatterie</span>' : '',
+    lp.connected && !lp.foreign && canEdit && ['pv', 'pv1', 'minpv', 'boost'].includes(lp.mode) ? topBtn(lp.id, lp.top) : '',
     !lp.owned ? '<span class="pill" title="voltibri schreibt nicht auf diese Wallbox (Modus „observed“) und zeigt nur, was es tun würde.">beobachtet</span>' : '', who].join('').trim();
   // vehicle and charge plan: a dialog from the top right of the tile
   const more = (lp.connected && !lp.foreign) || veh ? `<button type="button" class="lpmore" data-lpmore="${esc(lp.id)}" aria-haspopup="dialog" title="Fahrzeug &amp; Ladeplan">${iconSVG('car', 15)}<span>Fahrzeug &amp; Ladeplan</span></button>` : '';
-  return `<div class="lp st-${st}" data-lp="${esc(lp.id)}"><div class="lphead"><div class="lpname"><small>${esc(lp.name)}</small>${lp.connected ? `<b>${esc(lp.vehicleName)}</b>` : '<b class="none">kein Fahrzeug</b>'}</div>${more ? `<div class="lptop">${more}</div>` : ''}</div>`
-    + (pills ? `<div class="lpsub">${pills}</div>` : '<div></div>')
-    + `<div class="lpviz"><div class="lpinfo">${phasesView(lp)}${etaView(lp, veh)}${soc || ''}${!lp.connected ? `<div class="why">${lp.off ? 'Die Wallbox ist ausgeschaltet.' : 'Bereit – Auto anstecken.'}</div>` : ''}</div>${wallboxViz(lp)}</div>`
-    + `<div class="modes" role="group" aria-label="Lademodus">${modeBtns}</div>`
+  const head = `<div class="lphead"><div class="lpname"><small>${esc(lp.name)}</small>${lp.connected ? `<b>${esc(lp.vehicleName)}</b>` : '<b class="none">kein Fahrzeug</b>'}</div></div>`
+    + (pills || more ? `<div class="lpsub">${more}${pills}</div>` : '');
+  return `<div class="lp st-${st}" data-lp="${esc(lp.id)}">`
+    + wallboxViz(lp, veh, head, modeControl(lp, canEdit))
+    + `<div class="lpinfo">${etaView(lp, veh)}</div>`
     + (lp.connected && lp.reason ? `<div class="why">${esc(lp.reason)}</div>` : '<div></div>')
     + (sess || '<div></div>') + '</div>';
 }
@@ -769,18 +853,17 @@ async function refreshCharging(force) {
 function vehicleSettings(key) { return JSON.parse(JSON.stringify(vehicleOf(key).settings)); }
 
 $('laden').addEventListener('click', async e => {
-  const caret = e.target.closest('[data-smartmenu]');
+  const caret = e.target.closest('[data-modemenu]');
   if (caret && !caret.disabled) {
     const id = caret.closest('[data-lp]').dataset.lp;
-    smartOpen = smartOpen === id ? null : id;
+    modeOpen = modeOpen === id ? null : id;
     $('lps').innerHTML = charging.loadpoints.map(renderLoadpoint).join('');
     restoreDetails($('laden'));
     return;
   }
   const mb = e.target.closest('[data-mode]');
   if (mb && !mb.disabled) {
-    if (SMART.includes(mb.dataset.mode)) { try { localStorage.setItem('voltibri.smart.' + mb.closest('[data-lp]').dataset.lp, mb.dataset.mode); } catch (err) {} }
-    smartOpen = null;
+    modeOpen = null;
     const lp = charging.loadpoints.find(l => l.id === mb.closest('[data-lp]').dataset.lp);
     const url = `api/loadpoints/${encodeURIComponent(lp.id)}/off`;
     // Aus is a setting of the wallbox (wins over every vehicle); the others switch it on again
@@ -1001,21 +1084,50 @@ function selWrap(key, inner, name) {
 const tile = (label, value, sub = '', extra = '') => `<div class="dtile"><span class="eyebrow">${label}</span><b class="dv">${value}</b>${extra}${sub ? `<span class="ds">${sub}</span>` : ''}</div>`;
 const unit = (v, u) => `${v}<small>${u}</small>`;
 
+// cost of the heating (heat pump and rods) today, yesterday and on average
+// of the days before, from the load profile (/api/today)
+function heatCostTile(st, hp, rods) {
+  const devs = (today && today.devices) || {};
+  const ids = [...new Set([hp.id, ...rods.map(r => r.id)].filter(Boolean))].filter(id => devs[id]);
+  if (!ids.length) return '';
+  const sum = k => ids.reduce((a, id) => a + (devs[id][k] || 0), 0);
+  const n = Math.max(...ids.map(id => devs[id].avgDays || 0));
+  const rows = [['Heute', sum('todayCt'), sum('todayWh'), 'bis jetzt'], ['Gestern', sum('yesterdayCt'), sum('yesterdayWh'), ''],
+    ...(n ? [[`Ø ${n} ${n === 1 ? 'Tag' : 'Tage'}`, sum('avgCt'), sum('avgWh'), 'pro Tag']] : [])];
+  const max = Math.max(1, ...rows.map(r => r[1]));
+  const cur = (charging || {}).currency;
+  return `<div class="dtile" title="Netz zum Bezugspreis, PV und Akku zur entgangenen Einspeisung"><span class="eyebrow">Kosten ${rods.some(r => ids.includes(r.id)) ? 'Heizung' : 'Wärmepumpe'}</span><span class="dcost">${rows.map(([l, ct, wh, note], i) =>
+    `<span class="dcrow" title="${esc(kwh(wh) + (note ? ' ' + note : ''))}"><span>${l}</span><b>${money(ct, cur)}</b><span class="dcbar"><i class="${i ? '' : 'now'}" style="width:${(100 * ct / max).toFixed(1)}%"></i></span></span>`).join('')}</span></div>`;
+}
+
 function detailTiles(st) {
   const t = today || {};
   switch (sel) {
   case 'hp': {
     const h = (st.heat || [])[0];
-    if (!h) return '';
-    const c = (st.consumers || []).find(x => x.icon === 'heatpump') || {};
+    const rods = heatMembers(st).filter(isRod);
+    const USE = {hotwater: 'Warmwasser', heating: 'Heizungsunterstützung'};
+    const RMODES = [['off', 'Aus', 'Heizstab aus'], ['surplus', 'Überschuss', 'Läuft mit PV-Überschuss (in der Reihenfolge der Priorität)'],
+      ['boost', 'Boost', 'PV-Überschuss plus Hausbatterie bis zur Boost-Grenze, vor allen anderen Verbrauchern']];
+    const rmeta = r => !r.loadMode ? '' : `<span class="rmeta">${r.boosting ? 'Boost aktiv' : ''}${topBtn(r.id, r.top)}<span class="rmode" role="group" aria-label="Modus ${esc(r.name)}">${RMODES.map(([m, l, t]) =>
+      `<button type="button" class="${m === 'boost' ? 'b' : ''}" data-rodmode="${esc(r.id)}" data-mode="${m}" aria-pressed="${r.loadMode === m}" title="${t}">${l}</button>`).join('')}</span></span>`;
+    const rodTile = rods.length ? `<div class="dtile wide"><span class="eyebrow">Heizstäbe · Reserve</span>${rods.map(r =>
+      `<span class="drow rod"><span>${esc(r.name)}${r.heatUse ? `<em class="duse">${USE[r.heatUse] || ''}</em>` : ''}</span>${r.steps > 1 ? `<span class="dsteps" title="Stufe ${r.step || 0} von ${r.steps}">${Array.from({length: r.steps}, (_, i) => `<i class="${i < (r.step || 0) ? 'on' : ''}"></i>`).join('')}</span>` : ''}<b class="${r.powerW > 15 ? '' : 'off'}">${r.powerW > 15 ? kw(r.powerW) : 'aus'}</b>${rmeta(r)}</span>`).join('')}</div>` : '';
+    if (!h) return rodTile;
+    const c = heatMembers(st).find(x => !isRod(x)) || (st.consumers || []).find(x => x.icon === 'heatpump') || {};
     const cop = h.cop, th = h.thermalW != null ? Math.max(0, h.thermalW) : null, el = h.electricW != null ? Math.max(0, h.electricW) : c.powerW;
     const col = cop == null ? 'var(--muted)' : cop < 2.5 ? 'var(--warn)' : cop < 3.5 ? 'var(--solar)' : 'var(--accent)';
-    const R = 34, C = Math.PI * R, frac = cop != null ? Math.max(0, Math.min(1, (cop - 1) / 6)) : 0;
-    const ring = `<svg class="dring" viewBox="0 0 84 46" aria-hidden="true"><path d="M8 42 A34 34 0 0 1 76 42" fill="none" stroke="var(--track)" stroke-width="8" stroke-linecap="round"/>
-      <path d="M8 42 A34 34 0 0 1 76 42" fill="none" stroke="${col}" stroke-width="8" stroke-linecap="round" stroke-dasharray="${(C * frac).toFixed(1)} ${C.toFixed(1)}"/></svg>`;
-    let split = '';
-    if (th > 0 && el != null) { const e = Math.min(el, th); split = `<span class="dbar"><i style="width:${(100 * e / th).toFixed(1)}%;background:var(--grid)"></i><i style="flex:1;background:var(--accent)"></i></span>`;
-      split += `<span class="ds">Strom ${kw(e)} · Umwelt ${kw(th - e)}</span>`; }
+    // the heat output split into power and environment: the share of power
+    // is 1 / COP (from the measured powers, else from the COP alone)
+    const e = th > 0 && el != null ? Math.min(el, th) : null;
+    const fr = e != null ? e / th : cop > 0 ? 1 / cop : null;
+    let bar = '', mix = '';
+    if (fr != null) {
+      const notches = Array.from({length: Math.min(12, Math.floor(1 / fr - 1e-6))}, (_, k) => `<u style="left:${(100 * (k + 1) * fr).toFixed(1)}%"></u>`).join('');
+      bar = `<span class="dcop" aria-hidden="true"><i style="width:${(100 * fr).toFixed(1)}%;background:var(--grid)"></i><i style="flex:1;background:${col}"></i>${notches}</span>`;
+      mix = e != null ? `<span class="dlegend"><span><i style="background:var(--grid)"></i>Strom ${kw(e)}</span><span><i style="background:${col}"></i>Umwelt ${kw(th - e)}</span></span>`
+        : `<span class="ds">${pct(1 - fr)} der Wärme aus der Umwelt</span>`;
+    }
     let temp = '–', band = '';
     if (h.flowC != null && h.returnC != null) {
       const a = Math.min(h.returnC, h.flowC), b = Math.max(h.returnC, h.flowC), mid = (a + b) / 2, half = Math.max(10, (b - a) / 2 + 5);
@@ -1023,11 +1135,12 @@ function detailTiles(st) {
       temp = `${num1(h.flowC)}<small>/ ${num1(h.returnC)} °C</small>`;
       band = `<span class="dtemp"><i style="left:${x(a).toFixed(1)}%;width:${Math.max(3, x(b) - x(a)).toFixed(1)}%"></i></span>`;
     }
-    const copTile = `<div class="dtile"><span class="eyebrow">COP</span><span class="dcop">${ring}<b>${cop != null ? num1(cop) : '–'}</b></span>${h.state ? `<span class="ds">${esc(h.state)}</span>` : ''}</div>`;
-    return [copTile,
-      tile('Wärmeleistung', th != null ? unit(num1(th / 1000), 'kW') : '–', '', split),
+    // one tile for what the heat pump makes of its power: COP and heat output
+    const hpTile = `<div class="dtile" title="COP = Wärme ÷ Strom: je Strich passt der Strom einmal in die Wärme"><span class="eyebrow">Wärme${h.state ? ' · ' + esc(h.state) : ''}</span>
+      <span class="dhead2"><b class="dv">${th != null ? unit(num1(th / 1000), 'kW') : '–'}</b>${cop != null ? `<span><small>COP</small> <b style="color:${col}">${num1(cop)}</b></span>` : ''}</span>${bar}${mix}</div>`;
+    return [hpTile, heatCostTile(st, c, rods),
       tile('Vorlauf / Rücklauf', temp, h.flowC != null && h.returnC != null ? `Spreizung ${num1(h.flowC - h.returnC)} K` : '', band),
-      tile('Außen · Warmwasser', `${h.outdoorC != null ? num1(h.outdoorC) : '–'}<small>/ ${h.hotWaterC != null ? num1(h.hotWaterC) : '–'} °C</small>`, h.error || '')].join('');
+      tile('Außen · Warmwasser', `${h.outdoorC != null ? num1(h.outdoorC) : '–'}<small>/ ${h.hotWaterC != null ? num1(h.hotWaterC) : '–'} °C</small>`, h.error || ''), rodTile].join('');
   }
   case 'grid': {
     const imp = st.gridW >= 0, ch = charging || {};
@@ -1039,13 +1152,14 @@ function detailTiles(st) {
   }
   case 'battery': {
     const w = st.batteryW, state = Math.abs(w) < 15 ? 'Ruhe' : w < 0 ? 'lädt' : 'entlädt';
-    const bs = (batInfo && batInfo.settings) || {}, mark = (v, t) => v > 0 && v < 1 ? `<b class="dmark" style="left:${(v * 100).toFixed(0)}%" title="${t} ${pct(v)}"></b>` : '';
-    const ring = `<span class="dbar dsoc"><i style="width:${(st.soc * 100).toFixed(0)}%;background:linear-gradient(90deg, var(--accent), var(--battery))"></i>${mark(bs.minSoc, 'Unteres Ladeziel')}${mark(bs.maxSoc, 'Oberes Ladeziel')}${st.boost ? mark(st.boost.targetSoc, 'Boost bis') : ''}</span>`;
+    const bs0 = (batInfo && batInfo.settings) || {}, bs = {...bs0, minSoc: batInfo ? batInfo.minSocNow : 0, maxSoc: batInfo ? batInfo.maxSocNow : 0}, mark = (v, t) => v > 0 && v < 1 ? `<b class="dmark" style="left:${(v * 100).toFixed(0)}%" title="${t} ${pct(v)}"></b>` : '';
+    const ring = `<span class="dbar dsoc"><i style="width:${(st.soc * 100).toFixed(0)}%;background:linear-gradient(90deg, var(--accent), var(--battery))"></i>${mark(bs.minSoc, 'Unteres Ladeziel')}${mark(bs.maxSoc, 'Oberes Ladeziel')}${st.forceCharge ? mark(st.forceCharge.targetSoc, 'Zwangsladung bis') : ''}${st.boost ? mark(st.boost.stopSoc, 'Boost bis') : bs.boostStartSoc > 0 ? mark(bs.boostStartSoc, 'Boost ab') : ''}</span>`;
     const targets = [bs.minSoc > 0 ? pct(bs.minSoc) : '', bs.maxSoc > 0 ? pct(bs.maxSoc) : ''];
-    return [tile('Ladestand', unit(Math.round(st.soc * 100), '%'), bs.minSoc > 0 || bs.maxSoc > 0 ? `Ladeziele ${targets[0] || '0 %'} – ${targets[1] || '100 %'}` : '', ring),
+    return [tile('Ladestand', unit(Math.round(st.soc * 100), '%'), bs.minSoc > 0 || bs.maxSoc > 0 ? `${bs0.limitMode === 'manual' ? 'von Hand' : 'automatisch'}  ${targets[0] || '0 %'} – ${targets[1] || '100 %'}` : '', ring),
       tile(state === 'Ruhe' ? 'Leistung' : state === 'lädt' ? 'Lädt mit' : 'Entlädt mit', unit(num1(Math.abs(w) / 1000), 'kW'), state === 'Ruhe' ? 'in Ruhe' : ''),
       tile('Heute', `${kwhS(t.batteryInWh || 0)}<small>kWh geladen</small>`, `${kwh(t.batteryOutWh || 0)} entladen`),
-      st.boost ? tile('Steuerung', 'Boost', `lädt bis ${pct(st.boost.targetSoc)} · seit ${hm(st.boost.since)}`)
+      st.forceCharge ? tile('Steuerung', 'Zwangsladung', `lädt bis ${pct(st.forceCharge.targetSoc)} · seit ${hm(st.forceCharge.since)}`)
+      : st.boost ? tile('Steuerung', 'Auto-Boost', `bis ${kw(st.boost.powerW)} für die Verbraucher · bis ${pct(st.boost.stopSoc)}`)
       : tile('Steuerung', st.controlled ? (st.chargeLimitW < 0 ? 'frei' : unit(num1(st.chargeLimitW / 1000), 'kW')) : 'Empfehlung',
         [st.controlled ? 'Ladegrenze' : 'voltibri steuert die Batterie nicht', st.dischargeLimitW >= 0 ? 'Entladung max. ' + kw(st.dischargeLimitW) : ''].filter(Boolean).join(' · '))].join('');
   }
@@ -1066,7 +1180,7 @@ function detailTiles(st) {
   }
   return '';
 }
-const SEL_TITLE = {hp: ['heatpump', 'Wärmepumpe'], grid: ['grid', 'Netz'], battery: ['battery', 'Hausbatterie'], pv: ['solar', 'PV'], home: ['house', 'Haus']};
+const SEL_TITLE = {hp: ['heatpump', 'Heizung'], grid: ['grid', 'Netz'], battery: ['battery', 'Hausbatterie'], pv: ['solar', 'PV'], home: ['house', 'Haus']};
 function renderDetails(st) {
   const el = $('flowDetail'), html = sel && st ? detailTiles(st) : '';
   el.hidden = !html;
@@ -1076,10 +1190,11 @@ function renderDetails(st) {
   // the battery settings live in one element that survives the refresh
   // (sliders keep their position while being moved)
   if (sel === 'battery' && batEl) el.appendChild(batEl);
-  if (sel === 'battery' && batInfo && !!st.boost !== !!batInfo.boost) loadBattery(); // boost ended (target reached)
+  // boost or force charging started or ended by itself (target reached, automatic start)
+  if (sel === 'battery' && batInfo && (!!st.boost !== !!batInfo.boost || !!st.forceCharge !== !!batInfo.forceCharge)) loadBattery();
 }
 
-// --- battery settings and boost (administrators; only what the battery supports) ---
+// --- battery settings, boost and force charging (administrators; only what the battery supports) ---
 let batInfo = null, batEl = null;
 async function loadBattery() {
   const me = await voltibri.me;
@@ -1103,39 +1218,58 @@ function buildBatCtl() {
   if (!i || !i.hasBattery) { batEl = null; return; }
   batEl = batEl || document.createElement('div');
   batEl.className = 'bctl';
-  if (!(f.maxSoc || f.minSoc || f.maxDischarge || f.boost)) {
-    batEl.innerHTML = `<p class="bnote">${esc(i.note || 'Diese Batterie unterstützt keine Einstellungen durch voltibri.')}</p>`;
+  const s = i.settings || {}, b = i.boost, fc = i.forceCharge, a = i.auto || {};
+  const P = v => Math.round((v || 0) * 100);
+  const opts = (val, min, max, st, txt) => {
+    const vs = [];
+    for (let v = min; v <= max + 1e-9; v += st) vs.push(Math.round(v));
+    if (!vs.includes(val)) vs.push(val), vs.sort((x, y) => x - y);
+    return vs.map(v => `<option value="${v}"${v === val ? ' selected' : ''}>${txt(v)}</option>`).join('');
+  };
+  const sel = (key, lab, val, min, max, st, txt, why) => `<label class="bt" title="${esc(why)}"><span>${lab}</span><select data-key="${key}" aria-label="${lab}">${opts(val, min, max, st, txt)}</select></label>`;
+  const grp = (title, head, tiles) => `<section class="bgrp"><header><h3>${title}</h3>${head || ''}</header>${tiles ? `<div class="bgrid">${tiles}</div>` : ''}</section>`;
+  const more = '<a class="navlink" href="konfiguration#strategy">Einstellungen</a>';
+
+  // charge targets: what is decided for today (the automatic is configured in the settings)
+  let limits = '';
+  if (f.maxSoc || f.minSoc) {
+    const auto = s.limitMode !== 'manual';
+    const seg = f.maxSoc ? `<span class="seg" role="group" aria-label="Ladegrenzen"><button type="button" data-limits="auto" aria-pressed="${auto}">Automatisch</button><button type="button" data-limits="manual" aria-pressed="${!auto}">Manuell</button></span>` : '';
+    const now = `${pct(i.minSocNow || 0)} – ${i.maxSocNow > 0 ? pct(i.maxSocNow) : '100 %'}`;
+    const note = auto ? `jetzt ${now} · ${esc(a.reason || '')}` : s.manualFor === 'always' ? 'von Hand, bis du es änderst' : `von Hand bis ${s.manualUntil ? etaTime(s.manualUntil) : 'morgen früh'}, dann wieder automatisch`;
+    const t = auto ? '' : [
+      f.maxSoc ? sel('maxSoc', 'Oben', P(s.maxSoc || 1), 50, 100, 5, v => v + ' %', 'Darüber lädt die Batterie nicht weiter.') : '',
+      f.minSoc ? sel('minSoc', 'Unten', P(s.minSoc), 0, 50, 5, v => v === 0 ? 'aus' : v + ' %', 'Darunter entlädt voltibri die Batterie nicht.') : '',
+      f.maxSoc ? `<label class="bt" title="Danach regelt wieder die Automatik"><span>Gilt</span><select data-key="manualFor"><option value="morning"${s.manualFor !== 'always' ? ' selected' : ''}>bis morgen</option><option value="always"${s.manualFor === 'always' ? ' selected' : ''}>dauerhaft</option></select></label>` : ''].join('');
+    limits = grp('Ladegrenzen', seg + `<small>${note}</small>${more}`, t);
+  }
+  // automatic boost: only while it runs
+  const boost = f.boost && b ? grp('Auto-Boost', `<small>läuft: bis ${kw(b.powerW)} für die Verbraucher, bis ${pct(b.stopSoc)} · seit ${hm(b.since)}</small><button class="btn danger" id="bBoostEnd">Beenden</button>`, '') : '';
+  // force charging: one line
+  const force = !f.forceCharge ? '' : fc
+    ? grp('Zwangsladung', `<small>läuft bis ${pct(fc.targetSoc)} – auch aus dem Netz · seit ${hm(fc.since)}</small><button class="btn danger" id="bForceEnd">Beenden</button>`, '')
+    : grp('Zwangsladung', `<small>sofort mit voller Leistung, notfalls aus dem Netz</small><select id="bForce" aria-label="Zwangsladung bis">${opts(Math.max(P(i.maxSocNow || 1), 50), 20, 100, 5, v => 'bis ' + v + ' %')}</select><button class="btn" id="bForceGo">${iconSVG('bolt', 14)} Starten</button>`, '');
+  if (!limits && !boost && !force) {
+    batEl.innerHTML = `<p class="bnote">${esc(i.note || 'Hier gibt es nichts einzustellen.')} ${f.priority || f.boost ? more : ''}</p>`;
     return;
   }
-  const s = i.settings || {}, b = i.boost;
-  const maxP = Math.round((s.maxSoc || 1) * 100), minP = Math.round((s.minSoc || 0) * 100);
-  const capW = i.maxDischargeW > 0 ? i.maxDischargeW : 10000, step = 250;
-  const disW = s.maxDischargeW > 0 ? Math.min(s.maxDischargeW, capW) : capW;
-  const disTxt = w => w >= capW ? 'unbegrenzt' : kw(w);
-  const range = (id, lab, val, min, max, st, txt, why) => `<div><div class="lab">${lab} <span class="socval" id="${id}V">${txt(val)}</span></div>
-    <input type="range" id="${id}" min="${min}" max="${max}" step="${st}" value="${val}" aria-label="${lab}"><div class="need">${why}</div></div>`;
-  const pctTxt = (off, word) => v => +v === off ? word : v + ' %';
-  const boost = !f.boost ? '' : b
-    ? `<div class="bbox on"><div><b>Boost läuft</b><span>lädt bis ${pct(b.targetSoc)} – auch aus dem Netz · seit ${hm(b.since)}</span></div><button class="btn danger" id="bStop">Boost beenden</button></div>`
-    : `<div class="bbox">${range('bBoost', 'Boost bis', Math.max(maxP, 50), 20, 100, 5, v => v + ' %', 'Lädt die Batterie sofort mit voller Leistung, notfalls aus dem Netz, bis zu diesem Ladestand – unabhängig vom Plan.')}
-      <button class="btn primary" id="bStart">${iconSVG('bolt', 14)} Boost starten</button></div>`;
-  const sets = [
-    f.maxSoc ? range('bMax', 'Oberes Ladeziel', maxP, 50, 100, 5, pctTxt(100, 'aus (100 %)'), 'Darüber lädt die Batterie nicht weiter – schont die Zellen.') : '',
-    f.minSoc ? range('bMin', 'Unteres Ladeziel', minP, 0, 50, 5, pctTxt(0, 'aus'), 'Darunter entlädt voltibri die Batterie nicht – Reserve für Stromausfall oder den Morgen.') : '',
-    f.maxDischarge ? range('bDis', 'Max. Entladeleistung', disW, Math.min(500, capW), capW, step, disTxt, 'Höchstens so viel gibt die Batterie ans Haus ab.') : ''].filter(Boolean).join('');
-  batEl.innerHTML = `<div class="pform">${boost}${sets ? `<h3>Einstellungen</h3>${sets}<div class="bact"><button class="btn primary" id="bSave" disabled>Speichern</button></div>` : ''}<p class="err"></p></div>`;
+  batEl.innerHTML = `<div class="pform">${limits}${boost}${force}<p class="err"></p></div>`;
   const q = id => batEl.querySelector('#' + id);
-  const txts = {bBoost: v => v + ' %', bMax: pctTxt(100, 'aus (100 %)'), bMin: pctTxt(0, 'aus'), bDis: disTxt};
-  batEl.querySelectorAll('input[type=range]').forEach(r => r.addEventListener('input', () => {
-    q(r.id + 'V').textContent = txts[r.id](+r.value);
-    if (r.id !== 'bBoost' && q('bSave')) q('bSave').disabled = false;
-  }));
-  if (q('bStart')) q('bStart').onclick = () => batSend('POST', 'api/battery/boost', {targetSoc: +q('bBoost').value / 100});
-  if (q('bStop')) q('bStop').onclick = () => batSend('DELETE', 'api/battery/boost');
-  if (q('bSave')) q('bSave').onclick = () => batSend('PUT', 'api/battery', {
-    maxSoc: q('bMax') && +q('bMax').value < 100 ? +q('bMax').value / 100 : 0,
-    minSoc: q('bMin') ? +q('bMin').value / 100 : 0,
-    maxDischargeW: q('bDis') && +q('bDis').value < capW ? +q('bDis').value : 0});
+  const body = over => Object.assign({
+    limitMode: s.limitMode, manualFor: s.manualFor || 'morning',
+    maxSoc: f.maxSoc ? (s.maxSoc || 0) : 0, minSoc: f.minSoc ? (s.minSoc || 0) : 0, maxDischargeW: f.maxDischarge ? (s.maxDischargeW || 0) : 0,
+    autoFloorSunny: s.autoFloorSunny, autoFloorCloudy: s.autoFloorCloudy, autoMaxSoc: s.autoMaxSoc || 0,
+    prioritySoc: s.prioritySoc, boostReserve: s.boostReserve || 0, boostStopSoc: s.boostStopSoc, boostStartSoc: s.boostStartSoc || 0}, over);
+  const conv = (k, v) => k === 'manualFor' ? v : k === 'maxSoc' ? (+v >= 100 ? 0 : +v / 100) : +v / 100;
+  batEl.querySelectorAll('select[data-key]').forEach(x => x.onchange = () => batSend('PUT', 'api/battery', body({[x.dataset.key]: conv(x.dataset.key, x.value)})));
+  batEl.querySelectorAll('[data-limits]').forEach(x => x.onclick = () => {
+    if (x.getAttribute('aria-pressed') === 'true') return;
+    const man = x.dataset.limits === 'manual'; // by hand starts from what applies now
+    batSend('PUT', 'api/battery', body(man ? {limitMode: 'manual', manualFor: 'morning', maxSoc: f.maxSoc ? (i.maxSocNow || 0) : 0, minSoc: f.minSoc ? (i.minSocNow || 0) : 0} : {limitMode: 'auto'}));
+  });
+  if (q('bBoostEnd')) q('bBoostEnd').onclick = () => batSend('DELETE', 'api/battery/boost');
+  if (q('bForceGo')) q('bForceGo').onclick = () => batSend('POST', 'api/battery/force', {targetSoc: +q('bForce').value / 100});
+  if (q('bForceEnd')) q('bForceEnd').onclick = () => batSend('DELETE', 'api/battery/force');
 }
 async function select(key) {
   sel = sel === key ? null : key;
@@ -1151,6 +1285,28 @@ function onSelect(e) {
   select(n.dataset.sel);
 }
 $('flow').addEventListener('click', onSelect, true);
+// "first for today": before all other surplus loads until midnight
+const topBtn = (id, on) => `<button type="button" class="topbtn" data-top="${esc(id)}" aria-pressed="${!!on}" title="${on ? 'Bekommt heute den PV-Überschuss vor allen anderen Verbrauchern – klicken zum Aufheben' : 'Bis Mitternacht vor allen anderen Verbrauchern, danach gilt wieder die Priorität aus den Einstellungen'}">${on ? 'Heute zuerst ✓' : 'Heute zuerst'}</button>`;
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-top]');
+  if (!b) return;
+  e.stopPropagation();
+  const on = b.getAttribute('aria-pressed') !== 'true';
+  const r = await fetch(`api/loads/${encodeURIComponent(b.dataset.top)}/top`, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({on})}).catch(() => null);
+  if (!r || !r.ok) { const res = r ? await r.json().catch(() => ({})) : {}; alert(res.error || 'Keine Verbindung.'); return; }
+  b.setAttribute('aria-pressed', on); b.textContent = on ? 'Heute zuerst ✓' : 'Heute zuerst';
+  refresh();
+}, true);
+// mode of a heating rod (off, surplus, boost) in the heating details
+$('flowDetail').addEventListener('click', async e => {
+  const b = e.target.closest('[data-rodmode]');
+  if (!b || b.getAttribute('aria-pressed') === 'true') return;
+  e.stopPropagation();
+  const r = await fetch(`api/loads/${encodeURIComponent(b.dataset.rodmode)}/mode`, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({mode: b.dataset.mode})}).catch(() => null);
+  if (!r || !r.ok) { const res = r ? await r.json().catch(() => ({})) : {}; alert(res.error || 'Keine Verbindung.'); return; }
+  b.parentElement.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b));
+  refresh();
+});
 $('flow').addEventListener('keydown', onSelect, true);
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && sel) select(sel); });
 (() => { // result of an OAuth login
@@ -1378,9 +1534,9 @@ $('laden').addEventListener('click', e => {
   if (ed) voltibri.open({id: ed.dataset.setupEdit, onDone: () => refreshCharging(true)});
 });
 
-// a click outside closes the strategy menu
+// a click outside closes the mode menu
 document.addEventListener('click', e => {
-  if (smartOpen && !e.target.closest('.modes')) { smartOpen = null; refreshCharging(true); }
+  if (modeOpen && !e.target.closest('.wbscene')) { modeOpen = null; refreshCharging(true); }
 });
 
 let resizeTimer;

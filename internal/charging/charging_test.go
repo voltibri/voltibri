@@ -553,3 +553,48 @@ func TestOffReason(t *testing.T) {
 		t.Fatalf("wallbox off: %q", r)
 	}
 }
+
+func TestBoostSurplus(t *testing.T) {
+	m, ch, _ := setup(t, config.Loadpoint{}, fakeProvider{"car1": {SoC: 0.4, Connected: true}})
+	m.SetVehicleSettings("tibber/car1", VehicleSettings{Mode: ModeMinPV})
+	ch.st = sdk.ChargerStatus{Connected: true, Charging: true, PowerW: 4140}
+	// running at 6 A, 3 phases; battery already covers 1 kW of it
+	boost := func(at time.Duration, boostW float64) Loadpoint {
+		m.Update(context.Background(), SiteInput{Now: t0.Add(at), GridW: 0, BatteryW: 1000, PVW: 4000, LoadW: 5000,
+			Chargers: map[string]sdk.ChargerStatus{"wb": ch.st}, BatteryPriority: true, BoostW: boostW, AutoBoost: true})
+		return m.Loadpoints()[0]
+	}
+	// without boost: 3.1 kW surplus -> minimum current
+	if lp := boost(0, 0); lp.Target.CurrentA != 6 {
+		t.Fatalf("no boost: %+v", lp.Target)
+	}
+	// boost 4 kW: surplus 4.14 - 1 + 4 = 7.14 kW -> 10 A, battery priority ignored
+	lp := boost(10*time.Second, 4000)
+	if lp.Target.CurrentA != 10 || !strings.Contains(lp.Reason, "Boost") {
+		t.Fatalf("boost: %+v %q", lp.Target, lp.Reason)
+	}
+	// a vehicle the battery must not supply gets no boost
+	m.mu.Lock()
+	m.batteryNever["wb"] = true
+	m.mu.Unlock()
+	if lp := boost(20*time.Second, 4000); lp.Target.CurrentA != 6 {
+		t.Fatalf("excluded: %+v", lp.Target)
+	}
+	m.mu.Lock()
+	m.batteryNever["wb"] = false
+	m.mu.Unlock()
+	// boost by hand (charge mode) without the automatic boost
+	m.SetVehicleSettings("tibber/car1", VehicleSettings{Mode: ModeBoost})
+	manual := func(at time.Duration, boostW float64) Loadpoint {
+		m.Update(context.Background(), SiteInput{Now: t0.Add(at), GridW: 0, BatteryW: 1000, PVW: 4000, LoadW: 5000,
+			Chargers: map[string]sdk.ChargerStatus{"wb": ch.st}, BoostW: boostW})
+		return m.Loadpoints()[0]
+	}
+	if lp := manual(30*time.Second, 4000); lp.Target.CurrentA != 10 || !lp.Boosting {
+		t.Fatalf("boost mode: %+v", lp)
+	}
+	// the battery at its boost limit: surplus only
+	if lp := manual(40*time.Second, 0); lp.Boosting || !strings.Contains(lp.Reason, "Boost-Grenze") {
+		t.Fatalf("at the limit: %+v", lp)
+	}
+}

@@ -21,14 +21,14 @@ func (h *handler) state(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, st)
 }
 
-// heatGroups names the overview group of heating devices shown as one
-// bubble to users without heat pump details.
-var heatGroups = map[string]string{config.KindHeatPump: "Wärmepumpe", config.KindHeatingRod: "Warmwasser", config.KindClimate: "Klima"}
+// heatKinds are the devices shown as one "Heizung" total to users without
+// heat pump details.
+var heatKinds = map[string]bool{config.KindHeatPump: true, config.KindHeatingRod: true}
 
 // visibleState filters the live state for a user:
 //   - without the energy flow: no producers and consumers
 //   - without heat pump details: no heat readings (COP, temperatures), and the
-//     heating devices only as one total per kind (cannot be opened)
+//     heat pump and heating rods only as one "Heizung" total (cannot be opened)
 //   - never: loadpoints (vehicle names of others), errors (device addresses)
 func visibleState(p *auth.Principal, st site.State, cfg *config.Config) site.State {
 	st.Loadpoints, st.Errors = nil, nil
@@ -47,24 +47,18 @@ func visibleState(p *auth.Principal, st site.State, cfg *config.Config) site.Sta
 		kinds[d.ID] = config.KindOf(d)
 	}
 	out := []site.Reading{}
-	sums := map[string]int{} // kind -> index in out
+	sum := -1 // index of the heating total in out
 	for _, c := range st.Consumers {
-		name, heat := heatGroups[kinds[c.ID]]
-		if !heat {
+		if !heatKinds[kinds[c.ID]] {
 			out = append(out, c)
 			continue
 		}
-		k := kinds[c.ID]
-		if i, ok := sums[k]; ok {
-			out[i].PowerW += c.PowerW
+		if sum >= 0 {
+			out[sum].PowerW += c.PowerW
 			continue
 		}
-		sums[k] = len(out)
-		icon := "heatpump"
-		if k == config.KindHeatingRod {
-			icon = "water"
-		}
-		out = append(out, site.Reading{ID: "heat:" + k, Name: name, Icon: icon, PowerW: c.PowerW, Mode: c.Mode})
+		sum = len(out)
+		out = append(out, site.Reading{ID: "heat:heizung", Name: "Heizung", Icon: "heatpump", PowerW: c.PowerW, Mode: c.Mode})
 	}
 	st.Consumers = out
 	return st

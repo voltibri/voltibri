@@ -6,26 +6,87 @@ package api
 import (
 	"math"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/voltibri/voltibri/internal/auth"
+	"github.com/voltibri/voltibri/internal/store"
 )
 
 // todayInfo are the day totals for the overview (from the load profile).
 type todayInfo struct {
-	Since          time.Time          `json:"since"` // start of the data (midnight, or later on the first day)
-	PVWh           float64            `json:"pvWh"`
-	LoadWh         float64            `json:"loadWh"`
-	GridImportWh   float64            `json:"gridImportWh"`
-	GridExportWh   float64            `json:"gridExportWh"`
-	GridCostCt     float64            `json:"gridCostCt,omitempty"` // cost of the grid import (where prices are known)
-	BatteryInWh    float64            `json:"batteryInWh"`          // charged into the home battery
-	BatteryOutWh   float64            `json:"batteryOutWh"`         // discharged from the home battery
-	PVByDevice     map[string]float64 `json:"pvByDevice,omitempty"` // generation per PV device
-	Autarky        *float64           `json:"autarky,omitempty"`    // share of the load not from the grid
-	SelfUse        *float64           `json:"selfUse,omitempty"`    // share of the PV used in the house
-	ForecastRestWh float64            `json:"forecastRestWh"`       // PV still expected until midnight
-	Covered        bool               `json:"covered"`              // data since midnight
+	Since          time.Time              `json:"since"` // start of the data (midnight, or later on the first day)
+	PVWh           float64                `json:"pvWh"`
+	LoadWh         float64                `json:"loadWh"`
+	GridImportWh   float64                `json:"gridImportWh"`
+	GridExportWh   float64                `json:"gridExportWh"`
+	GridCostCt     float64                `json:"gridCostCt,omitempty"` // cost of the grid import (where prices are known)
+	BatteryInWh    float64                `json:"batteryInWh"`          // charged into the home battery
+	BatteryOutWh   float64                `json:"batteryOutWh"`         // discharged from the home battery
+	PVByDevice     map[string]float64     `json:"pvByDevice,omitempty"` // generation per PV device
+	Autarky        *float64               `json:"autarky,omitempty"`    // share of the load not from the grid
+	SelfUse        *float64               `json:"selfUse,omitempty"`    // share of the PV used in the house
+	ForecastRestWh float64                `json:"forecastRestWh"`       // PV still expected until midnight
+	Covered        bool                   `json:"covered"`              // data since midnight
+	Devices        map[string]*deviceDays `json:"devices,omitempty"`    // consumers: today, yesterday, average of the days before
+}
+
+// deviceDays is the energy and cost of one consumer per day: today (so
+// far), yesterday and the average of the full days before today (up to
+// avgDays, only days the device was recorded from their start).
+type deviceDays struct {
+	TodayWh     float64 `json:"todayWh"`
+	TodayCt     float64 `json:"todayCt"`
+	YesterdayWh float64 `json:"yesterdayWh"`
+	YesterdayCt float64 `json:"yesterdayCt"`
+	AvgWh       float64 `json:"avgWh"`
+	AvgCt       float64 `json:"avgCt"`
+	AvgDays     int     `json:"avgDays"` // full days in the average (0: none yet)
+}
+
+// avgDays is how far back the average per device goes.
+const avgDays = 7
+
+// deviceHistory sums the consumers per day over today and the avgDays
+// before (grid, battery and PV channels are not consumers).
+func deviceHistory(sums []store.ProfileSum, starts map[string]time.Time, midnight time.Time, skip map[string]bool) map[string]*deviceDays {
+	out := map[string]*deviceDays{}
+	yesterday := midnight.AddDate(0, 0, -1)
+	for _, s := range sums {
+		if skip[s.Asset] || strings.Contains(s.Asset, ".") || s.ImportWh <= 0 {
+			continue
+		}
+		d := out[s.Asset]
+		if d == nil {
+			d = &deviceDays{}
+			out[s.Asset] = d
+		}
+		switch {
+		case !s.Start.Before(midnight):
+			d.TodayWh += s.ImportWh
+			d.TodayCt += s.CostCt
+			continue
+		case s.Start.Equal(yesterday):
+			d.YesterdayWh, d.YesterdayCt = s.ImportWh, s.CostCt
+		}
+		// a day counts fully only when the device was recorded from its start
+		if first, ok := starts[s.Asset]; ok && first.After(s.Start) {
+			continue
+		}
+		d.AvgWh += s.ImportWh
+		d.AvgCt += s.CostCt
+		d.AvgDays++
+	}
+	for id, d := range out {
+		if d.AvgDays > 0 {
+			d.AvgWh /= float64(d.AvgDays)
+			d.AvgCt /= float64(d.AvgDays)
+		}
+		if d.TodayWh <= 0 && d.YesterdayWh <= 0 && d.AvgWh <= 0 {
+			delete(out, id)
+		}
+	}
+	return out
 }
 
 // today returns the totals since midnight: PV, load, grid, autarky and the
@@ -83,6 +144,12 @@ func (h *handler) today(w http.ResponseWriter, r *http.Request) {
 		t.Since = s
 	}
 	t.Covered = !t.Since.After(midnight)
+	// consumers per day: today, yesterday and the days before
+	if days, err := h.st.ProfileSums(r.Context(), nil, midnight.AddDate(0, 0, -avgDays), midnight.AddDate(0, 0, 1), loc, store.BucketDay); err == nil {
+		if d := deviceHistory(days, starts, midnight, pv); len(d) > 0 {
+			t.Devices = d
+		}
+	}
 	// PV forecast for the rest of the day from the current plan
 	for _, s := range h.rt.Plan().Slots {
 		end := s.Start.Add(15 * time.Minute)

@@ -28,6 +28,7 @@ const ICONS = {
   leaf:    '<path d="M5 19c0-9 6-14 15-14 0 9-5 15-14 15"/><path d="M5 19c3-4 6-6 9-7"/>',
   euro:    '<path d="M17 6.5A6 6 0 1 0 17 17.5"/><path d="M4 10h9M4 14h9"/>',
   bolt:    '<path d="M13 2 5 13h6l-1 9 8-11h-6z"/>',
+  power:   '<path d="M12 3v8"/><path d="M6.4 6.6a8 8 0 1 0 11.2 0"/>',
   clock:   '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   target:  '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
   plus:    '<path d="M12 5v14M5 12h14"/>',
@@ -48,8 +49,9 @@ const KIND_LABEL = {pv: 'PV-Anlage', battery: 'Hausbatterie', inverter: 'Wechsel
 const slugify = s => s.toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 // vehicles: in which charge modes the home battery must not supply the car
 const BAT_OPTS = {allow: {label: 'darf liefern', modes: []}, fast: {label: 'nicht bei Schnell', modes: ['fast']},
-  fastmin: {label: 'nicht bei Schnell und Min+PV', modes: ['fast', 'minpv']}, never: {label: 'nie', modes: ['external', 'pv', 'pv1', 'minpv', 'fast']}};
-const batKey = ms => { const s = [...(ms || [])].sort().join(); return Object.keys(BAT_OPTS).find(k => [...BAT_OPTS[k].modes].sort().join() === s) || 'allow'; };
+  fastmin: {label: 'nicht bei Schnell und Min+PV', modes: ['fast', 'minpv']}, never: {label: 'nie', modes: ['external', 'pv', 'pv1', 'minpv', 'boost', 'fast']}};
+// (boost is new: older settings without it still match "nie")
+const batKey = ms => { const n = l => [...(l || [])].filter(m => m !== 'boost').sort().join(), s = n(ms); return Object.keys(BAT_OPTS).find(k => n(BAT_OPTS[k].modes) === s) || 'allow'; };
 
 const FLEX_TEXT = {none: ['keine', 'Nur messen – voltibri schaltet nichts.'],
   shiftable: ['Start verschiebbar', 'Ein Programm, das einmal gestartet durchlaufen muss (Waschmaschine, Spülmaschine, Trockner). voltibri darf den Start verschieben – die Steuerung folgt in einem späteren Schritt.'],
@@ -59,6 +61,7 @@ const FLEX_TEXT = {none: ['keine', 'Nur messen – voltibri schaltet nichts.'],
 const controlOf = drv => {
   const c = (drv && drv.capabilities) || [];
   if (c.includes('charger-control') || c.includes('battery-control')) return ['regelbar', 'Leistung stufenlos einstellbar'];
+  if (c.includes('stages')) return ['in Stufen', 'jede Phase einzeln schaltbar'];
   if (c.includes('switch')) return ['schaltbar', 'an/aus'];
   return ['keine', 'nur messen'];
 };
@@ -253,6 +256,11 @@ const voltibri = (() => {
       ${ctl ? `<label class="f" for="sp__mode">Steuerung<select id="sp__mode">${Object.keys(MODE_TEXT).map(m => `<option value="${m}"${m === mode ? ' selected' : ''}>${MODE_TEXT[m]}</option>`).join('')}</select>
         <span class="why">„Fremdgesteuert“: ein anderes System (z. B. evcc, Home Assistant) steuert, voltibri liest nur mit.</span></label>` : ''}
       ${consumerOpts}
+      ${(st.dev.kind || '') === 'heating-rod' || st.dev.icon === 'water' ? `<label class="f" for="sp__heatuse">Heizstab für<select id="sp__heatuse">
+        <option value=""${st.dev.heatUse ? '' : ' selected'}>–</option>
+        <option value="hotwater"${st.dev.heatUse === 'hotwater' ? ' selected' : ''}>Warmwasser (oberer Pufferbereich)</option>
+        <option value="heating"${st.dev.heatUse === 'heating' ? ' selected' : ''}>Heizungsunterstützung (am Vorlauf der Heizkreise)</option></select>
+        <span class="why">Wärmepumpe und Heizstäbe heizen denselben Puffer und erscheinen im Energiefluss gemeinsam als „Heizung“.</span></label>` : ''}
       ${batteryOpt}
       ${d.type === 'vehicle' ? `<label class="f" for="sp__vbat">Hausbatterie beim Laden<select id="sp__vbat">${Object.entries(BAT_OPTS).map(([k, o]) =>
         `<option value="${k}"${k === batKey(st.dev.noBatteryModes) ? ' selected' : ''}>${o.label}</option>`).join('')}</select>
@@ -298,6 +306,7 @@ const voltibri = (() => {
       if (v) dev[key] = v; else delete dev[key];
     }
     if ($('sp__vbat')) { const m = BAT_OPTS[$('sp__vbat').value].modes; if (m.length) dev.noBatteryModes = m; else delete dev.noBatteryModes; }
+    if ($('sp__heatuse')) { const v = $('sp__heatuse').value; if (v) dev.heatUse = v; else delete dev.heatUse; }
     if ($('sp__bat')) { const b = $('sp__bat').value; if (b) dev.batteryUse = b; else delete dev.batteryUse; }
     if ($('sp__flex')) {
       const f = $('sp__flex').value;

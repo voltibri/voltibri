@@ -81,7 +81,7 @@ type Runtime interface {
 	Status() server.Status
 	ReadOnly() bool
 	Charging() *charging.Manager // nil while no site runs
-	Battery() *site.Site         // battery settings and boost; nil while no site runs
+	Battery() *site.Site         // battery settings, force charging and boost; nil while no site runs
 }
 
 // Handler returns the HTTP handler.
@@ -106,6 +106,7 @@ func Handler(rt Runtime, st *store.Store) http.Handler {
 	h.deviceRoutes(mux)
 	h.importRoutes(mux)
 	h.batteryRoutes(mux)
+	h.loadRoutes(mux)
 	mux.HandleFunc("GET /api/drivers", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, sdk.Drivers()) })
 
 	mux.HandleFunc("GET /api/config", h.getConfig)

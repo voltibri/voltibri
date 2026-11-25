@@ -78,9 +78,9 @@ func (s *Site) writeLimits(ctx context.Context, force bool) {
 	s.mu.RLock()
 	charge := s.plan.CurrentLimitW()
 	discharge := s.discharge
-	bs, soc := s.batSet, s.state.SoC
+	bs, soc := s.effective(s.batSet, s.auto), s.state.SoC
 	s.mu.RUnlock()
-	if s.batCtl == nil || s.forcing { // forced charging (guest, boost) overrides the plan
+	if s.batCtl == nil || s.forcing { // forced charging (guest, force charging) overrides the plan
 		return
 	}
 	// charge targets and max. discharge of the battery settings (the SoC is

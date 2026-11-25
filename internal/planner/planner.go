@@ -320,3 +320,112 @@ func simulateSoC(p *Plan, in Input, load []float64) {
 		s.ExpectedSoC = math.Round(soc*1000) / 1000
 	}
 }
+
+// AutoConfig tunes the automatic charge targets.
+type AutoConfig struct {
+	FloorSunny  float64 // lower target before a day that fills the battery (e.g. 0.05)
+	FloorCloudy float64 // lower target before a dull day (e.g. 0.2)
+	MaxSoC      float64 // upper target: 0 = automatic (what the night needs), else fixed
+}
+
+// Targets are automatic charge targets with the reason.
+type Targets struct {
+	MaxSoC  float64    `json:"maxSoc"` // 1 = no upper target
+	MinSoC  float64    `json:"minSoc"`
+	DayFill *float64   `json:"dayFill,omitempty"` // expected surplus of the next day / capacity (nil unknown)
+	Morning *time.Time `json:"morning,omitempty"` // start of that day
+	Reason  string     `json:"reason"`
+}
+
+// sunnyFill and dullFill: a day whose surplus fills the battery this often
+// (or more) counts as sunny, this little (or less) as dull.
+const (
+	sunnyFill = 1.0
+	dullFill  = 0.3
+)
+
+// AutoTargets derives the charge targets from the forecasts.
+//
+// Lower target: before a day whose surplus fills the battery it may be
+// emptied down to FloorSunny in the night (room for the PV), before a dull
+// day it keeps FloorCloudy; in between it is interpolated.
+//
+// Upper target (automatic): before a day that fills the battery only what
+// the night needs – lower target + forecast night consumption (upper
+// quantile) + safety margin, rounded up to 5 % – the rest is refilled
+// tomorrow anyway and the battery does not stand full; before a dull day it
+// charges fully to store for that day. A fixed MaxSoC applies always.
+func AutoTargets(in Input, lf LoadForecaster, cfg Config, ac AutoConfig) Targets {
+	t := Targets{MaxSoC: 1, MinSoC: ac.FloorCloudy}
+	if ac.MaxSoC > 0 {
+		t.MaxSoC = math.Min(1, ac.MaxSoC)
+	}
+	upper := func() string {
+		if ac.MaxSoC > 0 {
+			return fmt.Sprintf("oben fest %.0f %%", t.MaxSoC*100)
+		}
+		return fmt.Sprintf("oben %.0f %%", t.MaxSoC*100)
+	}
+	n, b := len(in.Slots), in.Battery
+	if n == 0 || lf == nil || !lf.Ready() || b.CapacityWh <= 0 {
+		t.Reason = fmt.Sprintf("Keine Prognose: unten %.0f %% Reserve für trübe Tage, %s.", t.MinSoC*100, upper())
+		return t
+	}
+	nightSlots := int(math.Max(1, cfg.MinNightHours*4))
+	surplus := make([]float64, n)
+	for i, s := range in.Slots {
+		surplus[i] = s.PVW*cfg.PVPessimism - lf.Slot(s.Start, in.Now, in.TempC).P50
+	}
+	// the next morning after a night (and where that night starts)
+	morning, run := -1, 0
+	for i := 0; i < n; i++ {
+		if surplus[i] < 0 {
+			run++
+			continue
+		}
+		if run >= nightSlots {
+			morning = i
+			break
+		}
+		run = 0
+	}
+	if morning < 0 {
+		t.Reason = fmt.Sprintf("Kein sonniger Tag im Prognosehorizont: unten %.0f %% Reserve, %s.", t.MinSoC*100, upper())
+		return t
+	}
+	nightStart := morning - run
+	mt := in.Slots[morning].Start
+	t.Morning = &mt
+	var day float64
+	run = 0
+	for i := morning; i < n && run < nightSlots; i++ {
+		if surplus[i] < 0 {
+			run++
+			continue
+		}
+		run = 0
+		day += math.Min(surplus[i], b.MaxChargeW) * series.SlotHours * b.ChargeEff
+	}
+	fill := day / b.CapacityWh
+	t.DayFill = &fill
+	switch {
+	case fill >= sunnyFill:
+		t.MinSoC = ac.FloorSunny
+	case fill <= dullFill:
+		t.MinSoC = ac.FloorCloudy
+	default:
+		k := (fill - dullFill) / (sunnyFill - dullFill)
+		t.MinSoC = ac.FloorCloudy + k*(ac.FloorSunny-ac.FloorCloudy)
+	}
+	t.MinSoC = math.Round(t.MinSoC*100) / 100
+	night := lf.Energy(in.Slots[nightStart].Start, mt, in.Now, in.TempC).PQ
+	nightTxt := ""
+	if ac.MaxSoC <= 0 && fill >= sunnyFill {
+		need := t.MinSoC + night/(b.CapacityWh*b.DischargeEff) + cfg.SafetyMarginSoC
+		t.MaxSoC = math.Min(1, math.Max(t.MinSoC+0.1, math.Ceil(need*20-1e-9)/20))
+		nightTxt = fmt.Sprintf(", die Nacht braucht etwa %.1f kWh", night/1000)
+	}
+	t.Reason = fmt.Sprintf("Ab %s etwa %.1f kWh Überschuss (%.0f %% der Batterie)%s: unten %.0f %%, %s.",
+		mt.Format("02.01. 15:04"), day/1000, fill*100, nightTxt, t.MinSoC*100, upper())
+	return t
+}
