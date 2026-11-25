@@ -59,7 +59,8 @@ type Charging struct {
 	Cards []Card `yaml:"cards,omitempty" json:"cards,omitempty"`
 	// BatteryPrioritySoC: below this SoC PV surplus goes to the home battery
 	// first (unless the battery plan says there is enough surplus later).
-	// Default 0.5.
+	// Default 0.5. Only the starting value: administrators change it at
+	// runtime in the battery settings, that value wins.
 	BatteryPrioritySoC float64 `yaml:"batteryPrioritySoC,omitempty" json:"batteryPrioritySoC,omitempty"`
 }
 
@@ -150,6 +151,9 @@ type Device struct {
 	// NoBatteryModes (vehicles): in these charge modes the home battery does
 	// not supply the car, e.g. [fast] or [fast, minpv].
 	NoBatteryModes []string `yaml:"noBatteryModes,omitempty" json:"noBatteryModes,omitempty"`
+	// HeatUse (heating rods): what the rod heats – "hotwater" (top of the
+	// buffer, showers) or "heating" (supports the heating circuits).
+	HeatUse string `yaml:"heatUse,omitempty" json:"heatUse,omitempty"`
 	// Flexibility: none (default), shiftable (start can be delayed, the
 	// program then runs to its end), interruptible (may be switched on and
 	// off as long as it is done by its deadline) or surplus (no target, runs
@@ -284,9 +288,9 @@ func (c *Config) Validate() error {
 			errs = append(errs, fmt.Errorf("charging.loadpoints[%d]: unknown guest policy %q (share, batteryFirst, forceBattery)", i, lp.Guest))
 		}
 		switch lp.GuestMode {
-		case "", "external", "pv", "minpv", "fast":
+		case "", "external", "pv", "minpv", "fast", "boost":
 		default:
-			errs = append(errs, fmt.Errorf("charging.loadpoints[%d]: unknown guest mode %q (external, pv, minpv, fast)", i, lp.GuestMode))
+			errs = append(errs, fmt.Errorf("charging.loadpoints[%d]: unknown guest mode %q (external, pv, minpv, fast, boost)", i, lp.GuestMode))
 		}
 		if lp.Phases != 0 && lp.Phases != 1 && lp.Phases != 3 {
 			errs = append(errs, fmt.Errorf("charging.loadpoints[%d]: phases must be 1 or 3", i))
@@ -504,14 +508,14 @@ func (c *Config) validateCards() []error {
 		}
 		seen[strings.ToLower(k.Card)] = true
 		switch k.Mode {
-		case "", "off", "external", "pv", "pv1", "minpv", "fast":
+		case "", "off", "external", "pv", "pv1", "minpv", "fast", "boost":
 		default:
 			errs = append(errs, fmt.Errorf("charging.cards: card %q: unknown mode %q", k.Card, k.Mode))
 		}
 	}
 	for i, lp := range c.Charging.Loadpoints {
 		switch lp.GuestMode {
-		case "", "off", "external", "pv", "pv1", "minpv", "fast":
+		case "", "off", "external", "pv", "pv1", "minpv", "fast", "boost":
 		default:
 			errs = append(errs, fmt.Errorf("charging.loadpoints[%d]: unknown guestMode %q", i, lp.GuestMode))
 		}

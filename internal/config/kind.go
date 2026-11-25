@@ -57,6 +57,8 @@ func KindOf(d Device) string {
 		return KindEVCharger
 	case has(sdk.CapHeat):
 		return KindHeatPump
+	case has(sdk.CapStages): // switched in steps: a heating rod
+		return KindHeatingRod
 	case has(sdk.CapVehicles) && d.Type == "vehicle":
 		return KindVehicle
 	case has(sdk.CapVehicles):
@@ -230,6 +232,13 @@ func (c *Config) VehicleNames() map[string]string {
 // vehicle account, each account vehicle bound at most once.
 func (c *Config) validateVehicles() []error {
 	var errs []error
+	for _, d := range c.Devices {
+		switch d.HeatUse {
+		case "", HeatUseHotWater, HeatUseHeating:
+		default:
+			errs = append(errs, fmt.Errorf("devices.%s: heatUse must be %q or %q", d.ID, HeatUseHotWater, HeatUseHeating))
+		}
+	}
 	bound := map[string]string{}
 	for _, d := range c.Devices {
 		if !d.IsVehicle() {
@@ -237,7 +246,7 @@ func (c *Config) validateVehicles() []error {
 		}
 		for _, m := range d.NoBatteryModes {
 			switch m {
-			case "external", "pv", "pv1", "minpv", "fast":
+			case "external", "pv", "pv1", "minpv", "fast", "boost":
 			default:
 				errs = append(errs, fmt.Errorf("devices.%s: noBatteryModes: unknown mode %q", d.ID, m))
 			}
@@ -263,6 +272,12 @@ func (c *Config) validateVehicles() []error {
 	}
 	return errs
 }
+
+// Heating rod uses.
+const (
+	HeatUseHotWater = "hotwater" // hot water (top of the buffer)
+	HeatUseHeating  = "heating"  // supports the heating circuits
+)
 
 // Device returns the device with the id.
 func (c *Config) Device(id string) (Device, bool) {

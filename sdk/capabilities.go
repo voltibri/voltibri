@@ -99,6 +99,16 @@ type PowerConsumer interface {
 // Phases holds a value per phase (L1, L2, L3).
 type Phases [3]float64
 
+// Stager is a load that runs in steps, e.g. a heating rod whose phases are
+// switched one by one: step 0 is off, Steps() is full power. Writing needs
+// mode "owned" and respects the dry run.
+type Stager interface {
+	Steps() int
+	StepPowerW() float64 // nominal power of one step
+	Step(ctx context.Context) (int, error)
+	SetStep(ctx context.Context, n int) error
+}
+
 // PhaseCurrents reports the current per phase in ampere (as measured by
 // the device on its own terminals; the site maps them to grid phases).
 type PhaseCurrents interface {
@@ -211,7 +221,7 @@ type HeatSource interface {
 
 // BatteryForceCharger can make the battery charge with a given power even
 // if that power has to come from the grid. Used for metering concepts where
-// a charger sits behind a separate (cascaded) meter, and for the boost
+// a charger sits behind a separate (cascaded) meter, and for the force charging
 // (charge now up to a target). Like the limits it MUST revert on the device
 // side after a timeout; voltibri refreshes it as long as it is wanted.
 type BatteryForceCharger interface {

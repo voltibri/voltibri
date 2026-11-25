@@ -221,7 +221,7 @@ func (d *Device) SetLimits(ctx context.Context, chargeW, dischargeW float64) err
 }
 
 // ForceCharge implements sdk.BatteryForceCharger: charge with w watts, from
-// the grid if needed (boost). Charging from the grid must be allowed in the
+// the grid if needed (force charging). Charging from the grid must be allowed in the
 // inverter's battery settings as well.
 func (d *Device) ForceCharge(ctx context.Context, w float64) error {
 	if d.ss == nil {

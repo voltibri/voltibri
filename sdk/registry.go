@@ -46,7 +46,7 @@ const (
 	CapBattery        Capability = "battery"         // Battery
 	CapBatteryControl Capability = "battery-control" // BatteryController
 	CapBatteryLimits  Capability = "battery-limits"  // BatteryLimiter (charge and discharge limit)
-	CapBatteryForce   Capability = "battery-force"   // BatteryForceCharger (charge from the grid, boost)
+	CapBatteryForce   Capability = "battery-force"   // BatteryForceCharger (charge from the grid, force charging)
 	CapCharger        Capability = "charger"         // Charger
 	CapChargerControl Capability = "charger-control" // ChargerController
 	CapSwitch         Capability = "switch"          // Switch
@@ -59,6 +59,7 @@ const (
 	CapVehicles       Capability = "vehicles"        // VehicleProvider
 	CapOAuth          Capability = "oauth"           // OAuthAuthorizer
 	CapHeat           Capability = "heat"            // HeatSource
+	CapStages         Capability = "stages"          // Stager
 )
 
 // Category groups drivers in user interfaces.
