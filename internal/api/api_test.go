@@ -272,3 +272,30 @@ func TestChargingEndpoints(t *testing.T) {
 		t.Fatalf("sessions: %d", rec.Code)
 	}
 }
+
+func TestDryRunSwitch(t *testing.T) {
+	h, st := setup(t, false)
+	ctx := context.Background()
+	if _, err := st.Save(ctx, config.Default(), "test", ""); err != nil { // default: test mode on
+		t.Fatal(err)
+	}
+	if rec := do(h, http.MethodPut, "/api/config/dryrun", `{"on":false}`, local); rec.Code != http.StatusOK {
+		t.Fatalf("off: %d %s", rec.Code, rec.Body)
+	}
+	cfg, vi, _ := st.Current(ctx)
+	if cfg.Site.DryRun || !strings.Contains(vi.Comment, "Testmodus aus") {
+		t.Fatalf("not off: %v %q", cfg.Site.DryRun, vi.Comment)
+	}
+	do(h, http.MethodPut, "/api/config/dryrun", `{"on":true}`, local)
+	if cfg, _, _ := st.Current(ctx); !cfg.Site.DryRun {
+		t.Fatal("not on")
+	}
+	if rec := do(h, http.MethodPut, "/api/config/dryrun", `{}`, local); rec.Code != http.StatusBadRequest {
+		t.Fatalf("missing on: %d", rec.Code)
+	}
+	// managed by a YAML file: no switching
+	ro, _ := setup(t, true)
+	if rec := do(ro, http.MethodPut, "/api/config/dryrun", `{"on":false}`, local); rec.Code != http.StatusConflict {
+		t.Fatalf("read-only: %d", rec.Code)
+	}
+}

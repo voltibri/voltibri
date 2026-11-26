@@ -511,7 +511,8 @@ function systemSection() {
   const vers = (D.versions || []).slice(0, 8).map(x => `<tr><td>${x.id}${x.id === v.id ? ' · aktiv' : ''}</td><td>${when(x.createdAt)}</td><td>${esc(x.author || '')}</td><td>${esc(x.comment || '')}</td>
     <td class="r">${x.id !== v.id && !D.readOnly ? `<button type="button" class="linkbtn" data-rollback="${x.id}">zurückholen</button>` : ''}</td></tr>`).join('');
   return kv([
-    ['Testmodus', s.dryRun ? '<span class="chip dry">an – nichts wird geschrieben</span>' : 'aus'],
+    ['Testmodus', (s.dryRun ? '<span class="chip dry">an – nichts wird geschrieben</span>' : 'aus – voltibri steuert') +
+      (D.readOnly || !D.local ? '' : ` <button type="button" class="linkbtn" data-dryrun="${s.dryRun ? 'off' : 'on'}">${s.dryRun ? 'ausschalten' : 'einschalten'}</button>`)],
     ['Zeitzone', esc(s.timezone)], ['Adresse', esc(s.listen)],
     ['Feiertage', (s.holidays || []).length ? esc(s.holidays.join(', ')) : 'nur bundesweite'],
     ['Status', esc(D.status.state === 'running' ? 'läuft' : D.status.state === 'setup' ? 'Einrichtung' : 'Fehler')]]) +
@@ -854,6 +855,17 @@ async function load() {
 
 $('areas').addEventListener('click', async e => {
   if (e.target.closest('[data-evcc]')) return openEvcc();
+  const dr = e.target.closest('[data-dryrun]');
+  if (dr) { // test mode: measure and decide, but write nothing to the devices
+    const on = dr.dataset.dryrun === 'on';
+    const owned = (D.cfg.devices || []).filter(d => d.mode === 'owned').map(d => d.name || d.id);
+    const q = on ? 'Testmodus einschalten? voltibri misst und plant weiter, schreibt aber nichts mehr auf die Geräte und protokolliert nur, was es tun würde.'
+      : `Testmodus ausschalten? voltibri steuert dann ${owned.length ? 'diese Geräte: ' + owned.join(', ') : 'alle Geräte im Modus „von voltibri gesteuert“'}.`;
+    if (!confirm(q)) return;
+    const r = await fetch('api/config/dryrun', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({on})});
+    if (!r.ok) { const x = await r.json().catch(() => ({})); alert([x.error].concat(x.details || []).join('\n')); }
+    return setTimeout(load, 1200); // the site restarts with the new version
+  }
   const un = e.target.closest('[data-undo]');
   if (un) {
     if (!confirm(`Import ${un.dataset.undo} rückgängig machen? Die ${un.dataset.count} Ladevorgänge dieses Imports werden entfernt. Eigene Ladevorgänge und andere Importe bleiben unberührt.`)) return;

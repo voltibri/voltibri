@@ -25,6 +25,7 @@ func (h *handler) deviceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/devices/{id}", h.write(h.putDevice))
 	mux.HandleFunc("DELETE /api/devices/{id}", h.write(h.deleteDevice))
 	mux.HandleFunc("PUT /api/config/section/{name}", h.write(h.putSection))
+	mux.HandleFunc("PUT /api/config/dryrun", h.write(h.putDryRun))
 }
 
 func (h *handler) current(r *http.Request) (*config.Config, error) {
@@ -242,6 +243,37 @@ func (h *handler) putSection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.save(w, r, cfg, t.label+" geändert")
+}
+
+// putDryRun switches the test mode ({"on": true}): voltibri measures,
+// plans and decides as usual but writes nothing to the devices, it only
+// logs what it would do. A new configuration version (the site restarts).
+func (h *handler) putDryRun(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		On *bool `json:"on"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	if req.On == nil {
+		writeErr(w, http.StatusBadRequest, "on fehlt (true oder false)", nil)
+		return
+	}
+	cfg, err := h.current(r)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "Konfiguration konnte nicht gelesen werden", err)
+		return
+	}
+	if cfg.Site.DryRun == *req.On {
+		writeJSON(w, http.StatusOK, map[string]bool{"dryRun": *req.On})
+		return
+	}
+	cfg.Site.DryRun = *req.On
+	msg := "Testmodus aus – voltibri steuert die Geräte"
+	if *req.On {
+		msg = "Testmodus an – voltibri schreibt nichts mehr auf Geräte"
+	}
+	h.save(w, r, cfg, msg)
 }
 
 // assetInfo is a device as asset: derived kind and life cycle.

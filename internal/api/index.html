@@ -1383,7 +1383,7 @@ async function refresh() {
       $('reasons').innerHTML = (plan.reasons || []).map(r => `<li>${esc(r)}</li>`).join('');
       drawChart(plan.slots || [], hist || []);
     }
-    $('hstatus').innerHTML = (st.dryRun && (!me || me.admin) ? '<span class="badge warn" title="voltibri schreibt nichts auf Geräte, sondern protokolliert nur">Testmodus</span>' : '') +
+    $('hstatus').innerHTML = (st.dryRun && (!me || me.admin) ? '<a class="badge warn" href="konfiguration#system" title="voltibri schreibt nichts auf Geräte, sondern protokolliert nur – umschalten unter Konfiguration → System">Testmodus</a>' : '') +
       `<span class="live" title="letzte Messung">${new Date(st.time).toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit', second: '2-digit'})}</span>`;
     $('errors').textContent = (st.errors || []).join(' · ');
     window._last = st;
