@@ -16,6 +16,7 @@ import (
 
 	"github.com/voltibri/voltibri/internal/circuit"
 	"github.com/voltibri/voltibri/internal/config"
+	"github.com/voltibri/voltibri/internal/pricing"
 	"github.com/voltibri/voltibri/internal/run"
 	"github.com/voltibri/voltibri/internal/tariff"
 	"github.com/voltibri/voltibri/sdk"
@@ -736,6 +737,16 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 				s.GridWh += fromGrid
 				s.BatteryWh += fromBattery
 				s.PVWh += e - fromGrid - fromBattery
+				// the shares at both tariffs, to price them by the vehicle rule
+				// now and to recalculate later
+				sh, _ := pricing.FromAttrs(s.Attrs)
+				sh.PV.Add(e-fromGrid-fromBattery, feedPrice, gridPrice)
+				sh.Battery.Add(fromBattery, feedPrice, gridPrice)
+				sh.Grid.Add(fromGrid, feedPrice, gridPrice)
+				if s.Attrs == nil {
+					s.Attrs = map[string]any{}
+				}
+				s.Attrs[pricing.AttrKey] = sh
 				s.PriceNote = priceNote(lp.cfg.SeparateMeter, guest)
 				switch {
 				case lp.cfg.SeparateMeter:
@@ -743,7 +754,13 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 				case guest:
 					s.CostCt += nz(gridPrice) * e / 1000 // guests pay grid price for everything
 				default:
-					s.CostCt += (nz(gridPrice)*fromGrid + nz(feedPrice)*(e-fromGrid)) / 1000
+					// PV and battery at the lost feed-in tariff, grid at the
+					// tariff – unless the vehicle has its own price rule
+					rule, name := m.priceRule(v.Vehicle)
+					s.CostCt, _ = rule.Cost(sh, "")
+					if !rule.Empty() {
+						_, s.PriceNote = rule.Cost(sh, name)
+					}
 				}
 			}
 		}
@@ -1167,4 +1184,33 @@ func offReason(wallboxOff, sessionMode, guest, connected bool) string {
 		return "Gäste laden nicht automatisch (Standard der Wallbox: Aus) – per Knopf oder Ladekarte starten"
 	}
 	return "Standardmodus des Fahrzeugs ist „Aus“ – per Knopf starten"
+}
+
+// priceRule returns the price rule of a configured vehicle (nil: default)
+// and its configured name.
+func (m *Manager) priceRule(key string) (*pricing.Rule, string) {
+	for _, a := range m.own {
+		if a.dev.ID == key {
+			name := a.dev.Name
+			if name == "" {
+				name = a.dev.ID
+			}
+			return a.dev.Price, name
+		}
+	}
+	return nil, ""
+}
+
+// PriceRule returns the price rule of a vehicle (by key or former name).
+func (m *Manager) PriceRule(key string) *pricing.Rule {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	r, _ := m.priceRule(m.resolve(key))
+	return r
+}
+
+// AveragePrices returns the time-weighted feed-in and grid price over a
+// period (ct/kWh, NaN if unknown) – to price runs without exact shares.
+func (m *Manager) AveragePrices(ctx context.Context, from, to time.Time) (feedin, grid float64) {
+	return tariff.Average(ctx, m.feedin, from, to), tariff.Average(ctx, m.grid, from, to)
 }

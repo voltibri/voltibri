@@ -224,6 +224,7 @@ function devRow(dev, area) {
     chips.push(src ? `<span class="chip ok" title="Ladestand und Ladeziel kommen von hier">über ${esc(srcName)}</span>` : '<span class="chip">manuell</span>');
     if (vAsset && vAsset.error) chips.push(`<span class="chip err" title="${esc(vAsset.error)}">Datenquelle</span>`);
     if (batKey(dev.noBatteryModes) !== 'allow') chips.push(`<span class="chip" title="Hausbatterie beim Laden">Hausbatterie ${BAT_OPTS[batKey(dev.noBatteryModes)].label}</span>`);
+    if (dev.price) chips.push('<span class="chip" title="Eigene Preisregel für die Ladevorgänge">eigener Preis</span>');
     const capKWh = (dev.params || {}).capacityKWh;
     if (capKWh) chips.push(`<span class="chip">${num(capKWh, 1)} kWh</span>`);
     val = vAsset && vAsset.soc != null ? pctv(vAsset.soc) : '';

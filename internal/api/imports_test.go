@@ -190,3 +190,70 @@ func TestVehicleFilter(t *testing.T) {
 		t.Fatalf("runs %s", rec.Body.String())
 	}
 }
+
+func TestRecalcVehicleRuns(t *testing.T) {
+	h, st := setup(t, false)
+	rec := do(h, "POST", "/api/config/import", `roles: { grid: demo, pv: [demo] }
+tariffs:
+  grid: { type: fixed, price: 30 }
+  feedin: { type: fixed, price: 8 }
+devices:
+  - { id: demo, type: demo }
+  - id: eup
+    name: Dräger e-Up
+    type: vehicle
+    params: { aliases: "e-Up alt" }
+    price:
+      pv: { mode: replace, base: fixed, ct: 15 }
+      grid: { mode: adjust, percent: 10 }
+`, local)
+	if rec.Code != 200 {
+		t.Fatalf("config: %d %s", rec.Code, rec.Body.String())
+	}
+	ctx := context.Background()
+	start := time.Date(2025, 5, 1, 10, 0, 0, 0, time.UTC)
+	// imported under a former name: 10 kWh, 4 kWh PV, 6 kWh grid, evcc price
+	st.SaveRun(ctx, run.Run{Asset: "wb", Kind: "charging", VehicleName: "e-Up alt", Start: start, End: start.Add(2 * time.Hour),
+		EnergyWh: 10000, PVWh: 4000, GridWh: 6000, CostCt: 250, PriceNote: "aus evcc übernommen"})
+	// another car: untouched
+	st.SaveRun(ctx, run.Run{Asset: "wb", Kind: "charging", VehicleName: "Tavascan", Start: start, End: start.Add(time.Hour),
+		EnergyWh: 5000, GridWh: 5000, CostCt: 150})
+	if rec := do(h, "POST", "/api/runs/recalc", `{"vehicle":"demo"}`, local); rec.Code != http.StatusNotFound {
+		t.Errorf("not a vehicle: %d", rec.Code)
+	}
+	want := 4*15 + 6*30*1.1
+	rec = do(h, "POST", "/api/runs/recalc", `{"vehicle":"eup","dryRun":true}`, local)
+	var res recalcResponse
+	json.Unmarshal(rec.Body.Bytes(), &res)
+	if rec.Code != 200 || res.Runs != 1 || res.BeforeCt != 250 || res.AfterCt < want-0.01 || res.AfterCt > want+0.01 {
+		t.Fatalf("dry run: %d %s", rec.Code, rec.Body.String())
+	}
+	if rs, _ := st.Runs(ctx, run.Filter{Vehicle: "e-Up alt"}); rs[0].CostCt != 250 {
+		t.Fatal("dry run wrote")
+	}
+	if rec := do(h, "POST", "/api/runs/recalc", `{"vehicle":"eup","from":"2025-05-02"}`, local); !strings.Contains(rec.Body.String(), `"runs": 0`) {
+		t.Fatalf("period: %s", rec.Body.String())
+	}
+	if rec := do(h, "POST", "/api/runs/recalc", `{"vehicle":"eup"}`, local); rec.Code != 200 {
+		t.Fatalf("recalc: %d %s", rec.Code, rec.Body.String())
+	}
+	rs, _ := st.Runs(ctx, run.Filter{Vehicle: "e-Up alt"})
+	r := rs[0]
+	if r.CostCt < want-0.01 || r.CostCt > want+0.01 || !strings.Contains(r.PriceNote, "Dräger e-Up: PV 15 ct fest") ||
+		r.Attrs["origCostCt"] != 250.0 || r.Attrs["origPriceNote"] != "aus evcc übernommen" {
+		t.Fatalf("stored %+v", r)
+	}
+	// a second recalculation keeps the original cost
+	do(h, "POST", "/api/runs/recalc", `{"vehicle":"eup"}`, local)
+	if rs, _ := st.Runs(ctx, run.Filter{Vehicle: "e-Up alt"}); rs[0].Attrs["origCostCt"] != 250.0 {
+		t.Fatalf("original lost: %+v", rs[0].Attrs)
+	}
+	if rs, _ := st.Runs(ctx, run.Filter{Vehicle: "Tavascan"}); rs[0].CostCt != 150 {
+		t.Fatal("other vehicle changed")
+	}
+	// rules only on vehicles
+	rec = do(h, "POST", "/api/config/validate", `{"config":{"devices":[{"id":"demo","type":"demo","price":{"all":{"mode":"replace","base":"free"}}}]}}`, local)
+	if !strings.Contains(rec.Body.String(), "vehicles only") {
+		t.Fatalf("validate: %s", rec.Body.String())
+	}
+}

@@ -25,6 +25,7 @@ func (h *handler) importRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/runs/series", h.runSeries)
 	mux.HandleFunc("POST /api/imports/evcc", h.local(h.importEvcc))
 	mux.HandleFunc("POST /api/imports/{id}/undo", h.local(h.undoImport))
+	mux.HandleFunc("POST /api/runs/recalc", h.write(h.recalcRuns))
 }
 
 func (h *handler) listImports(w http.ResponseWriter, r *http.Request) {

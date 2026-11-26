@@ -12,6 +12,7 @@ import (
 
 	"github.com/voltibri/voltibri/internal/circuit"
 	"github.com/voltibri/voltibri/internal/config"
+	"github.com/voltibri/voltibri/internal/pricing"
 	"github.com/voltibri/voltibri/internal/run"
 	"github.com/voltibri/voltibri/internal/tariff"
 	"github.com/voltibri/voltibri/sdk"
@@ -596,5 +597,51 @@ func TestBoostSurplus(t *testing.T) {
 	// the battery at its boost limit: surplus only
 	if lp := manual(40*time.Second, 0); lp.Boosting || !strings.Contains(lp.Reason, "Boost-Grenze") {
 		t.Fatalf("at the limit: %+v", lp)
+	}
+}
+
+func TestVehiclePriceRule(t *testing.T) {
+	cfg := config.Default()
+	rule := &pricing.Rule{PV: &pricing.Share{Mode: pricing.Replace, Base: pricing.BaseFixed, Ct: 15},
+		Grid: &pricing.Share{Mode: pricing.Adjust, Percent: 10}}
+	cfg.Devices = []config.Device{{ID: "wb", Type: "x", Mode: "owned"}, {ID: "tibber", Type: "y"},
+		{ID: "eup", Type: "vehicle", Name: "Dräger e-Up", Price: rule, Params: map[string]any{"source": "tibber", "sourceVehicle": "car1"}}}
+	cfg.Tariffs.Grid = &tariff.Config{Type: "fixed", Price: 30}
+	cfg.Tariffs.FeedIn = &tariff.Config{Type: "fixed", Price: 8}
+	cfg.Charging.Loadpoints = []config.Loadpoint{{Charger: "wb"}}
+	ch := &fakeCharger{}
+	ss := &memSessions{}
+	m, err := New(cfg, time.UTC, map[string]sdk.Device{"wb": ch, "tibber": fakeProvider{"car1": {SoC: 0.4, Connected: true}},
+		"eup": fakeOwn{id: "eup"}}, nil, ss)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.refreshVehicles(context.Background())
+	ch.st = sdk.ChargerStatus{Connected: true}
+	tick(m, 0, ch, 0, 0, 0, 500)
+	// 11 kW for one hour: 6 kW from the grid, 5 kW PV
+	ch.st = sdk.ChargerStatus{Connected: true, Charging: true, PowerW: 11000}
+	for i := 1; i <= 360; i++ {
+		tick(m, time.Duration(i)*10*time.Second, ch, 6000, 0, 5500, 11500)
+	}
+	ch.st = sdk.ChargerStatus{}
+	tick(m, time.Hour+10*time.Second, ch, 0, 0, 0, 500)
+	if len(*ss) != 1 {
+		t.Fatalf("sessions: %+v", *ss)
+	}
+	s := (*ss)[0]
+	if want := 5*15 + 6*30*1.1; math.Abs(s.CostCt-want) > 0.5 {
+		t.Fatalf("cost %.2f, want %.2f", s.CostCt, want)
+	}
+	if !strings.HasPrefix(s.PriceNote, "Dräger e-Up: ") || !strings.Contains(s.PriceNote, "Netz Tarif +10 %") {
+		t.Fatalf("note %q", s.PriceNote)
+	}
+	sh, ok := pricing.FromAttrs(s.Attrs)
+	if !ok || math.Abs(sh.Grid.Wh-6000) > 1 || math.Abs(sh.PV.FeedInCt-5*8) > 0.5 {
+		t.Fatalf("shares: %+v", sh)
+	}
+	// without a rule the same session costs PV at feed-in, grid at the tariff
+	if c, _ := (*pricing.Rule)(nil).Cost(sh, ""); math.Abs(c-(6*30+5*8)) > 0.5 {
+		t.Fatalf("default cost %.2f", c)
 	}
 }

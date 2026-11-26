@@ -405,3 +405,28 @@ func toAny(s []string) []any {
 	}
 	return out
 }
+
+// UpdateRunCosts stores new costs, price notes and attributes of runs (by
+// id), e.g. after a price rule was recalculated.
+func (s *Store) UpdateRunCosts(ctx context.Context, runs []run.Run) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, r := range runs {
+		attrs := "{}"
+		if len(r.Attrs) > 0 {
+			b, err := json.Marshal(r.Attrs)
+			if err != nil {
+				return err
+			}
+			attrs = string(b)
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE runs SET cost_ct = ?, cost_known = ?, price_note = ?, attrs = ? WHERE id = ?`,
+			r.CostCt, b2i(!r.CostUnknown), r.PriceNote, attrs, r.ID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}

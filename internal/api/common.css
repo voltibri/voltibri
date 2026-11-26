@@ -120,3 +120,15 @@ a.navlink:hover { text-decoration:underline; }
 .seg button { font:inherit; font-size:13px; font-weight:550; border:0; background:transparent; color:var(--muted); padding:0 12px; height:32px; line-height:32px; border-radius:9px; cursor:pointer; }
 .seg button[aria-pressed=true] { background:var(--fg); color:var(--bg); }
 .card .seg { background:var(--bg); box-shadow:none; }
+/* vehicle price rule: one row per energy share */
+.setup fieldset.price { border:1px solid var(--line); border-radius:10px; padding:10px 12px; display:flex; flex-direction:column; gap:8px; margin:0; }
+.setup fieldset.price legend { font-size:12px; color:var(--muted); padding:0 4px; }
+.setup .prow { display:flex; flex-wrap:wrap; gap:8px; align-items:center; font-size:13px; }
+.setup .prow > span { flex:0 0 100px; }
+.setup .prow select { flex:1 1 200px; min-width:0; }
+.setup .prow .pargs { flex:1 1 100%; display:flex; gap:8px; padding-left:108px; }
+.setup .prow .pargs input { flex:1 1 0; min-width:0; }
+.setup .prow [hidden] { display:none; }
+.setup .recalc summary { font-size:13px; cursor:pointer; }
+.setup .recalc .actions { display:flex; gap:8px; justify-content:flex-start; }
+@media (max-width:520px) { .setup .prow > span { flex-basis:100%; } .setup .prow .pargs { padding-left:0; } }

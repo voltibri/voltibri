@@ -239,6 +239,16 @@ func (c *Config) validateVehicles() []error {
 			errs = append(errs, fmt.Errorf("devices.%s: heatUse must be %q or %q", d.ID, HeatUseHotWater, HeatUseHeating))
 		}
 	}
+	for _, d := range c.Devices {
+		if d.Price == nil {
+			continue
+		}
+		if !d.IsVehicle() {
+			errs = append(errs, fmt.Errorf("devices.%s: price rules exist for vehicles only", d.ID))
+		} else if err := d.Price.Validate(); err != nil {
+			errs = append(errs, fmt.Errorf("devices.%s: price: %w", d.ID, err))
+		}
+	}
 	bound := map[string]string{}
 	for _, d := range c.Devices {
 		if !d.IsVehicle() {

@@ -266,3 +266,23 @@ func clock(s string) (int, error) {
 	}
 	return hh*60 + mm, nil
 }
+
+// Average returns the mean slot price of t over a period (ct/kWh; NaN if t
+// is nil, the period empty or a price unknown).
+func Average(ctx context.Context, t Tariff, from, to time.Time) float64 {
+	if t == nil || !to.After(from) {
+		return math.NaN()
+	}
+	ps, err := t.Prices(ctx, from, to)
+	if err != nil || len(ps) == 0 {
+		return math.NaN()
+	}
+	sum := 0.0
+	for _, p := range ps {
+		if math.IsNaN(p) {
+			return math.NaN()
+		}
+		sum += p
+	}
+	return sum / float64(len(ps))
+}

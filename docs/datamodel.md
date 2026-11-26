@@ -126,6 +126,17 @@ Every run stores its calculation, e.g. "grid: 28.4 ct (tariff) + 2 ct
 (wallbox Zaun) × 1.10 (vehicle neighbour) = 33.4 ct". Changing a rule does
 not change old runs; "recalculate" applies the current rule to a period.
 
+**Implemented so far: level 4 (vehicle)**, `price` on a vehicle device
+(package `internal/pricing`), per share `inherit` / `replace` (fixed,
+feedin, grid, free) / `adjust`, with percent and addCt; no min / max yet.
+Charging runs keep their shares at both tariffs (`attrs.shares`), so a
+rule prices them exactly also with dynamic tariffs. `POST /api/runs/recalc`
+applies the saved rule to a vehicle's runs in a period; runs without
+shares (imports) use the average tariff of their time, and the first
+recalculation keeps the former cost in `attrs.origCostCt` /
+`origPriceNote`. At a wallbox with its own meter the meter tariff still
+applies, guests use the default.
+
 ## Order of introduction
 
 1. **Done:** asset kind and life cycle on devices (devices without a
@@ -138,5 +149,5 @@ not change old runs; "recalculate" applies the current rule to a period.
    step.
 3. Provenance for the load profile (HA import undoable); control of
    flexible devices (shiftable start, interruptible with deadline).
-4. Price rules on all levels with recalculation, control by programs
+4. Price rules on the remaining levels (vehicle level done, see above), control by programs
    (NeoGrid), users and roles.

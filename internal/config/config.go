@@ -18,6 +18,7 @@ import (
 
 	"github.com/voltibri/voltibri/internal/meter"
 	"github.com/voltibri/voltibri/internal/planner"
+	"github.com/voltibri/voltibri/internal/pricing"
 	"github.com/voltibri/voltibri/internal/tariff"
 	"github.com/voltibri/voltibri/sdk"
 )
@@ -151,6 +152,10 @@ type Device struct {
 	// NoBatteryModes (vehicles): in these charge modes the home battery does
 	// not supply the car, e.g. [fast] or [fast, minpv].
 	NoBatteryModes []string `yaml:"noBatteryModes,omitempty" json:"noBatteryModes,omitempty"`
+	// Price (vehicles): price rule for the runs of this vehicle, e.g. PV at a
+	// fixed price and grid +10 %; nil = default (PV and battery at the lost
+	// feed-in tariff, grid at the tariff). See package pricing.
+	Price *pricing.Rule `yaml:"price,omitempty" json:"price,omitempty"`
 	// HeatUse (heating rods): what the rod heats – "hotwater" (top of the
 	// buffer, showers) or "heating" (supports the heating circuits).
 	HeatUse string `yaml:"heatUse,omitempty" json:"heatUse,omitempty"`

@@ -53,6 +53,72 @@ const BAT_OPTS = {allow: {label: 'darf liefern', modes: []}, fast: {label: 'nich
 // (boost is new: older settings without it still match "nie")
 const batKey = ms => { const n = l => [...(l || [])].filter(m => m !== 'boost').sort().join(), s = n(ms); return Object.keys(BAT_OPTS).find(k => n(BAT_OPTS[k].modes) === s) || 'allow'; };
 
+// vehicles: price rule per energy share (see internal/pricing)
+const PRICE_SHARES = [['pv', 'PV', 'feedin'], ['battery', 'Hausbatterie', 'feedin'], ['grid', 'Netz', 'grid']];
+const PRICE_OPTS = [['inherit', 'wie Standard'], ['fixed', 'Festpreis'], ['adjust', 'Standard mit Aufschlag'], ['feedin', 'Einspeisevergütung'],
+  ['grid', 'Netztarif'], ['free', 'kostenlos']];
+const ctTxt = v => (Math.round(v * 100) / 100).toLocaleString('de-DE') + ' ct';
+// the rule of one share as UI choice (all = rule for every share without its own)
+const priceChoice = (rule, key, def) => {
+  const s = (rule && rule[key] && rule[key].mode) ? rule[key] : (rule && rule.all) || {};
+  let sel = !s.mode || s.mode === 'inherit' ? 'inherit' : s.mode === 'adjust' ? 'adjust' : s.base;
+  if (sel === def) sel = "adjust"; // replace by the default base = adjust the inherited price
+  return {sel, ct: s.ct || '', percent: s.percent || '', addCt: s.addCt || ''};
+};
+function priceRows(rule) {
+  return PRICE_SHARES.map(([key, label, def]) => {
+    const c = priceChoice(rule, key, def);
+    const opts = PRICE_OPTS.filter(([v]) => v !== def).map(([v, l]) =>
+      `<option value="${v}"${v === c.sel ? ' selected' : ''}>${v === 'inherit' ? l + (def === 'grid' ? ' (Netztarif)' : ' (Einspeisevergütung)') : l}</option>`).join('');
+    return `<div class="prow" data-pshare="${key}"><span>${label}</span>
+      <select data-pmode aria-label="Preis ${label}">${opts}</select>
+      <div class="pargs"><input type="number" step="any" min="0" data-pct value="${c.ct}" placeholder="Preis ct/kWh" aria-label="Festpreis ${label} (ct/kWh)">
+      <input type="number" step="any" data-ppct value="${c.percent}" placeholder="Aufschlag %" aria-label="Aufschlag ${label} (%)">
+      <input type="number" step="any" data-padd value="${c.addCt}" placeholder="Aufschlag ct" aria-label="Aufschlag ${label} (ct/kWh)"></div></div>`;
+  }).join('');
+}
+// reads the rule from the rows (undefined: default)
+function priceRule(root) {
+  const rule = {};
+  root.querySelectorAll('[data-pshare]').forEach(row => {
+    const sel = row.querySelector('[data-pmode]').value, num = a => Number(row.querySelector(a).value) || 0;
+    if (sel === 'inherit') return;
+    const s = sel === 'adjust' ? {mode: 'adjust'} : {mode: 'replace', base: sel};
+    if (sel === 'fixed') s.ct = num('[data-pct]');
+    if (sel !== 'free') {
+      if (num('[data-ppct]')) s.percent = num('[data-ppct]');
+      if (num('[data-padd]')) s.addCt = num('[data-padd]');
+    }
+    if (sel === 'adjust' && !s.percent && !s.addCt) return; // nothing to adjust: default
+    rule[row.dataset.pshare] = s;
+  });
+  return Object.keys(rule).length ? rule : undefined;
+}
+// shows the fields a choice needs and the resulting prices at today's tariffs
+function priceUpdate(root, feedinCt, gridCt) {
+  const parts = [];
+  root.querySelectorAll('[data-pshare]').forEach(row => {
+    const sel = row.querySelector('[data-pmode]').value, num = a => Number(row.querySelector(a).value) || 0;
+    row.querySelector('[data-pct]').hidden = sel !== 'fixed';
+    row.querySelector('[data-ppct]').hidden = row.querySelector('[data-padd]').hidden = sel === 'inherit' || sel === 'free';
+    row.querySelector('.pargs').hidden = sel === 'inherit' || sel === 'free';
+    const defGrid = PRICE_SHARES.find(x => x[0] === row.dataset.pshare)[2] === 'grid';
+    const def = defGrid ? gridCt : feedinCt;
+    const base = {inherit: def, adjust: def, fixed: num('[data-pct]'), feedin: feedinCt, grid: gridCt, free: 0}[sel];
+    const pct = num('[data-ppct]'), add = num('[data-padd]');
+    const p = sel === 'inherit' || sel === 'free' ? base : base * (1 + pct / 100) + add;
+    let txt;
+    if (p != null && !isNaN(p)) txt = ctTxt(p);
+    else { // tariff unknown (e.g. no tariff configured): describe the rule
+      txt = sel === 'grid' || (defGrid && (sel === 'inherit' || sel === 'adjust')) ? 'Tarif' : 'Einspeisevergütung';
+      if (sel !== 'inherit') txt += (pct ? ` ${pct > 0 ? '+' : '−'} ${Math.abs(pct).toLocaleString('de-DE')} %` : '') + (add ? ` ${add > 0 ? '+' : '−'} ${ctTxt(Math.abs(add))}` : '');
+    }
+    parts.push(row.querySelector('span').textContent + ' ' + txt);
+  });
+  const el = root.querySelector('#sp__pprev');
+  if (el) el.textContent = (feedinCt == null && gridCt == null ? 'Je kWh: ' : 'Heute je kWh: ') + parts.join(' · ');
+}
+
 const FLEX_TEXT = {none: ['keine', 'Nur messen – voltibri schaltet nichts.'],
   shiftable: ['Start verschiebbar', 'Ein Programm, das einmal gestartet durchlaufen muss (Waschmaschine, Spülmaschine, Trockner). voltibri darf den Start verschieben – die Steuerung folgt in einem späteren Schritt.'],
   interruptible: ['unterbrechbar', 'Braucht Energie bis zu einer Frist, Pausen schaden nicht (E-Bike-Ladegerät, Poolpumpe). voltibri darf ein- und ausschalten – die Steuerung folgt in einem späteren Schritt.'],
@@ -94,6 +160,8 @@ const voltibri = (() => {
       const ch = e.target.closest('[data-choose]');
       if (ch) form(ch.dataset.choose);
       if (e.target.closest('[data-remove]')) remove();
+      const rc = e.target.closest('[data-recalc]');
+      if (rc) recalc(rc.dataset.recalc === 'run');
     });
     dlg.addEventListener('change', e => {
       if (e.target.id === 'sp_source') {
@@ -108,6 +176,10 @@ const voltibri = (() => {
         $('sp__flexwhy').textContent = FLEX_TEXT[e.target.value][1];
         $('sp__flexwarn').hidden = e.target.value === 'none' || controlOf(st.drv)[0] !== 'keine';
       }
+    });
+    dlg.addEventListener('input', e => {
+      if (e.target.closest('[data-pshare]')) priceUpdate(dlg, (st.ch || {}).feedinCt, (st.ch || {}).gridCt);
+      if (e.target.id === 'sp__rfrom' || e.target.id === 'sp__rto') { $('sp__rres').textContent = ''; dlg.querySelector('[data-recalc=run]').hidden = true; }
     });
     dlg.addEventListener('close', () => { if (st.changed && st.onDone) st.onDone(); });
   }
@@ -265,6 +337,14 @@ const voltibri = (() => {
       ${d.type === 'vehicle' ? `<label class="f" for="sp__vbat">Hausbatterie beim Laden<select id="sp__vbat">${Object.entries(BAT_OPTS).map(([k, o]) =>
         `<option value="${k}"${k === batKey(st.dev.noBatteryModes) ? ' selected' : ''}>${o.label}</option>`).join('')}</select>
         <span class="why">In den gewählten Lademodi lädt das Auto nur aus PV und Netz; voltibri begrenzt dann die Entladung der Hausbatterie auf den übrigen Verbrauch.</span></label>` : ''}
+      ${d.type === 'vehicle' ? `<fieldset class="price"><legend>Preis für dieses Fahrzeug</legend>${priceRows(st.dev.price)}
+        <span class="why" id="sp__pprev"></span>
+        <span class="why">Gilt für die Ladevorgänge dieses Fahrzeugs an jeder Wallbox, z. B. für die Abrechnung. Standard: PV und Hausbatterie zur entgangenen Einspeisevergütung, Netz zum Tarif. Die eigene Auswertung (Haus, Wallboxen) rechnet weiter mit dem Standard.</span>
+        ${st.isNew ? '' : `<details class="recalc"><summary>Bisherige Ladevorgänge neu berechnen</summary><div class="stack">
+          <div class="row2"><label class="f" for="sp__rfrom">Von<input type="date" id="sp__rfrom"></label><label class="f" for="sp__rto">Bis<input type="date" id="sp__rto"></label></div>
+          <span class="why">Wendet die <b>gespeicherte</b> Regel auf die Ladevorgänge des Zeitraums an (leer: alle). Importierte Vorgänge ohne genaue Aufteilung werden mit dem Durchschnittspreis ihres Zeitraums bewertet; ihr ursprünglicher Preis bleibt im Lauf vermerkt.</span>
+          <div class="actions"><button type="button" class="btn" data-recalc="preview">Vorschau</button><button type="button" class="btn primary" data-recalc="run" hidden>Neu berechnen</button></div>
+          <span class="why" id="sp__rres" role="status"></span></div></details>`}</fieldset>` : ''}
       ${lists.length ? `<div class="note">${esc(lists.join(', '))}: nur in der YAML-Datei bearbeitbar, bleibt beim Speichern erhalten.</div>` : ''}
       <details><summary>Erweiterte Einstellungen</summary><div>
         ${bare ? '' : kindSel + life}
@@ -281,6 +361,10 @@ const voltibri = (() => {
     err(st.readOnly ? 'Die Konfiguration wird über eine YAML-Datei verwaltet – hier nur ansehen.' : '');
     buttons(`${st.isNew || st.readOnly ? '' : '<button type="button" class="btn danger" data-remove>Entfernen</button><span class="spacer"></span>'}
       <button type="button" class="btn" data-close>${st.readOnly ? 'Schließen' : 'Abbrechen'}</button>${st.readOnly ? '' : '<button type="submit" class="btn primary">Speichern</button>'}`);
+    if (d.type === 'vehicle') { // the rule as rendered = saved (recalculation needs it saved)
+      priceUpdate(dlg, (st.ch || {}).feedinCt, (st.ch || {}).gridCt);
+      st.priceSaved = JSON.stringify(priceRule(dlg) || null);
+    }
     if (!dlg.open) dlg.showModal();
     const first = dlg.querySelector('[data-param]:not([type=checkbox])') || $('sp__name');
     if (first) first.focus();
@@ -305,6 +389,7 @@ const voltibri = (() => {
       const v = $(el).value;
       if (v) dev[key] = v; else delete dev[key];
     }
+    if (dlg.querySelector('[data-pshare]')) { const p = priceRule(dlg); if (p) dev.price = p; else delete dev.price; }
     if ($('sp__vbat')) { const m = BAT_OPTS[$('sp__vbat').value].modes; if (m.length) dev.noBatteryModes = m; else delete dev.noBatteryModes; }
     if ($('sp__heatuse')) { const v = $('sp__heatuse').value; if (v) dev.heatUse = v; else delete dev.heatUse; }
     if ($('sp__bat')) { const b = $('sp__bat').value; if (b) dev.batteryUse = b; else delete dev.batteryUse; }
@@ -385,6 +470,30 @@ const voltibri = (() => {
       return;
     }
     finish(await r.json(), dev.id);
+  }
+
+  // applies the saved price rule to past charging sessions (preview first)
+  async function recalc(run) {
+    const out = $('sp__rres'), btn = dlg.querySelector('[data-recalc=run]');
+    if (JSON.stringify(priceRule(dlg) || null) !== st.priceSaved) {
+      out.textContent = 'Bitte zuerst speichern – neu berechnet wird mit der gespeicherten Regel.';
+      return;
+    }
+    const body = {vehicle: st.dev.id, from: $('sp__rfrom').value || undefined, to: $('sp__rto').value || undefined, dryRun: !run};
+    out.textContent = run ? 'Berechne …' : 'Vorschau …';
+    const r = await fetch('api/runs/recalc', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+    const res = await r.json().catch(() => ({}));
+    if (!r.ok) { out.textContent = res.error || 'Fehler ' + r.status; return; }
+    const eur = ct => (ct / 100).toLocaleString('de-DE', {style: 'currency', currency: 'EUR'});
+    const skipped = res.skipped ? ` ${res.skipped} ohne bekannten Preis übersprungen.` : '';
+    if (!res.runs) {
+      out.textContent = res.skipped ? `${res.skipped} Ladevorgänge übersprungen: Für ihren Zeitraum ist kein Strompreis bekannt (Tarif prüfen).` : 'Keine Ladevorgänge im Zeitraum.';
+      btn.hidden = true;
+      return;
+    }
+    out.textContent = `${res.runs} Ladevorgänge: ${eur(res.beforeCt)} → ${eur(res.afterCt)}${run ? ' – gespeichert.' : '.'}${skipped}`;
+    btn.hidden = run;
+    if (run) st.changed = true;
   }
 
   async function remove() {
