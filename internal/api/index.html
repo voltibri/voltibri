@@ -764,7 +764,10 @@ function renderLoadpoint(lp) {
   const sess = s ? `<div class="sess"><span>Dieser Ladevorgang <b>${kwh(s.energyWh)}</b></span>
       <span>PV/Akku <b>${s.energyWh > 0 ? Math.round(100 * (s.pvWh + s.batteryWh) / s.energyWh) : 0} %</b></span>
       <span>${guest ? 'Verrechnung' : 'Kosten'} <b>${money(s.costCt, charging.currency)}</b></span></div>` : '';
-  const who = (lp.card ? ` <span class="pill" title="Ladekarte dieses Ladevorgangs">${iconSVG('device', 11)} ${esc(lp.card)}</span>` : '') +
+  // chosen before plugging in: plug in by lp.manualUntil, else the wallbox is locked again
+  const pre = !lp.connected && !!lp.manualUntil;
+  const who = (pre && !lp.foreign ? ` <span class="pill" title="Vor dem Einstecken gewählt – bis ${esc(etaTime(lp.manualUntil))} einstecken, sonst wird die Wallbox wieder gesperrt">vorgewählt · bis ${esc(etaTime(lp.manualUntil))}</span>` : '') +
+    (lp.card ? ` <span class="pill" title="Ladekarte dieses Ladevorgangs">${iconSVG('device', 11)} ${esc(lp.card)}</span>` : '') +
     (lp.connected && lp.sessionMode ? ' <span class="pill" title="Gilt nur für diesen Ladevorgang, bis zum Abstecken">nur jetzt</span>' : '');
   // exactly 4 parts (empty ones too), so tiles side by side share the rows
   const st = !lp.connected ? 'free' : lp.charging ? 'charging' : 'connected';
@@ -773,13 +776,13 @@ function renderLoadpoint(lp) {
     lp.connected && !lp.foreign && canEdit && ['pv', 'pv1', 'minpv', 'boost'].includes(lp.mode) ? topBtn(lp.id, lp.top) : '',
     !lp.owned ? '<span class="pill" title="voltibri schreibt nicht auf diese Wallbox (Modus „observed“) und zeigt nur, was es tun würde.">beobachtet</span>' : '', who].join('').trim();
   // vehicle and charge plan: a dialog from the top right of the tile
-  const more = (lp.connected && !lp.foreign) || veh ? `<button type="button" class="lpmore" data-lpmore="${esc(lp.id)}" aria-haspopup="dialog" title="Fahrzeug &amp; Ladeplan">${iconSVG('car', 15)}<span>Fahrzeug &amp; Ladeplan</span></button>` : '';
-  const head = `<div class="lphead"><div class="lpname"><small>${esc(lp.name)}</small>${lp.connected ? `<b>${esc(lp.vehicleName)}</b>` : '<b class="none">kein Fahrzeug</b>'}</div></div>`
+  const more = (lp.connected || canEdit) && !lp.foreign || veh ? `<button type="button" class="lpmore" data-lpmore="${esc(lp.id)}" aria-haspopup="dialog" title="Fahrzeug &amp; Ladeplan">${iconSVG('car', 15)}<span>Fahrzeug &amp; Ladeplan</span></button>` : '';
+  const head = `<div class="lphead"><div class="lpname"><small>${esc(lp.name)}</small>${lp.connected ? `<b>${esc(lp.vehicleName)}</b>` : pre ? `<b>${lp.foreign ? 'reserviert' : esc(lp.vehicleName)}</b>` : '<b class="none">kein Fahrzeug</b>'}</div></div>`
     + (pills || more ? `<div class="lpsub">${more}${pills}</div>` : '');
   return `<div class="lp st-${st}" data-lp="${esc(lp.id)}">`
     + wallboxViz(lp, veh, head, modeControl(lp, canEdit))
     + `<div class="lpinfo">${etaView(lp, veh)}</div>`
-    + (lp.connected && lp.reason ? `<div class="why">${esc(lp.reason)}</div>` : '<div></div>')
+    + ((lp.connected || pre) && lp.reason ? `<div class="why">${esc(lp.reason)}</div>` : '<div></div>')
     + (sess || '<div></div>') + '</div>';
 }
 
@@ -1309,6 +1312,50 @@ $('flowDetail').addEventListener('click', async e => {
 });
 $('flow').addEventListener('keydown', onSelect, true);
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && sel) select(sel); });
+
+// --- vehicle & charge plan of a wallbox (dialog from the tile) ---
+let lpDlgId = null;
+function renderLpDlg() {
+  const lp = (charging.loadpoints || []).find(l => l.id === lpDlgId);
+  if (!lp) { $('lpDlg').close(); return; }
+  const veh = vehicleOf(lp.vehicle), guest = lp.vehicle === 'guest', canEdit = charging.local && !lp.foreign;
+  const pre = !lp.connected && !!lp.manualUntil;
+  const opts = [`<option value="">Automatisch erkennen${lp.connected && !lp.manual ? ' (' + esc(lp.vehicleName) + ')' : ''}</option>`,
+    `<option value="guest"${lp.manual && guest ? ' selected' : ''}>Gastfahrzeug</option>`,
+    ...(charging.vehicles || []).map(v => `<option value="${esc(v.key)}"${lp.manual && lp.vehicle === v.key ? ' selected' : ''}>${esc(v.name)}</option>`)];
+  $('lpInner').innerHTML = `<div class="pd-head"><div class="top"><span class="ic">${iconSVG('car', 22)}</span>
+      <div><h2 id="lpdTitle">Fahrzeug &amp; Ladeplan</h2><div class="sub">${esc(lp.name)} · ${lp.connected ? esc(lp.vehicleName) : pre ? 'vorgewählt: ' + esc(lp.vehicleName) : 'kein Fahrzeug angesteckt'}</div></div>
+      <button type="button" class="x" data-lpclose aria-label="Schließen">×</button></div></div>
+    <div class="pd-body">
+      ${(lp.connected || canEdit) && !lp.foreign ? `<div class="pform"><div><div class="lab">${lp.connected ? 'Welches Fahrzeug lädt?' : 'Welches Fahrzeug wird eingesteckt?'}</div>
+        <select data-lpveh aria-label="Fahrzeug" ${canEdit ? '' : 'disabled'} style="width:100%;font-size:15px;padding:8px 10px;border-radius:10px">${opts.join('')}</select>
+        <div class="need">${lp.detecting ? 'voltibri fragt noch die Fahrzeugkonten ab (bis zu 10 min).'
+          : pre ? `Bitte bis ${esc(etaTime(lp.manualUntil))} einstecken, sonst wird die Wallbox wieder gesperrt. Danach gilt die Wahl bis zum Abstecken.`
+          : lp.connected ? 'Gilt bis zum Abstecken. „Automatisch“ erkennt das Auto über sein Fahrzeugkonto.'
+          : 'Wähle das Fahrzeug schon vor dem Einstecken – ohne Ladekarte und automatische Erkennung. Wird innerhalb von 10 min nichts eingesteckt, wird die Wallbox wieder gesperrt.'}</div>
+        ${guest && !lp.detecting ? `<div class="need">${esc(GUEST_POLICY[lp.guestPolicy] || '')}</div>` : ''}</div></div>` : ''}
+      ${veh ? `<div class="pform"><div class="lab">Ladeplan · ${esc(veh.name)}</div>${planSummary(veh, lp.plan, charging.local)}</div>` : '<div class="hint">Ladepläne gibt es für bekannte Fahrzeuge, nicht für Gäste.</div>'}
+    </div>
+    <div class="pd-foot"><button type="button" class="btn" data-lpclose>Fertig</button></div>`;
+}
+$('laden').addEventListener('click', e => {
+  const b = e.target.closest('[data-lpmore]');
+  if (!b) return;
+  lpDlgId = b.dataset.lpmore;
+  renderLpDlg();
+  $('lpDlg').showModal();
+});
+$('lpDlg').addEventListener('click', e => {
+  const d = $('lpDlg');
+  if (e.target === d || e.target.closest('[data-lpclose]')) return d.close();
+  const p = e.target.closest('[data-plans]');
+  if (p) { d.close(); openPlans(p.dataset.plans); }
+});
+$('lpDlg').addEventListener('change', async e => {
+  if (!e.target.matches('[data-lpveh]')) return;
+  await send('PUT', `api/loadpoints/${encodeURIComponent(lpDlgId)}/vehicle`, {vehicle: e.target.value});
+  renderLpDlg();
+});
 (() => { // result of an OAuth login
   const msg = new URLSearchParams(location.search).get('oauth');
   if (!msg) return;

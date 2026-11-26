@@ -304,10 +304,11 @@ func (h *handler) getCards(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-// foreign reports whether another user's vehicle is connected: the user only
-// sees that the wallbox is in use and may not change anything.
+// foreign reports whether another user's vehicle is connected (or chosen
+// before plugging in): the user only sees that the wallbox is in use and may
+// not change anything.
 func foreign(p *auth.Principal, lp charging.Loadpoint) bool {
-	return !p.Admin() && lp.Connected && lp.Vehicle != "" && lp.Vehicle != charging.Guest && !p.Vehicle(lp.Vehicle)
+	return !p.Admin() && (lp.Connected || !lp.ManualUntil.IsZero()) && lp.Vehicle != "" && lp.Vehicle != charging.Guest && !p.Vehicle(lp.Vehicle)
 }
 
 // visibleCharging filters the charging view to what the user may see.
@@ -352,7 +353,11 @@ func (h *handler) mayControl(w http.ResponseWriter, r *http.Request, m *charging
 			writeErr(w, http.StatusForbidden, "Diese Wallbox ist für dich nicht freigegeben.", nil)
 			return false
 		case foreign(p, lp):
-			writeErr(w, http.StatusForbidden, "An der Wallbox lädt gerade ein anderes Fahrzeug.", nil)
+			msg := "An der Wallbox lädt gerade ein anderes Fahrzeug."
+			if !lp.Connected {
+				msg = "Die Wallbox ist gerade für ein anderes Fahrzeug reserviert."
+			}
+			writeErr(w, http.StatusForbidden, msg, nil)
 			return false
 		}
 		return true

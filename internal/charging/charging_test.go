@@ -645,3 +645,100 @@ func TestVehiclePriceRule(t *testing.T) {
 		t.Fatalf("default cost %.2f", c)
 	}
 }
+
+func TestPreselectVehicle(t *testing.T) {
+	m, ch, _ := setup(t, config.Loadpoint{}, fakeProvider{"car1": {Connected: false}})
+	m.now = func() time.Time { return t0 }
+	if err := m.SetVehicleSettings("tibber/car1", VehicleSettings{Mode: ModeFast}); err != nil {
+		t.Fatal(err)
+	}
+	// chosen before plugging in: shown with its deadline, the wallbox stays off
+	if err := m.SetLoadpointVehicle("wb", "tibber/car1"); err != nil {
+		t.Fatal(err)
+	}
+	tick(m, 0, ch, 0, 0, 0, 500)
+	lp := m.Loadpoints()[0]
+	if lp.Vehicle != "tibber/car1" || !lp.Manual || !lp.ManualUntil.Equal(t0.Add(PreselectTimeout)) || lp.Target.Enabled || !strings.Contains(lp.Reason, "einstecken") {
+		t.Fatalf("preselected: %+v", lp)
+	}
+	// plugged in after 5 min: charges as the chosen vehicle, until unplugged
+	ch.st = sdk.ChargerStatus{Connected: true}
+	tick(m, 5*time.Minute, ch, 0, 0, 0, 500)
+	tick(m, 20*time.Minute, ch, 0, 0, 0, 500)
+	lp = m.Loadpoints()[0]
+	if lp.Vehicle != "tibber/car1" || lp.Mode != ModeFast || !lp.Target.Enabled || !lp.ManualUntil.IsZero() {
+		t.Fatalf("plugged in: %+v", lp)
+	}
+	ch.st = sdk.ChargerStatus{}
+	tick(m, 30*time.Minute, ch, 0, 0, 0, 500)
+	if lp := m.Loadpoints()[0]; lp.Manual || lp.Vehicle != "" {
+		t.Fatalf("after unplug: %+v", lp)
+	}
+
+	// chosen, but nothing plugged in for 10 min: the choice ends, the next car is a locked guest
+	m.now = func() time.Time { return t0.Add(time.Hour) }
+	if err := m.SetLoadpointVehicle("wb", "tibber/car1"); err != nil {
+		t.Fatal(err)
+	}
+	tick(m, time.Hour+9*time.Minute, ch, 0, 0, 0, 500)
+	if lp := m.Loadpoints()[0]; !lp.Manual {
+		t.Fatalf("before the deadline: %+v", lp)
+	}
+	tick(m, time.Hour+10*time.Minute, ch, 0, 0, 0, 500)
+	if lp := m.Loadpoints()[0]; lp.Manual || lp.Vehicle != "" || !lp.ManualUntil.IsZero() {
+		t.Fatalf("after the deadline: %+v", lp)
+	}
+	ch.st = sdk.ChargerStatus{Connected: true}
+	tick(m, time.Hour+11*time.Minute, ch, 0, 0, 0, 500)
+	if lp := m.Loadpoints()[0]; lp.Vehicle != Guest || lp.Mode != ModeOff || lp.Target.Enabled {
+		t.Fatalf("late car must be a locked guest: %+v", lp)
+	}
+	// chosen while plugged in: no deadline
+	if err := m.SetLoadpointVehicle("wb", "tibber/car1"); err != nil {
+		t.Fatal(err)
+	}
+	tick(m, 2*time.Hour, ch, 0, 0, 0, 500)
+	if lp := m.Loadpoints()[0]; lp.Vehicle != "tibber/car1" || !lp.ManualUntil.IsZero() || !lp.Target.Enabled {
+		t.Fatalf("chosen while plugged in: %+v", lp)
+	}
+}
+
+func TestPreselectSurvivesRestart(t *testing.T) {
+	cache := sdk.NewMemCache()
+	mk := func() (*Manager, *fakeCharger) {
+		cfg := config.Default()
+		cfg.Devices = []config.Device{{ID: "wb", Type: "x", Mode: "owned"}, {ID: "tibber", Type: "y"}}
+		cfg.Charging.Loadpoints = []config.Loadpoint{{Charger: "wb"}}
+		ch := &fakeCharger{}
+		m, err := New(cfg, time.UTC, map[string]sdk.Device{"wb": ch, "tibber": fakeProvider{"car1": {}}}, cache, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m.refreshVehicles(context.Background())
+		m.now = func() time.Time { return t0 }
+		return m, ch
+	}
+	m, ch := mk()
+	if err := m.SetLoadpointVehicle("wb", "tibber/car1"); err != nil {
+		t.Fatal(err)
+	}
+	tick(m, time.Minute, ch, 0, 0, 0, 500)
+	// restart after 8 min: the deadline is kept, not renewed
+	m, ch = mk()
+	tick(m, 8*time.Minute, ch, 0, 0, 0, 500)
+	if lp := m.Loadpoints()[0]; !lp.ManualUntil.Equal(t0.Add(PreselectTimeout)) {
+		t.Fatalf("after restart: %+v", lp)
+	}
+	tick(m, 10*time.Minute, ch, 0, 0, 0, 500)
+	if lp := m.Loadpoints()[0]; lp.Manual {
+		t.Fatalf("deadline after restart: %+v", lp)
+	}
+	// a choice stored without a deadline (older version) gets the full time
+	_ = cache.Put("lp:wb", []byte("tibber/car1"))
+	_ = cache.Put("lpUntil:wb", nil)
+	m, ch = mk()
+	tick(m, time.Hour, ch, 0, 0, 0, 500)
+	if lp := m.Loadpoints()[0]; !lp.ManualUntil.Equal(t0.Add(time.Hour + PreselectTimeout)) {
+		t.Fatalf("old choice: %+v", lp)
+	}
+}

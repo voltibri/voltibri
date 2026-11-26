@@ -92,8 +92,9 @@ type Loadpoint struct {
 	PowerW          float64   `json:"powerW"`
 	Vehicle         string    `json:"vehicle"` // key, "guest" or ""
 	VehicleName     string    `json:"vehicleName"`
-	Manual          bool      `json:"manual"`    // vehicle chosen by the user
-	Detecting       bool      `json:"detecting"` // still waiting for the vehicle cloud
+	Manual          bool      `json:"manual"`               // vehicle chosen by the user
+	ManualUntil     time.Time `json:"manualUntil,omitzero"` // chosen before plugging in: plug in by then, else the choice ends
+	Detecting       bool      `json:"detecting"`            // still waiting for the vehicle cloud
 	Mode            Mode      `json:"mode"`
 	Target          State     `json:"target"` // what voltibri wants
 	Reason          string    `json:"reason"`
@@ -175,7 +176,8 @@ type lpRuntime struct {
 	session    *Session
 	lastTick   time.Time
 	manual     string
-	wasLocked  bool // voltibri disabled the charger
+	manualTo   time.Time // chosen before plugging in: the choice ends then unless a vehicle is plugged in
+	wasLocked  bool      // voltibri disabled the charger
 	observedLg string
 	resume     *Session // open session from before a restart
 	ticked     bool
@@ -195,6 +197,7 @@ type Manager struct {
 	feedin       tariff.Tariff
 	chargingT    tariff.Tariff
 	dynGrid      bool
+	now          func() time.Time // clock for choices made by the user (tests)
 
 	mu       sync.RWMutex
 	lps      []*lpRuntime
@@ -220,7 +223,7 @@ func New(cfg *config.Config, loc *time.Location, devices map[string]sdk.Device, 
 	if settings == nil {
 		settings = sdk.NewMemCache()
 	}
-	m := &Manager{loc: loc, cfg: cfg, providers: map[string]sdk.VehicleProvider{}, settings: settings, sessions: sessions,
+	m := &Manager{loc: loc, cfg: cfg, providers: map[string]sdk.VehicleProvider{}, settings: settings, sessions: sessions, now: time.Now,
 		vehicles: map[string]*Vehicle{}, prices: map[string]priceCache{}, batteryNever: map[string]bool{}, alias: map[string]string{}}
 	for _, d := range cfg.Devices {
 		if d.BatteryUse == config.BatteryNever {
@@ -275,6 +278,9 @@ func New(cfg *config.Config, loc *time.Location, devices map[string]sdk.Device, 
 		lp.view = Loadpoint{ID: dc.ID, Name: name, Owned: lp.ctl != nil, CanSwitch: lp.phaseSw != nil, Phases: lc.Phases, MinCurrentA: lc.MinCurrentA,
 			MaxCurrentA: lc.MaxCurrentA, Guest: lc.Guest, Separate: lc.SeparateMeter}
 		lp.manual = m.loadString("lp:" + dc.ID)
+		if t, err := time.Parse(time.RFC3339, m.loadString("lpUntil:"+dc.ID)); err == nil {
+			lp.manualTo = t
+		}
 		if b, _, ok := settings.Get("open:" + dc.ID); ok && len(b) > 0 {
 			var s Session
 			if json.Unmarshal(b, &s) == nil {
@@ -528,8 +534,14 @@ func (m *Manager) SetVehicleSettings(key string, s VehicleSettings) error {
 	return m.settings.Put("vehicle:"+key, b)
 }
 
+// PreselectTimeout: a vehicle chosen before plugging in must be plugged in
+// within this time, else the choice ends and the wallbox is locked again
+// (guest settings).
+const PreselectTimeout = 10 * time.Minute
+
 // SetLoadpointVehicle assigns a vehicle manually ("" = automatic, "guest").
-// The assignment ends when the vehicle is unplugged.
+// The assignment ends when the vehicle is unplugged; chosen before plugging
+// in, it also ends when nothing is plugged in within PreselectTimeout.
 func (m *Manager) SetLoadpointVehicle(id, key string) error {
 	key = m.resolve(key)
 	m.mu.Lock()
@@ -541,11 +553,51 @@ func (m *Manager) SetLoadpointVehicle(id, key string) error {
 	}
 	for _, lp := range m.lps {
 		if lp.view.ID == id {
-			lp.manual = key
-			return m.settings.Put("lp:"+id, []byte(key))
+			var until time.Time
+			if key != "" && !lp.view.Connected {
+				until = m.now().Add(PreselectTimeout)
+			}
+			m.setManual(lp, key, until)
+			m.preselectView(lp, m.now())
+			return nil
 		}
 	}
 	return fmt.Errorf("unknown loadpoint %q", id)
+}
+
+// setManual stores the manual vehicle choice of a loadpoint and its deadline
+// (zero: until unplugged).
+func (m *Manager) setManual(lp *lpRuntime, key string, until time.Time) {
+	lp.manual, lp.manualTo = key, until
+	_ = m.settings.Put("lp:"+lp.view.ID, []byte(key))
+	var b []byte
+	if !until.IsZero() {
+		b = []byte(until.UTC().Format(time.RFC3339))
+	}
+	_ = m.settings.Put("lpUntil:"+lp.view.ID, b)
+}
+
+// preselectView shows a vehicle chosen before plugging in at a free
+// loadpoint: who may plug in and until when.
+func (m *Manager) preselectView(lp *lpRuntime, now time.Time) {
+	v := &lp.view
+	v.Manual = lp.manual != ""
+	v.ManualUntil = time.Time{}
+	if v.Connected {
+		return
+	}
+	v.Vehicle, v.VehicleName = "", ""
+	if lp.manual == "" || lp.manualTo.IsZero() {
+		return
+	}
+	v.Vehicle, v.ManualUntil = lp.manual, lp.manualTo
+	v.VehicleName = "Gastfahrzeug"
+	if veh, ok := m.vehicles[lp.manual]; ok {
+		v.VehicleName = displayName(Vehicle{Info: veh.Info, Settings: m.vehicleSettings(lp.manual)})
+	}
+	left := lp.manualTo.Sub(now)
+	v.Reason = fmt.Sprintf("%s gewählt – bis %s einstecken (noch %d min), sonst wird die Wallbox wieder gesperrt",
+		v.VehicleName, lp.manualTo.In(m.loc).Format("15:04"), int(math.Ceil(math.Max(0, left.Minutes()))))
 }
 
 // SetSessionMode sets the charge mode of the current session (until the car
@@ -664,18 +716,31 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 		}
 		if v.Connected && !wasConnected {
 			lp.plugged = in.Now
+			if !lp.manualTo.IsZero() { // plugged in in time: the choice holds until unplugged
+				m.setManual(lp, lp.manual, time.Time{})
+			}
 		}
 		if !v.Connected && wasConnected {
 			m.endSession(ctx, lp, in.Now)
-			lp.manual = ""
-			_ = m.settings.Put("lp:"+v.ID, []byte{})
+			m.setManual(lp, "", time.Time{})
 			_ = m.settings.Put("mode:"+v.ID, []byte{})
 			lp.card = ""
 		}
+		if !v.Connected && lp.manual != "" {
+			switch {
+			case lp.manualTo.IsZero(): // chosen before this rule existed: give it the full time
+				m.setManual(lp, lp.manual, in.Now.Add(PreselectTimeout))
+			case !in.Now.Before(lp.manualTo):
+				slog.Info("vehicle chosen but not plugged in, choice ended", "loadpoint", v.ID, "vehicle", lp.manual)
+				m.setManual(lp, "", time.Time{})
+			}
+		}
 
 		// vehicle and mode
-		delete(taken, v.Vehicle)
-		v.Vehicle, v.Detecting, v.Manual = "", false, lp.manual != ""
+		if wasConnected { // only a plugged-in vehicle is taken
+			delete(taken, v.Vehicle)
+		}
+		v.Vehicle, v.Detecting, v.Manual, v.ManualUntil = "", false, lp.manual != "", time.Time{}
 		vs := VehicleSettings{}
 		// a card held to the wallbox chooses vehicle and mode for this session
 		if v.Connected && st.Card != "" && lp.card != st.Card {
@@ -886,6 +951,13 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 		}
 		lp.state = d.State
 		v.Target, v.Reason = d.State, d.Reason
+		if !v.Connected { // a vehicle chosen before plugging in
+			why := v.Reason
+			m.preselectView(lp, in.Now)
+			if v.Off {
+				v.Reason = why
+			}
+		}
 		v.ActivePhases, v.PhaseCurrentA, v.Finish = livePhases(st, v.Charging), 0, nil
 		if v.ActivePhases > 0 {
 			v.PhaseCurrentA = v.PowerW / Voltage / float64(v.ActivePhases)
