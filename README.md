@@ -127,6 +127,23 @@ charger meter. Sessions with energy, PV share and cost are stored.
 Every driver describes its parameters (type, unit, default, required, secret) so the UI can
 generate its settings form – including plugins.
 
+## AI assistants (MCP)
+
+voltibri speaks the [Model Context Protocol](https://modelcontextprotocol.io) at `POST /mcp`
+(Streamable HTTP, JSON answers), so an assistant such as Claude can look at the site and help
+with setup and tuning. Create an access token on the account page (*Konto → Zugänge für
+KI-Assistenten*): read only, or read and change (setting up devices, settings). The page shows
+the command for Claude Code, e.g.
+
+```bash
+claude mcp add --transport http voltibri http://voltibri.local:7070/mcp --header "Authorization: Bearer vtb_…"
+```
+
+Tools: `overview` (state, plan, battery, loads), `read` (any GET of the API), `drivers`
+(drivers and their parameters) and, with a write token, `change` (PUT/POST/DELETE). Every call
+runs through the normal API with the token owner's permissions; configuration changes create
+versions that can be rolled back. Tokens can be revoked on the account page at any time.
+
 ## Roadmap
 
 - Users, roles, OIDC – then configuration UI (Vue 3) with setup wizard and device discovery

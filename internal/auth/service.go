@@ -371,3 +371,23 @@ func shorten(s string, n int) string {
 	}
 	return s
 }
+
+// CreateToken creates an access token for u named name. A write token of
+// an administrator may change the configuration without re-authentication.
+func (s *Service) CreateToken(ctx context.Context, u User, name string, write bool) (string, Session, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", Session{}, errors.New("Bitte einen Namen für den Zugang angeben.")
+	}
+	token, _ := NewToken()
+	token = TokenPrefix + token
+	now := s.now()
+	ss := Session{ID: HashToken(token), UserID: u.ID, Created: now, LastSeen: now, AuthAt: now, Method: MethodToken, Agent: shorten(name, 80)}
+	if write {
+		ss.Method = MethodTokenWrite
+		if u.Role == RoleAdmin {
+			ss.ElevatedUntil = now.AddDate(100, 0, 0)
+		}
+	}
+	return token, ss, s.st.CreateSession(ctx, ss)
+}

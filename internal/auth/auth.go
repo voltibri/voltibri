@@ -271,3 +271,19 @@ type ProviderStore interface {
 	SaveProvider(ctx context.Context, p Provider) error // empty secret keeps the stored one
 	DeleteProvider(ctx context.Context, id string) error
 }
+
+// Access tokens for other programs (e.g. an AI assistant over MCP) are
+// sessions with their own method: they carry the user's permissions,
+// "token" only reads, "token-write" may also change (for administrators
+// including the configuration, without the re-authentication of a browser).
+const (
+	MethodToken      = "token"
+	MethodTokenWrite = "token-write"
+	TokenPrefix      = "vtb_" // recognisable in configuration files and logs
+)
+
+// IsToken reports whether the session is an access token.
+func (s Session) IsToken() bool { return s.Method == MethodToken || s.Method == MethodTokenWrite }
+
+// ReadOnly reports whether the principal may only read (read-only token).
+func (p *Principal) ReadOnly() bool { return p != nil && p.Session.Method == MethodToken }

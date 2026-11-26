@@ -86,7 +86,7 @@ type Runtime interface {
 
 // Handler returns the HTTP handler.
 func Handler(rt Runtime, st *store.Store) http.Handler {
-	h := &handler{rt: rt, st: st, auth: auth.NewService(st), oidc: auth.NewOIDC()}
+	h := &handler{rt: rt, st: st, auth: auth.NewService(st), oidc: auth.NewOIDC(), appVersion: Version}
 	if has, err := h.auth.HasUsers(context.Background()); err == nil && !has {
 		h.setupToken, _ = auth.NewToken()
 		slog.Warn("no user yet: create the first administrator on this machine or open /login?setup=" + h.setupToken)
@@ -107,6 +107,11 @@ func Handler(rt Runtime, st *store.Store) http.Handler {
 	h.importRoutes(mux)
 	h.batteryRoutes(mux)
 	h.loadRoutes(mux)
+	mux.HandleFunc("POST /mcp", h.mcp)
+	mux.HandleFunc("GET /mcp", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Allow", "POST")
+		http.Error(w, "MCP: nur POST (Streamable HTTP ohne Server-Events)", http.StatusMethodNotAllowed)
+	})
 	mux.HandleFunc("GET /api/drivers", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, sdk.Drivers()) })
 
 	mux.HandleFunc("GET /api/config", h.getConfig)
@@ -134,7 +139,8 @@ func Handler(rt Runtime, st *store.Store) http.Handler {
 		w.Header().Set("Cache-Control", "public, max-age=86400")
 		w.Write(faviconSVG)
 	})
-	return h.authenticate(mux)
+	h.root = h.authenticate(mux)
+	return h.root
 }
 
 type handler struct {
@@ -142,8 +148,13 @@ type handler struct {
 	st         *store.Store
 	auth       *auth.Service
 	oidc       *auth.OIDC
-	setupToken string // first administrator from another machine (logged once)
+	setupToken string       // first administrator from another machine (logged once)
+	root       http.Handler // the whole handler (internal requests of the MCP endpoint)
+	appVersion string
 }
+
+// Version is the program version (set by main, shown to MCP clients).
+var Version = "dev"
 
 // apiError is the error format of all endpoints.
 type apiError struct {

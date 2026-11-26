@@ -229,6 +229,7 @@ func serve(args []string) error {
 	}
 
 	rt := server.New(st, *yamlPath)
+	api.Version = version
 	srv := &http.Server{Addr: addr, Handler: api.Handler(rt, st), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		slog.Info("web UI", "url", "http://"+addr, "data", *dataDir)

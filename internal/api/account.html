@@ -28,6 +28,7 @@
   .account .item .meta { color:var(--muted); font-size:12px; }
   .account .item > div { flex:1; min-width:0; }
   .account dl.kv { margin:0; }
+  .account pre.tok { white-space:pre-wrap; word-break:break-all; font-size:12px; padding:8px 10px; border-radius:8px; background:var(--track); margin:8px 0; user-select:all; }
 </style>
 </head>
 <body data-page="account">
@@ -37,6 +38,7 @@
   <section class="card setup" id="password"></section>
   <section class="card" id="logins"></section>
   <section class="card" id="sessions"></section>
+  <section class="card setup" id="tokens"></section>
 </main>
 <script src="common.js"></script>
 <script>
@@ -101,14 +103,46 @@ function render() {
 
   $('sessions').innerHTML = `<h2>${iconSVG('device', 20)} Angemeldete Geräte</h2>
     <p class="why">Eine Anmeldung bleibt bis zu 180 Tage nach der letzten Nutzung gültig. Die Konfiguration braucht danach eine kurze Bestätigung.</p>
-    <div class="list">${(acct.sessions || []).map(s => `<div class="item"><div><b>${esc(agentName(s.agent))}</b>${s.current ? '<span class="chip ok">dieses Gerät</span>' : ''}
+    <div class="list">${(acct.sessions || []).filter(s => !isToken(s)).map(s => `<div class="item"><div><b>${esc(agentName(s.agent))}</b>${s.current ? '<span class="chip ok">dieses Gerät</span>' : ''}
       <div class="meta">angemeldet ${when(s.created)} · zuletzt ${when(s.lastSeen)}</div></div>
       ${s.current ? '' : `<button type="button" class="btn" data-end="${esc(s.id)}">Abmelden</button>`}</div>`).join('')}</div>`;
 }
 
+// access tokens for other programs: an AI assistant over MCP
+const isToken = s => s.method === 'token' || s.method === 'token-write';
+let newToken = null; // shown once after creating
+function renderTokens() {
+  const ts = (acct.sessions || []).filter(isToken), url = location.origin + '/mcp';
+  const cmd = t => `claude mcp add --transport http voltibri ${url} --header "Authorization: Bearer ${t}"`;
+  $('tokens').innerHTML = `<h2>${iconSVG('lock', 20)} Zugänge für KI-Assistenten (MCP)</h2>
+    <p class="why">Damit kann ein KI-Assistent wie Claude voltibri über das Model Context Protocol lesen und – mit Schreibrechten – bei der Einrichtung helfen. Er hat genau deine Rechte; jede Änderung landet als Konfigurationsversion und lässt sich zurückholen.</p>
+    ${newToken ? `<div class="banner"><b>Neuer Zugang „${esc(newToken.name)}“</b> – das Token wird nur jetzt angezeigt:
+      <pre class="tok" id="tokCmd">${esc(cmd(newToken.token))}</pre>
+      <button type="button" class="btn" data-copy>Befehl kopieren</button> <span class="why">In Claude Code im Terminal ausführen. Andere Programme: Adresse ${esc(url)}, Header <code>Authorization: Bearer …</code></span></div>` : ''}
+    <div class="list">${ts.map(t => `<div class="item"><div><b>${esc(t.agent)}</b> <span class="chip${t.method === 'token-write' ? ' warn' : ''}">${t.method === 'token-write' ? 'lesen + ändern' : 'nur lesen'}</span>
+      <div class="meta">angelegt ${when(t.created)} · zuletzt ${when(t.lastSeen)}</div></div>
+      <button type="button" class="btn" data-end="${esc(t.id)}">Widerrufen</button></div>`).join('') || '<p class="why">Noch kein Zugang angelegt.</p>'}</div>
+    <form id="tokForm" class="stack" style="margin-top:12px">
+      <label class="f">Name<input id="tokName" placeholder="z. B. Claude auf dem Mac" maxlength="80" required></label>
+      <label class="f cb"><input type="checkbox" id="tokWrite"> darf auch ändern (Geräte einrichten, Einstellungen)${acct.admin ? ' – als Administrator auch die Konfiguration, ohne erneute Bestätigung' : ''}</label>
+      <div class="actions"><button type="submit" class="btn primary">Zugang anlegen</button></div>
+      <div class="err" id="tokErr" role="alert"></div>
+    </form>`;
+  $('tokForm').onsubmit = async e => {
+    e.preventDefault();
+    const name = $('tokName').value.trim();
+    const r = await fetch('api/me/tokens', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name, write: $('tokWrite').checked})}).catch(() => null);
+    const j = r ? await r.json().catch(() => ({})) : {};
+    if (!r || !r.ok) { $('tokErr').textContent = j.error || 'Keine Verbindung.'; return; }
+    newToken = {name, token: j.token};
+    load();
+  };
+}
+
 document.addEventListener('click', async e => {
+  if (e.target.closest('[data-copy]')) { navigator.clipboard.writeText($('tokCmd').textContent).catch(() => {}); e.target.textContent = 'Kopiert'; return; }
   const b = e.target.closest('[data-end]');
-  if (b) { await send('DELETE', 'api/me/sessions/' + encodeURIComponent(b.dataset.end)).catch(x => alert(x.message)); load(); }
+  if (b) { newToken = null; await send('DELETE', 'api/me/sessions/' + encodeURIComponent(b.dataset.end)).catch(x => alert(x.message)); load(); }
   const u = e.target.closest('[data-unlink]');
   if (u && confirm('Diesen Anmeldeweg trennen?')) {
     await send('DELETE', `api/me/identities/${encodeURIComponent(u.dataset.unlink)}/${encodeURIComponent(u.dataset.subject)}`).catch(x => alert(x.message));
@@ -122,6 +156,7 @@ async function load() {
   acct = me;
   providers = st.providers || [];
   render();
+  renderTokens();
 }
 // message from a login service (linked, failed)
 const msg = new URLSearchParams(location.search).get('msg');

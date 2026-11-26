@@ -38,7 +38,7 @@ func levelFor(method, path string) level {
 	case "/login", "/api/health", "/common.js", "/common.css", "/manifest.webmanifest", "/sw.js", "/favicon.svg",
 		"/api/auth/state", "/api/auth/login", "/api/auth/setup", "/api/auth/invite":
 		return levelPublic
-	case "/", "/konto", "/api/status", "/api/drivers", "/api/auth/logout", "/api/auth/reauth", "/api/charging":
+	case "/", "/konto", "/api/status", "/api/drivers", "/api/auth/logout", "/api/auth/reauth", "/api/charging", "/mcp", "/api/me/tokens":
 		return levelUser
 	case "/api/state":
 		return levelOverview
@@ -73,14 +73,33 @@ func levelFor(method, path string) level {
 // authenticate resolves the session and enforces the access table.
 func (h *handler) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// cross-site requests must not change anything (in addition to SameSite)
-		if r.Method != http.MethodGet && r.Method != http.MethodHead && !sameOrigin(r) {
-			writeErr(w, http.StatusForbidden, "Anfrage von fremder Seite abgelehnt.", nil)
-			return
+		// a principal in the context: an internal request of the MCP
+		// endpoint on behalf of its caller (requests from outside never
+		// carry one)
+		p := auth.From(r.Context())
+		bearer, hasBearer := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		switch {
+		case p != nil:
+		case hasBearer: // access token of another program: no cookies, no cross-site risk
+			p, _ = h.auth.Resolve(r.Context(), strings.TrimSpace(bearer))
+			if p == nil || !p.Session.IsToken() {
+				writeJSON(w, http.StatusUnauthorized, apiError{Error: "Zugangstoken ungültig oder widerrufen.", Code: "token"})
+				return
+			}
+		default:
+			// cross-site requests must not change anything (in addition to SameSite)
+			if r.Method != http.MethodGet && r.Method != http.MethodHead && !sameOrigin(r) {
+				writeErr(w, http.StatusForbidden, "Anfrage von fremder Seite abgelehnt.", nil)
+				return
+			}
+			if c, err := r.Cookie(sessionCookie); err == nil {
+				p, _ = h.auth.Resolve(r.Context(), c.Value)
+			}
 		}
-		var p *auth.Principal
-		if c, err := r.Cookie(sessionCookie); err == nil {
-			p, _ = h.auth.Resolve(r.Context(), c.Value)
+		// a read-only token only reads (the MCP endpoint itself checks its tools)
+		if p.ReadOnly() && r.Method != http.MethodGet && r.Method != http.MethodHead && r.URL.Path != "/mcp" && r.URL.Path != "/api/config/validate" {
+			writeErr(w, http.StatusForbidden, "Dieser Zugang darf nur lesen.", nil)
+			return
 		}
 		r = r.WithContext(auth.With(r.Context(), p))
 		lv := levelFor(r.Method, r.URL.Path)
@@ -118,7 +137,10 @@ func (h *handler) authenticate(next http.Handler) http.Handler {
 			http.Redirect(w, r, "/", http.StatusFound)
 			return
 		}
-		if lv == levelElevated {
+		// an access token cannot confirm a login: reading is enough with the
+		// admin role, changing needs a write token (elevated on creation)
+		tokenRead := p.Session.IsToken() && (r.Method == http.MethodGet || r.Method == http.MethodHead)
+		if lv == levelElevated && !tokenRead {
 			if !p.Elevated(time.Now()) {
 				writeJSON(w, http.StatusUnauthorized, apiError{Error: "Für die Konfiguration bitte die Anmeldung bestätigen.", Code: "reauth"})
 				return
@@ -184,6 +206,7 @@ func (h *handler) authRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/me", h.putMe)
 	mux.HandleFunc("PUT /api/me/password", h.putMyPassword)
 	mux.HandleFunc("DELETE /api/me/sessions/{id}", h.deleteMySession)
+	mux.HandleFunc("POST /api/me/tokens", h.createToken)
 
 	mux.HandleFunc("GET /api/users", h.listUsers)
 	mux.HandleFunc("POST /api/users", h.saveUser)
@@ -405,6 +428,36 @@ func (h *handler) deleteMySession(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeErr(w, http.StatusNotFound, "Sitzung nicht gefunden", nil)
+}
+
+// createToken creates an access token for another program (MCP). The
+// token is shown once. A write token of an administrator changes the
+// configuration without re-authentication, so creating one needs a
+// confirmed login; tokens cannot create tokens.
+func (h *handler) createToken(w http.ResponseWriter, r *http.Request) {
+	p := auth.From(r.Context())
+	var req struct {
+		Name  string `json:"name"`
+		Write bool   `json:"write"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	if p.Session.IsToken() {
+		writeErr(w, http.StatusForbidden, "Ein Zugangstoken kann keine weiteren Zugänge anlegen.", nil)
+		return
+	}
+	if req.Write && p.Admin() && !p.Elevated(time.Now()) {
+		writeJSON(w, http.StatusUnauthorized, apiError{Error: "Für einen Zugang mit Schreibrechten bitte die Anmeldung bestätigen.", Code: "reauth"})
+		return
+	}
+	token, ss, err := h.auth.CreateToken(r.Context(), p.User, req.Name, req.Write)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	slog.Info("access token created", "user", p.User.Login, "name", ss.Agent, "write", req.Write)
+	writeJSON(w, http.StatusOK, map[string]any{"token": token, "session": ss})
 }
 
 // --- administration ---
