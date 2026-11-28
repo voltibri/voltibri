@@ -137,6 +137,13 @@ recalculation keeps the former cost in `attrs.origCostCt` /
 `origPriceNote`. At a wallbox with its own meter the meter tariff still
 applies, guests use the default.
 
+While the home battery is below its priority SoC it gets the PV surplus
+first; PV a vehicle takes then is booked as its own share
+(`attrs.shares.pvPriority`) and priced like grid energy (the grid rule),
+because the battery buys it from the grid later. It still counts as PV
+energy. `recalc` with `batteryPriority: true` rebooks the PV of runs
+recorded before.
+
 ## Order of introduction
 
 1. **Done:** asset kind and life cycle on devices (devices without a

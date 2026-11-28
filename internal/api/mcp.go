@@ -106,7 +106,7 @@ var mcpTools = []mcpTool{
 - PUT /api/loads/{id}/priority {"priority": 0-10}, PUT /api/loads/{id}/mode {"mode": "off|surplus|boost"}, PUT /api/loads/{id}/top {"on": true}
 - PUT /api/vehicles/{key} {Fahrzeug-Einstellungen: mode, plans, ...}, PUT /api/loadpoints/{id}/mode {"mode": "..."}, PUT /api/loadpoints/{id}/vehicle {"vehicle": "<key>|guest|"} – Fahrzeug an der Wallbox wählen ("" = automatisch); vor dem Einstecken gilt die Wahl 10 min, danach ist die Wallbox wieder gesperrt
 - Preisregel eines Fahrzeugs: Feld "price" am Gerät (type vehicle), je Anteil pv|battery|grid (oder all): {"mode": "inherit|replace|adjust", "base": "fixed|feedin|grid|free" (replace), "ct": 15 (fixed), "percent": 10, "addCt": 1}
-- POST /api/runs/recalc {"vehicle": "id", "from": "JJJJ-MM-TT"?, "to": "JJJJ-MM-TT"?, "dryRun": true} – Ladevorgänge eines Fahrzeugs mit der gespeicherten Preisregel neu bewerten (erst mit dryRun prüfen)`,
+- POST /api/runs/recalc {"vehicle": "id", "from": "JJJJ-MM-TT"?, "to": "JJJJ-MM-TT"?, "dryRun": true, "batteryPriority": true?} – Ladevorgänge eines Fahrzeugs mit der gespeicherten Preisregel neu bewerten (erst mit dryRun prüfen); batteryPriority: die Hausbatterie hatte in diesen Ladevorgängen Vorrang, ihr PV-Anteil zählt zum Netzpreis`,
 		InputSchema: obj(map[string]any{
 			"method": map[string]any{"type": "string", "enum": []string{"PUT", "POST", "DELETE"}},
 			"path":   map[string]any{"type": "string", "description": "Pfad unter /api/"},

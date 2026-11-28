@@ -3,12 +3,14 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/voltibri/voltibri/internal/pricing"
 	"github.com/voltibri/voltibri/internal/run"
 	"github.com/voltibri/voltibri/internal/store"
 )
@@ -250,6 +252,21 @@ devices:
 	}
 	if rs, _ := st.Runs(ctx, run.Filter{Vehicle: "Tavascan"}); rs[0].CostCt != 150 {
 		t.Fatal("other vehicle changed")
+	}
+	// a measured run while the home battery had priority: its PV at the grid price (grid rule +10 %)
+	var sh pricing.Shares
+	sh.PV.Add(3000, 8, 30)
+	sh.Grid.Add(2000, 8, 30)
+	day := start.AddDate(0, 0, 5)
+	st.SaveRun(ctx, run.Run{Asset: "wb", Kind: "charging", Vehicle: "eup", VehicleName: "Dräger e-Up", Start: day, End: day.Add(time.Hour),
+		EnergyWh: 5000, PVWh: 3000, GridWh: 2000, CostCt: 3*15 + 2*33, Attrs: map[string]any{pricing.AttrKey: sh}})
+	if rec := do(h, "POST", "/api/runs/recalc", `{"vehicle":"eup","from":"2025-05-06","to":"2025-05-06","batteryPriority":true}`, local); rec.Code != 200 {
+		t.Fatalf("recalc battery priority: %d %s", rec.Code, rec.Body.String())
+	}
+	rs, _ = st.Runs(ctx, run.Filter{Vehicle: "Dräger e-Up", From: day})
+	got, _ := pricing.FromAttrs(rs[0].Attrs)
+	if math.Abs(rs[0].CostCt-5*33) > 0.01 || got.PV.Wh != 0 || got.PVPriority.Wh != 3000 || rs[0].PVWh != 3000 || !strings.Contains(rs[0].PriceNote, "Akku-Vorrang") {
+		t.Fatalf("battery priority: %+v %+v", rs[0], got)
 	}
 	// rules only on vehicles
 	rec = do(h, "POST", "/api/config/validate", `{"config":{"devices":[{"id":"demo","type":"demo","price":{"all":{"mode":"replace","base":"free"}}}]}}`, local)

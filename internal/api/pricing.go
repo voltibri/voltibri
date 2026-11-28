@@ -22,6 +22,10 @@ type recalcRequest struct {
 	From    string `json:"from,omitempty"` // YYYY-MM-DD (site time zone), empty: from the start
 	To      string `json:"to,omitempty"`   // YYYY-MM-DD inclusive, empty: until now
 	DryRun  bool   `json:"dryRun"`
+	// BatteryPriority: the home battery had priority during these runs
+	// (below its priority SoC), so their PV is booked as PV at priority and
+	// priced like grid energy. For runs recorded before voltibri did so.
+	BatteryPriority bool `json:"batteryPriority,omitempty"`
 }
 
 type recalcResponse struct {
@@ -119,8 +123,14 @@ func (h *handler) recalcRuns(w http.ResponseWriter, r *http.Request) {
 			}
 			sh = pricing.Uniform(rn.PVWh, rn.BatteryWh, rn.GridWh, feedin, grid)
 		}
+		if req.BatteryPriority && sh.PV.Wh > 0 {
+			sh.PVPriority.Add(sh.PV.Wh, 0, 0)
+			sh.PVPriority.FeedInCt += sh.PV.FeedInCt
+			sh.PVPriority.GridCt += sh.PV.GridCt
+			sh.PV = pricing.Amount{}
+		}
 		cost, note := d.Price.Cost(sh, f.Vehicle)
-		if d.Price.Empty() {
+		if d.Price.Empty() && sh.PVPriority.Wh == 0 {
 			note = "PV und Akku zur Einspeisevergütung, Netz zum Tarif"
 		}
 		if !exact {
@@ -139,6 +149,9 @@ func (h *handler) recalcRuns(w http.ResponseWriter, r *http.Request) {
 			} else {
 				rn.Attrs[attrOrigCost] = rn.CostCt
 			}
+		}
+		if exact && req.BatteryPriority { // keep the rebooked shares
+			rn.Attrs[pricing.AttrKey] = sh
 		}
 		rn.CostCt, rn.CostUnknown, rn.PriceNote = cost, false, note
 		changed = append(changed, rn)
