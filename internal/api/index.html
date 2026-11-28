@@ -276,6 +276,14 @@
   .days { display:flex; gap:3px; }
   .days label { font-size:11px; display:flex; flex-direction:column; align-items:center; gap:1px; }
   .sess { display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--muted); }
+  .sbar { flex:1 1 100%; display:grid; gap:5px; }
+  .sbar-bar { display:flex; gap:2px; height:10px; border-radius:5px; overflow:hidden; background:var(--track); }
+  .sbar-bar i { display:block; min-width:3px; }
+  .sb-pv { background:var(--solar); } .sb-bat { background:var(--battery); } .sb-grid { background:var(--grid); }
+  .sb-pvgrid { background:repeating-linear-gradient(45deg, var(--solar) 0 3px, var(--grid) 3px 6px); }
+  .sb-batgrid { background:repeating-linear-gradient(45deg, var(--battery) 0 3px, var(--grid) 3px 6px); }
+  .sbar-row { display:flex; justify-content:space-between; gap:4px 12px; flex-wrap:wrap; }
+  .pill.warn { background:color-mix(in srgb, var(--solar) 18%, transparent); color:var(--fg); }
   /* wallbox tile: the wallbox (power gauge, phases, mode) and the car it charges */
   .wbscene { display:grid; grid-template-columns:minmax(0, 1fr) 124px; align-items:stretch; }
   .wbleft { display:flex; flex-direction:column; gap:8px; min-width:0; container-type:inline-size; }
@@ -778,6 +786,35 @@ function etaTime(t) {
   return d.toDateString() === now.toDateString() ? hm : d.toLocaleDateString('de-DE', {weekday: 'short'}) + ' ' + hm;
 }
 
+// the charging session as a bar: length per kWh by origin, colour by how it
+// is priced. PV that counts at the grid price (the home battery had
+// priority, a guest, a wallbox with its own meter) is hatched. Another
+// user's car: only the energy.
+function sessionBar(lp, s, guest) {
+  if (s.costUnknown) return `<span>Dieser Ladevorgang <b>${kwh(s.energyWh)}</b></span>`;
+  const sh = (s.attrs && s.attrs.shares) || null;
+  const pvPrio = sh && sh.pvPriority ? sh.pvPriority.wh : 0;
+  const flat = guest || lp.separateMeter; // everything at one price
+  const segs = [
+    {wh: s.pvWh - pvPrio, label: 'PV', cls: flat ? 'pvgrid' : 'pv'},
+    {wh: pvPrio, label: 'PV bei Akku-Vorrang', cls: 'pvgrid'},
+    {wh: s.batteryWh, label: 'Akku', cls: flat ? 'batgrid' : 'bat'},
+    {wh: s.gridWh, label: 'Netz', cls: 'grid'},
+  ].filter(x => x.wh >= 1);
+  const total = segs.reduce((a, x) => a + x.wh, 0) || 1;
+  const kwhF = wh => (wh / 1000).toLocaleString('de-DE', {maximumFractionDigits: wh < 1000 ? 2 : 1}) + ' kWh'; // small sessions: no "0 kWh"
+  const bar = segs.map(x => `<i class="sb-${x.cls}" style="flex:${(x.wh / total).toFixed(4)}" title="${esc(x.label)} ${kwhF(x.wh)}"></i>`).join('');
+  const why = pvPrio >= 1 ? `<span class="pill warn" title="${esc(kwhF(pvPrio) + ' Sonnenstrom gingen ans Auto, während die Hausbatterie Vorrang hatte (unter ihrer Vorrang-Grenze). Sie kauft ihn später aus dem Netz nach, deshalb zählt er zum Netzpreis.')}">Akku hatte Vorrang</span>`
+    : guest ? '<span class="pill" title="Gäste zahlen für jede kWh den Netzpreis, auch für Sonnenstrom.">Gast: alles zum Netzpreis</span>'
+    : lp.separateMeter ? '<span class="pill" title="Diese Wallbox hat einen eigenen Zähler: jede kWh kostet den Ladestromtarif.">eigener Zähler</span>' : '';
+  const avg = s.energyWh >= 1 ? ` · Ø <b>${(s.costCt / s.energyWh * 1000).toLocaleString('de-DE', {maximumFractionDigits: 1})} ct</b>` : '';
+  return `<div class="sbar">
+    <div class="sbar-bar" role="img" aria-label="${esc(segs.map(x => x.label + ' ' + kwhF(x.wh)).join(', '))}">${bar}</div>
+    <div class="sbar-row"><span>${segs.map(x => `${esc(x.label)} ${kwhF(x.wh)}`).join(' · ') || 'noch nichts geladen'}</span>
+      <span><b>${kwhF(s.energyWh)}</b> · ${guest ? 'Verrechnung ' : ''}<b>${money(s.costCt, charging.currency)}</b>${avg}</span></div>
+    ${why ? `<div class="sbar-why">${why}</div>` : ''}</div>`;
+}
+
 function renderLoadpoint(lp) {
   const veh = vehicleOf(lp.vehicle);
   const guest = lp.vehicle === 'guest';
@@ -794,9 +831,7 @@ function renderLoadpoint(lp) {
   const prices = !pr ? '' : pr.gridCt === pr.batteryCt && pr.gridCt === pr.pvCt
     ? `<span title="Preis je kWh für dieses Fahrzeug">je kWh <b>${ctS(pr.gridCt)}</b></span>`
     : `<span title="Preis je kWh für dieses Fahrzeug, je nach Herkunft des Stroms">je kWh Netz <b>${ctS(pr.gridCt)}</b> · Akku <b>${ctS(pr.batteryCt)}</b> · PV <b>${ctS(pr.pvCt)}</b></span>`;
-  const sess = s || prices ? `<div class="sess">${s ? `<span>Dieser Ladevorgang <b>${kwh(s.energyWh)}</b></span>
-      ${s.costUnknown ? '' : `<span>PV/Akku <b>${s.energyWh > 0 ? Math.round(100 * (s.pvWh + s.batteryWh) / s.energyWh) : 0} %</b></span>
-      <span>${guest ? 'Verrechnung' : 'Kosten'} <b>${money(s.costCt, charging.currency)}</b></span>`}` : ''}${prices}</div>` : '';
+  const sess = s || prices ? `<div class="sess">${s ? sessionBar(lp, s, guest) : ''}${prices}</div>` : '';
   // chosen before plugging in: plug in by lp.manualUntil, else the wallbox is locked again
   const pre = !lp.connected && !!lp.manualUntil;
   const who = (pre && !lp.foreign ? ` <span class="pill" title="Vor dem Einstecken gewählt – bis ${esc(etaTime(lp.manualUntil))} einstecken, sonst wird die Wallbox wieder gesperrt">vorgewählt · bis ${esc(etaTime(lp.manualUntil))}</span>` : '') +
