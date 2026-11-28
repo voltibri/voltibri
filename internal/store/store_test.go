@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/voltibri/voltibri/internal/config"
+	"github.com/voltibri/voltibri/internal/pricing"
 	"github.com/voltibri/voltibri/internal/run"
 	"github.com/voltibri/voltibri/internal/series"
 	"github.com/voltibri/voltibri/sdk"
@@ -342,5 +343,32 @@ func TestLoadProfile(t *testing.T) {
 	st.SaveRun(ctx, run.Run{Asset: "wb", Kind: "charging", Start: t0.Add(time.Hour), EnergyWh: 2})
 	if rs, _ := st.Runs(ctx, run.Filter{ProfiledFrom: starts}); len(rs) != 1 || rs[0].EnergyWh != 1 {
 		t.Fatalf("profiled runs %+v", rs)
+	}
+}
+
+// PV taken while the home battery had priority adds up in summaries and
+// buckets (from attrs.shares.pvPriority).
+func TestRunsPVPriority(t *testing.T) {
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	start := time.Date(2026, 11, 28, 10, 0, 0, 0, time.UTC)
+	var sh pricing.Shares
+	sh.PVPriority.Add(9000, 7.35, 31.26)
+	sh.Grid.Add(9400, 7.35, 31.26)
+	st.SaveRun(ctx, run.Run{Asset: "zaun", Kind: "charging", Vehicle: "eup", Start: start, End: start.Add(3 * time.Hour),
+		EnergyWh: 18400, PVWh: 9000, GridWh: 9400, CostCt: 576, Attrs: map[string]any{pricing.AttrKey: sh}})
+	st.SaveRun(ctx, run.Run{Asset: "zaun", Kind: "charging", Vehicle: "eup", Start: start.Add(24 * time.Hour), End: start.Add(25 * time.Hour),
+		EnergyWh: 5000, PVWh: 5000, CostCt: 37})
+	sum, err := st.RunSummaries(ctx, run.Filter{})
+	if err != nil || len(sum) != 1 || sum[0].PVPriorityWh != 9000 || sum[0].SolarWh != 14000 {
+		t.Fatalf("summaries %v %+v", err, sum)
+	}
+	bs, err := st.RunBuckets(ctx, run.Filter{}, time.UTC, BucketDay)
+	if err != nil || len(bs) != 2 || bs[0].PVPriorityWh != 9000 || bs[1].PVPriorityWh != 0 {
+		t.Fatalf("buckets %v %+v", err, bs)
 	}
 }

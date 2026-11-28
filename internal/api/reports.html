@@ -64,7 +64,9 @@
   table.list td.wrap { white-space:normal; }
   .pill { font-size:11px; font-weight:550; padding:2px 8px; border-radius:99px; background:var(--track); color:var(--muted); }
   .share { display:inline-block; width:46px; height:6px; border-radius:3px; background:var(--track); vertical-align:middle; margin-right:6px; overflow:hidden; }
+  .share { display:inline-flex; }
   .share i { display:block; height:100%; background:var(--solar); }
+  .share i.prio, .prio-key { background:repeating-linear-gradient(45deg, var(--solar) 0 3px, var(--grid) 3px 6px); }
   .more-row { display:flex; justify-content:center; margin-top:12px; }
   .empty { color:var(--muted); font-size:14px; padding:24px 0; text-align:center; }
 </style>
@@ -105,7 +107,7 @@
 
   <section class="card">
     <div class="cardhead"><div><div class="eyebrow">Verlauf</div><h2 id="seriesTitle">Pro Monat</h2></div>
-      <div class="right"><span><i style="background:var(--solar)"></i>PV &amp; Akku</span><span><i style="background:var(--grid)"></i>Netz</span></div></div>
+      <div class="right"><span><i style="background:var(--solar)"></i>PV &amp; Akku</span><span><i class="prio-key"></i>PV bei Akku-Vorrang</span><span><i style="background:var(--grid)"></i>Netz</span></div></div>
     <svg class="months" id="months" viewBox="0 0 960 240" role="img" aria-label="Energie im Zeitraum"></svg>
   </section>
 
@@ -264,13 +266,13 @@ async function load() {
 }
 
 function renderTotals(per) {
-  const t = per.reduce((a, s) => ({count: a.count + s.count, e: a.e + s.energyWh, sol: a.sol + s.solarWh, cost: a.cost + s.costCt, imp: a.imp + s.imported}),
-    {count: 0, e: 0, sol: 0, cost: 0, imp: 0});
+  const t = per.reduce((a, s) => ({count: a.count + s.count, e: a.e + s.energyWh, sol: a.sol + s.solarWh, prio: a.prio + (s.pvPriorityWh || 0), cost: a.cost + s.costCt, imp: a.imp + s.imported}),
+    {count: 0, e: 0, sol: 0, prio: 0, cost: 0, imp: 0});
   const w = KIND_WORD[F.kind] || KIND_WORD.run;
   $('tEnergy').innerHTML = big(kwhTxt(t.e), 'kWh');
   $('tCount').textContent = `${num(t.count)} ${t.count === 1 ? w[0] : w[1]}`;
   $('tSolar').innerHTML = t.e > 0 ? big(num(100 * t.sol / t.e), '%') : '–';
-  $('tSolarKwh').textContent = t.e > 0 ? `${kwhTxt(t.sol)} kWh selbst erzeugt` : '';
+  $('tSolarKwh').textContent = t.e > 0 ? `${kwhTxt(t.sol)} kWh selbst erzeugt${t.prio >= 1 ? `, davon ${kwhTxt(t.prio)} kWh bei Akku-Vorrang (zum Netzpreis)` : ''}` : '';
   $('tCost').innerHTML = big(euro(t.cost).replace(/\s?€$/, ''), '€');
   $('tCostNote').textContent = t.imp ? `davon ${num(t.imp)} aus evcc` : '';
   $('tPerKwh').innerHTML = t.e > 0 ? big(num(t.cost / (t.e / 1000), 1), 'ct') : '–';
@@ -312,12 +314,12 @@ function renderSeries(series) {
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
   if (!series.length) { svg.innerHTML = `<text x="${W / 2}" y="${H / 2}" text-anchor="middle">Keine Einträge im gewählten Zeitraum</text>`; return; }
   const byKey = Object.fromEntries(series.map(m => [m.key, m]));
-  const all = buckets(r).map(b => ({...b, ...(byKey[b.key] || {energyWh: 0, pvWh: 0, batteryWh: 0, gridWh: 0, count: 0, costCt: 0})}));
+  const all = buckets(r).map(b => ({...b, ...(byKey[b.key] || {energyWh: 0, pvWh: 0, batteryWh: 0, gridWh: 0, pvPriorityWh: 0, count: 0, costCt: 0})}));
   const max = Math.max(...all.map(m => m.energyWh), 1) / 1000;
   const step = niceStep(max), top = Math.ceil(max / step) * step;
   const x = i => L + (W - L - R) * i / all.length, bw = Math.max(3, (W - L - R) / all.length * 0.68);
   const y = kwh => T + (H - T - B) * (1 - kwh / top);
-  let g = '';
+  let g = '<defs><pattern id="prioHatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" style="fill:var(--grid)"/><rect width="3" height="6" style="fill:var(--solar)"/></pattern></defs>';
   for (let v = 0; v <= top + 1e-9; v += step)
     g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${num(v)}</text>`;
   // label every n-th bucket; n from a nice set so labels fall on round values
@@ -325,13 +327,14 @@ function renderSeries(series) {
   const every = [1, 2, 3, 4, 6, 12, 24, 48].find(n => all.length / n <= fit) || Math.ceil(all.length / fit);
   const today0 = new Date(); today0.setMinutes(0, 0, 0);
   all.forEach((m, i) => {
-    const sol = (m.pvWh + m.batteryWh) / 1000, grid = Math.max(0, m.energyWh / 1000 - sol);
+    const sol = (m.pvWh + m.batteryWh) / 1000, grid = Math.max(0, m.energyWh / 1000 - sol), prio = Math.min(sol, (m.pvPriorityWh || 0) / 1000);
     const cx = x(i) + ((W - L - R) / all.length - bw) / 2;
     const future = m.date > today0;
-    g += `<g class="m"><title>${bucketTitle(m, r.bucket)}: ${kwhTxt(m.energyWh)} kWh, ${m.energyWh > 0 ? num(100 * sol * 1000 / m.energyWh) : 0} % PV & Akku, ${num(m.count)} ${KIND_WORD[F.kind || ''][1]}, ${euro(m.costCt)}</title>
+    g += `<g class="m"><title>${bucketTitle(m, r.bucket)}: ${kwhTxt(m.energyWh)} kWh, ${m.energyWh > 0 ? num(100 * sol * 1000 / m.energyWh) : 0} % PV & Akku${prio >= 0.001 ? ` (davon ${num(prio, 1)} kWh bei Akku-Vorrang, zum Netzpreis)` : ''}, ${num(m.count)} ${KIND_WORD[F.kind || ''][1]}, ${euro(m.costCt)}</title>
       <rect class="bar" x="${cx.toFixed(1)}" y="${T}" width="${bw.toFixed(1)}" height="${(y(0) - T).toFixed(1)}" fill="transparent"/>
       <rect class="bar" x="${cx.toFixed(1)}" y="${y(sol + grid).toFixed(1)}" width="${bw.toFixed(1)}" height="${(y(sol) - y(sol + grid)).toFixed(1)}" rx="2" fill="var(--grid)" opacity=".55"/>
-      <rect class="bar" x="${cx.toFixed(1)}" y="${y(sol).toFixed(1)}" width="${bw.toFixed(1)}" height="${(y(0) - y(sol)).toFixed(1)}" rx="2" fill="var(--solar)"/></g>`;
+      <rect class="bar" x="${cx.toFixed(1)}" y="${y(sol).toFixed(1)}" width="${bw.toFixed(1)}" height="${(y(0) - y(sol)).toFixed(1)}" rx="2" fill="var(--solar)"/>
+      ${prio >= 0.001 ? `<rect class="bar" x="${cx.toFixed(1)}" y="${y(sol).toFixed(1)}" width="${bw.toFixed(1)}" height="${(y(sol - prio) - y(sol)).toFixed(1)}" rx="2" fill="url(#prioHatch)"/>` : ''}</g>`;
     if (i % every === 0)
       g += `<text x="${(cx + bw / 2).toFixed(1)}" y="${H - 10}" text-anchor="middle"${future ? ' opacity=".5"' : ''}>${bucketLabel(m, r.bucket, i === 0)}</text>`;
   });
@@ -343,11 +346,15 @@ function niceStep(max) {
   return [1, 2, 2.5, 5, 10].map(f => f * p).find(s => s >= raw) || raw;
 }
 
-function shareBar(e, sol) {
+// share of PV and home battery; the part taken while the home battery had
+// priority (priced like grid energy) hatched
+function shareBar(e, sol, prio) {
   if (!(e > 0)) return '–';
-  const p = Math.round(100 * sol / e);
-  return `<span class="share"><i style="width:${p}%"></i></span>${p} %`;
+  const p = Math.round(100 * sol / e), q = Math.min(p, Math.round(100 * (prio || 0) / e));
+  const title = prio >= 1 ? ` title="davon ${kwhTxt(prio)} kWh bei Akku-Vorrang – die Hausbatterie hatte Vorrang, deshalb zum Netzpreis"` : '';
+  return `<span${title}><span class="share"><i style="width:${p - q}%"></i>${q ? `<i class="prio" style="width:${q}%"></i>` : ''}</span>${p} %${q ? ' <small style="color:var(--muted)">(' + q + ' % Vorrang)</small>' : ''}</span>`;
 }
+const prioOf = r => (r.attrs && r.attrs.shares && r.attrs.shares.pvPriority && r.attrs.shares.pvPriority.wh) || 0;
 
 function renderPerAsset(per) {
   if (!per.length) { $('perAsset').innerHTML = '<tr><td class="empty">Keine Einträge.</td></tr>'; return; }
@@ -355,7 +362,7 @@ function renderPerAsset(per) {
   $('perAsset').innerHTML = `<thead><tr><th>Gerät</th><th>Art</th><th class="r">Anzahl</th><th class="r">Energie</th><th>PV &amp; Akku</th><th class="r">Kosten</th><th>Zeitraum</th></tr></thead><tbody>` +
     per.map(s => `<tr><td><a href="?${query({asset: s.asset})}" data-asset="${esc(s.asset)}">${esc(name(s.asset))}</a>${assets[s.asset] && assets[s.asset].retired ? ' <span class="pill">stillgelegt</span>' : ''}</td>
       <td>${(KIND_WORD[s.kind] || KIND_WORD.run)[1]}</td><td class="r">${num(s.count)}</td><td class="r">${kwhTxt(s.energyWh)} kWh</td>
-      <td>${shareBar(s.energyWh, s.solarWh)}</td><td class="r">${euro(s.costCt)}</td>
+      <td>${shareBar(s.energyWh, s.solarWh, s.pvPriorityWh)}</td><td class="r">${euro(s.costCt)}</td>
       <td>${new Date(s.first).toLocaleDateString('de-DE', {month: '2-digit', year: 'numeric'})} – ${new Date(s.last).toLocaleDateString('de-DE', {month: '2-digit', year: 'numeric'})}</td></tr>`).join('') + '</tbody>';
 }
 
@@ -372,7 +379,7 @@ async function loadRuns() {
     <td>${new Date(r.start).toLocaleString('de-DE', {weekday: 'short', day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit'})}</td>
     <td class="r">${r.end ? dur(r) : 'läuft'}</td><td>${esc(name(r.asset))}</td>
     ${F.kind === 'heating' || F.kind === 'run' ? '' : `<td>${esc(r.vehicleName || '–')}${r.guest ? ' <span class="pill">Gast</span>' : ''}</td><td>${MODE[r.mode] || '–'}</td>`}
-    <td class="r">${kwhTxt(r.energyWh)} kWh</td><td>${shareBar(r.energyWh, r.pvWh + r.batteryWh)}</td>
+    <td class="r">${kwhTxt(r.energyWh)} kWh</td><td>${shareBar(r.energyWh, r.pvWh + r.batteryWh, prioOf(r))}</td>
     <td class="r" title="${esc(r.priceNote || '')}">${r.costUnknown ? '–' : euro(r.costCt)}</td>
     <td>${r.source ? `<span class="pill" title="übernommen aus ${esc(r.source)} (Import ${r.importId})">${esc(r.source)}</span>` : ''}</td></tr>`).join(''));
   $('moreBtn').hidden = rs.length < PAGE;

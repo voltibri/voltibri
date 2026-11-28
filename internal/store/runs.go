@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/voltibri/voltibri/internal/pricing"
 	"github.com/voltibri/voltibri/internal/run"
 )
 
@@ -93,15 +94,18 @@ func (s *Store) Runs(ctx context.Context, f run.Filter) ([]run.Run, error) {
 
 // RunSummary aggregates the runs of one asset.
 type RunSummary struct {
-	Asset    string    `json:"asset"`
-	Kind     string    `json:"kind"`
-	Count    int       `json:"count"`
-	Imported int       `json:"imported"` // of Count
-	EnergyWh float64   `json:"energyWh"`
-	SolarWh  float64   `json:"solarWh"` // PV + battery
-	CostCt   float64   `json:"costCt"`
-	First    time.Time `json:"first"`
-	Last     time.Time `json:"last"`
+	Asset    string  `json:"asset"`
+	Kind     string  `json:"kind"`
+	Count    int     `json:"count"`
+	Imported int     `json:"imported"` // of Count
+	EnergyWh float64 `json:"energyWh"`
+	SolarWh  float64 `json:"solarWh"` // PV + battery
+	// PVPriorityWh is the part of SolarWh taken while the home battery had
+	// priority: priced like grid energy (attrs.shares.pvPriority)
+	PVPriorityWh float64   `json:"pvPriorityWh"`
+	CostCt       float64   `json:"costCt"`
+	First        time.Time `json:"first"`
+	Last         time.Time `json:"last"`
 }
 
 // RunSummaries returns one summary per asset and run kind for the runs
@@ -109,6 +113,7 @@ type RunSummary struct {
 func (s *Store) RunSummaries(ctx context.Context, f run.Filter) ([]RunSummary, error) {
 	where, args := runWhere(f)
 	rows, err := s.db.QueryContext(ctx, `SELECT asset, kind, COUNT(*), SUM(source != 'voltibri'), SUM(energy_wh), SUM(pv_wh + battery_wh),
+		SUM(COALESCE(json_extract(attrs, '$.shares.pvPriority.wh'), 0)),
 		SUM(CASE WHEN cost_known = 1 THEN cost_ct ELSE 0 END), MIN(start), MAX(start) FROM runs r WHERE `+strings.Join(where, " AND ")+` GROUP BY asset, kind ORDER BY asset, kind`, args...)
 	if err != nil {
 		return nil, err
@@ -118,7 +123,7 @@ func (s *Store) RunSummaries(ctx context.Context, f run.Filter) ([]RunSummary, e
 	for rows.Next() {
 		var r RunSummary
 		var first, last int64
-		if err := rows.Scan(&r.Asset, &r.Kind, &r.Count, &r.Imported, &r.EnergyWh, &r.SolarWh, &r.CostCt, &first, &last); err != nil {
+		if err := rows.Scan(&r.Asset, &r.Kind, &r.Count, &r.Imported, &r.EnergyWh, &r.SolarWh, &r.PVPriorityWh, &r.CostCt, &first, &last); err != nil {
 			return nil, err
 		}
 		r.First, r.Last = time.Unix(first, 0), time.Unix(last, 0)
@@ -277,6 +282,8 @@ type RunBucket struct {
 	BatteryWh float64   `json:"batteryWh"`
 	GridWh    float64   `json:"gridWh"`
 	CostCt    float64   `json:"costCt"`
+	// PVPriorityWh: PV taken while the home battery had priority (of PVWh)
+	PVPriorityWh float64 `json:"pvPriorityWh"`
 }
 
 // Buckets for RunBuckets.
@@ -314,6 +321,9 @@ func (s *Store) RunBuckets(ctx context.Context, f run.Filter, loc *time.Location
 			o.PVWh += r.PVWh
 			o.BatteryWh += r.BatteryWh
 			o.GridWh += r.GridWh
+			if sh, ok := pricing.FromAttrs(r.Attrs); ok {
+				o.PVPriorityWh += sh.PVPriority.Wh
+			}
 			if !r.CostUnknown {
 				o.CostCt += r.CostCt
 			}
