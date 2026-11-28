@@ -261,6 +261,18 @@ func (c *Config) validateVehicles() []error {
 				errs = append(errs, fmt.Errorf("devices.%s: noBatteryModes: unknown mode %q", d.ID, m))
 			}
 		}
+		seenMode := map[string]bool{}
+		for _, m := range d.ChargeModes {
+			switch m {
+			case "off", "external", "pv", "pv1", "minpv", "fast", "boost":
+			default:
+				errs = append(errs, fmt.Errorf("devices.%s: chargeModes: unknown mode %q", d.ID, m))
+			}
+			if seenMode[m] {
+				errs = append(errs, fmt.Errorf("devices.%s: chargeModes: %q twice", d.ID, m))
+			}
+			seenMode[m] = true
+		}
 		b := d.Vehicle()
 		if b.Source == "" {
 			continue

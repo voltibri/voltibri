@@ -742,3 +742,69 @@ func TestPreselectSurvivesRestart(t *testing.T) {
 		t.Fatalf("old choice: %+v", lp)
 	}
 }
+
+func TestVehicleChargeModes(t *testing.T) {
+	m, ch := setupVehicle(t, config.Device{ChargeModes: []string{"fast", "pv"}}, 0, fakeProvider{"car1": {SoC: 0.4, Connected: false}})
+	// the default must be offered: pv (default) is, minpv and boost are refused
+	if s := m.vehicleSettings("car"); s.Mode != ModePV || len(s.Modes) != 2 {
+		t.Fatalf("settings: %+v", s)
+	}
+	if err := m.SetVehicleSettings("car", VehicleSettings{Mode: ModeMinPV}); err == nil || !strings.Contains(err.Error(), "nicht freigegeben") {
+		t.Fatalf("minpv must be refused: %v", err)
+	}
+	if err := m.SetVehicleSettings("car", VehicleSettings{Mode: ModeOff}); err != nil {
+		t.Fatalf("off is always allowed: %v", err)
+	}
+	// a default stored before the list changed falls back to the first offered mode
+	_ = m.settings.Put("vehicle:car", []byte(`{"mode":"boost"}`))
+	if s := m.vehicleSettings("car"); s.Mode != ModeFast {
+		t.Fatalf("fallback: %+v", s)
+	}
+	if err := m.SetVehicleSettings("car", VehicleSettings{Mode: ModePV}); err != nil {
+		t.Fatal(err)
+	}
+
+	// chosen before plugging in: the menu offers its modes, others are refused
+	if err := m.SetLoadpointVehicle("wb", "car"); err != nil {
+		t.Fatal(err)
+	}
+	tick(m, 0, ch, 0, 0, 0, 500)
+	if lp := m.Loadpoints()[0]; len(lp.Modes) != 2 {
+		t.Fatalf("preselected modes: %+v", lp.Modes)
+	}
+	if err := m.SetSessionMode("wb", ModeBoost); err == nil {
+		t.Fatal("boost must be refused for the chosen vehicle")
+	}
+	// plugged in: same list; off and offered modes work
+	ch.st = sdk.ChargerStatus{Connected: true}
+	tick(m, time.Minute, ch, 0, 0, 0, 500)
+	if lp := m.Loadpoints()[0]; lp.Vehicle != "car" || len(lp.Modes) != 2 || lp.Mode != ModePV {
+		t.Fatalf("plugged in: %+v", lp)
+	}
+	if err := m.SetSessionMode("wb", ModeMinPV); err == nil {
+		t.Fatal("minpv must be refused")
+	}
+	if err := m.SetSessionMode("wb", ModeOff); err != nil {
+		t.Fatalf("off: %v", err)
+	}
+	if err := m.SetSessionMode("wb", ModeFast); err != nil {
+		t.Fatal(err)
+	}
+	tick(m, 2*time.Minute, ch, 0, 0, 0, 500)
+	if lp := m.Loadpoints()[0]; lp.Mode != ModeFast || !lp.SessionMode {
+		t.Fatalf("fast: %+v", lp)
+	}
+
+	// a card with a mode the vehicle does not offer: the vehicle's default applies
+	m.cfg.Charging.Cards = []config.Card{{Card: "Boost", Vehicle: "car", Mode: "boost"}}
+	ch.st = sdk.ChargerStatus{}
+	tick(m, 3*time.Minute, ch, 0, 0, 0, 500)
+	ch.st = sdk.ChargerStatus{Connected: true, Card: "Boost"}
+	tick(m, 4*time.Minute, ch, 0, 0, 0, 500)
+	if lp := m.Loadpoints()[0]; lp.Vehicle != "car" || lp.Mode != ModePV || lp.SessionMode {
+		t.Fatalf("card: %+v", lp)
+	}
+	if m.loadString("mode:wb") != "" {
+		t.Fatal("refused session mode must be cleared")
+	}
+}

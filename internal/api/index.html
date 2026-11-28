@@ -717,7 +717,7 @@ function modeControl(lp, canEdit) {
     ${mode ? MODE_SHORT[mode] : 'Bereit'}${canEdit ? '<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>' : ''}</button>`;
   if (!open) return btn;
   // "Aus" works anytime; the others need a car – or switch the wallbox on again
-  const items = CHARGE_MODES.map(m => {
+  const items = CHARGE_MODES.filter(m => m === 'off' || !(lp.modes || []).length || lp.modes.includes(m)).map(m => { // only the vehicle's modes
     const na = m === 'pv1' && !lp.canSwitch && lp.phases !== 1;
     const dis = m !== 'off' && (na || (!lp.connected && !lp.off));
     const help = na ? 'Nicht verfügbar: die Wallbox kann nicht auf eine Phase umschalten (oder wird nicht gesteuert).' : MODE_HELP[m];
@@ -806,7 +806,7 @@ function renderVehiclesDlg() {
     return `<div class="vcard" data-veh="${esc(v.key)}"><span class="vic">${iconSVG('car', 22)}</span>
       <div><div class="vn">${esc(v.name)} ${st}</div><div class="vm">${esc(meta || (v.soc == null ? 'ohne Ladestand' : ''))}</div></div><span></span>
       ${soc}
-      <div class="vctl"><label>Standardmodus <select data-vmode ${charging.local ? '' : 'disabled'}>${Object.keys(MODE_LABEL).map(m => `<option value="${m}"${m === v.settings.mode ? ' selected' : ''}>${MODE_LABEL[m]}</option>`).join('')}</select></label>
+      <div class="vctl"><label>Standardmodus <select data-vmode ${charging.local ? '' : 'disabled'}>${Object.keys(MODE_LABEL).filter(m => m === 'off' || !(v.settings.modes || []).length || v.settings.modes.includes(m)).map(m => `<option value="${m}"${m === v.settings.mode ? ' selected' : ''}>${MODE_LABEL[m]}</option>`).join('')}</select></label>
         <span class="spacer"></span><button type="button" class="btn" data-plans="${esc(v.key)}">${iconSVG('calendar', 14)} ${plans ? nextPlanShort(v) : 'Ladeplan'}</button></div></div>`;
   }).join('');
   $('vehInner').innerHTML = `<div class="pd-head"><div class="top"><span class="ic">${iconSVG('car', 22)}</span>

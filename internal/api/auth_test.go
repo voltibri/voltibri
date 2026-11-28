@@ -48,7 +48,7 @@ func TestGroupPermissions(t *testing.T) {
 	ctx := context.Background()
 	cfg := config.Default()
 	cfg.Devices = []config.Device{{ID: "carport", Type: "none", Kind: "ev-charger"}, {ID: "zaun", Type: "none", Kind: "ev-charger"}, {ID: "garage", Type: "none", Kind: "ev-charger"},
-		{ID: "eup", Type: "vehicle", Name: "Dräger e-Up"}, {ID: "tavascan", Type: "vehicle", Name: "Tavascan"}}
+		{ID: "eup", Type: "vehicle", Name: "Dräger e-Up"}, {ID: "tavascan", Type: "vehicle", Name: "Tavascan", ChargeModes: []string{"pv", "fast"}}}
 	if _, err := st.Save(ctx, cfg, "test", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -120,6 +120,11 @@ func TestGroupPermissions(t *testing.T) {
 	try(josi, "GET", "/api/me", "", 200)
 	try(admin, "GET", "/api/users", "", 200)
 	try(admin, "PUT", "/api/loadpoints/carport/mode", `{"mode":"pv"}`, 204)
+	// the Tavascan offers only pv and fast (and off)
+	try(admin, "PUT", "/api/loadpoints/carport/mode", `{"mode":"boost"}`, 400)
+	try(admin, "PUT", "/api/loadpoints/carport/mode", `{"mode":"off"}`, 204)
+	try(admin, "PUT", "/api/vehicles/tavascan", `{"mode":"minpv"}`, 400)
+	try(admin, "PUT", "/api/vehicles/tavascan", `{"mode":"fast"}`, 204)
 
 	// reports: only the e-Up
 	st.SaveRun(ctx, runOf("carport", "tavascan", "Tavascan"))

@@ -43,6 +43,14 @@ type VehicleSettings struct {
 	// NoBatteryModes: in these charge modes the home battery is held back
 	// (the car charges from PV and grid only).
 	NoBatteryModes []Mode `json:"noBatteryModes,omitempty"`
+	// Modes: the charge modes offered for this vehicle (configuration);
+	// empty = all. "off" is always allowed, see Allows.
+	Modes []Mode `json:"modes,omitempty"`
+}
+
+// Allows reports whether the mode may be chosen for the vehicle.
+func (s VehicleSettings) Allows(mode Mode) bool {
+	return mode == ModeOff || len(s.Modes) == 0 || hasMode(s.Modes, mode)
 }
 
 // Vehicle is a known vehicle with its state.
@@ -96,7 +104,8 @@ type Loadpoint struct {
 	ManualUntil     time.Time `json:"manualUntil,omitzero"` // chosen before plugging in: plug in by then, else the choice ends
 	Detecting       bool      `json:"detecting"`            // still waiting for the vehicle cloud
 	Mode            Mode      `json:"mode"`
-	Target          State     `json:"target"` // what voltibri wants
+	Modes           []Mode    `json:"modes,omitempty"` // modes offered for the vehicle here (empty = all)
+	Target          State     `json:"target"`          // what voltibri wants
 	Reason          string    `json:"reason"`
 	Plan            *Schedule `json:"plan,omitempty"`
 	Session         *Session  `json:"session,omitempty"`
@@ -322,12 +331,14 @@ func (m *Manager) vehicleSettings(key string) VehicleSettings {
 	if s.Mode == "" {
 		s.Mode = ModePV
 	}
-	// battery size, charger limit and the home battery rule are configuration
-	// (vehicle asset), not settings; the Min+PV minimum is not adjustable yet
+	// battery size, charger limit, the home battery rule and the offered
+	// modes are configuration (vehicle asset), not settings; the Min+PV
+	// minimum is not adjustable yet
 	s.CapacityWh, s.MaxPowerW, s.MinPowerW, s.NoBatteryModes = 0, 0, 0, nil
 	if v, ok := m.vehicles[key]; ok {
 		s.CapacityWh, s.MaxPowerW = v.Info.CapacityWh, v.Info.MaxPowerW
 	}
+	s.Modes = m.vehicleModes(key)
 	for _, a := range m.own {
 		if a.dev.ID == key {
 			for _, md := range a.dev.NoBatteryModes {
@@ -335,7 +346,34 @@ func (m *Manager) vehicleSettings(key string) VehicleSettings {
 			}
 		}
 	}
+	// the default must be one of the offered modes (the list may have
+	// changed after the default was chosen): the first offered one
+	if !s.Allows(s.Mode) {
+		s.Mode = s.Modes[0]
+	}
 	return s
+}
+
+// vehicleModes returns the charge modes offered for a vehicle (nil = all).
+func (m *Manager) vehicleModes(key string) []Mode {
+	var out []Mode
+	for _, a := range m.own {
+		if a.dev.ID == key {
+			for _, md := range a.dev.ChargeModes {
+				out = append(out, Mode(md))
+			}
+		}
+	}
+	return out
+}
+
+// modeError says that a mode is not offered for a vehicle.
+func (m *Manager) modeError(key string, mode Mode) error {
+	name := key
+	if v, ok := m.vehicles[key]; ok {
+		name = displayName(Vehicle{Info: v.Info, Settings: m.vehicleSettings(key)})
+	}
+	return fmt.Errorf("Lademodus %q ist für %s nicht freigegeben", mode, name)
 }
 
 // HasLoadpoints reports whether any charger exists.
@@ -513,6 +551,11 @@ func (m *Manager) SetVehicleSettings(key string, s VehicleSettings) error {
 	key = m.resolve(key)
 	m.mu.RLock()
 	_, ok := m.vehicles[key]
+	allowed := VehicleSettings{Modes: m.vehicleModes(key)}
+	var modeErr error
+	if ok && s.Mode != "" && s.Mode != ModeOff && !allowed.Allows(s.Mode) {
+		modeErr = m.modeError(key, s.Mode)
+	}
 	m.mu.RUnlock()
 	if !ok {
 		return fmt.Errorf("unknown vehicle %q", key)
@@ -520,8 +563,11 @@ func (m *Manager) SetVehicleSettings(key string, s VehicleSettings) error {
 	if s.Mode != "" && !s.Mode.Valid() {
 		return fmt.Errorf("unknown mode %q", s.Mode)
 	}
+	if modeErr != nil {
+		return modeErr
+	}
 	// configuration, not settings (see vehicleSettings)
-	s.CapacityWh, s.MaxPowerW, s.MinPowerW, s.NoBatteryModes = 0, 0, 0, nil
+	s.CapacityWh, s.MaxPowerW, s.MinPowerW, s.NoBatteryModes, s.Modes = 0, 0, 0, nil, nil
 	for i := range s.Plans {
 		if s.Plans[i].ID == "" {
 			s.Plans[i].ID = fmt.Sprintf("p%d", time.Now().UnixNano()+int64(i))
@@ -586,14 +632,15 @@ func (m *Manager) preselectView(lp *lpRuntime, now time.Time) {
 	if v.Connected {
 		return
 	}
-	v.Vehicle, v.VehicleName = "", ""
+	v.Vehicle, v.VehicleName, v.Modes = "", "", nil
 	if lp.manual == "" || lp.manualTo.IsZero() {
 		return
 	}
 	v.Vehicle, v.ManualUntil = lp.manual, lp.manualTo
 	v.VehicleName = "Gastfahrzeug"
 	if veh, ok := m.vehicles[lp.manual]; ok {
-		v.VehicleName = displayName(Vehicle{Info: veh.Info, Settings: m.vehicleSettings(lp.manual)})
+		vs := m.vehicleSettings(lp.manual)
+		v.VehicleName, v.Modes = displayName(Vehicle{Info: veh.Info, Settings: vs}), vs.Modes
 	}
 	left := lp.manualTo.Sub(now)
 	v.Reason = fmt.Sprintf("%s gewählt – bis %s einstecken (noch %d min), sonst wird die Wallbox wieder gesperrt",
@@ -604,7 +651,9 @@ func (m *Manager) preselectView(lp *lpRuntime, now time.Time) {
 // is unplugged); it wins over the vehicle's default mode.
 func (m *Manager) SetSessionMode(id string, mode Mode) error { return m.SetGuestMode(id, mode) }
 
-// SetGuestMode changes the charge mode used for guests at a loadpoint.
+// SetGuestMode changes the charge mode used for guests at a loadpoint. A
+// mode not offered for the vehicle at the loadpoint (plugged in or chosen)
+// is refused; "off" is always possible.
 func (m *Manager) SetGuestMode(id string, mode Mode) error {
 	if !mode.Valid() {
 		return fmt.Errorf("unknown mode %q", mode)
@@ -613,6 +662,13 @@ func (m *Manager) SetGuestMode(id string, mode Mode) error {
 	defer m.mu.Unlock()
 	for _, lp := range m.lps {
 		if lp.view.ID == id {
+			key := lp.manual
+			if lp.view.Connected && lp.view.Vehicle != "" {
+				key = lp.view.Vehicle
+			}
+			if _, ok := m.vehicles[key]; ok && !(VehicleSettings{Modes: m.vehicleModes(key)}).Allows(mode) {
+				return m.modeError(key, mode)
+			}
 			return m.settings.Put("mode:"+id, []byte(mode))
 		}
 	}
@@ -750,7 +806,7 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 					lp.manual = c.Vehicle
 					_ = m.settings.Put("lp:"+v.ID, []byte(c.Vehicle))
 				}
-				if Mode(c.Mode).Valid() {
+				if Mode(c.Mode).Valid() { // checked against the vehicle's modes below
 					_ = m.settings.Put("mode:"+v.ID, []byte(c.Mode))
 				}
 				slog.Info("charging card", "loadpoint", v.ID, "card", st.Card, "vehicle", c.Vehicle, "mode", c.Mode)
@@ -758,12 +814,13 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 		}
 		v.Card = lp.card
 		v.Mode = Mode(lp.cfg.GuestMode) // guests: default of the wallbox
+		v.Modes = nil
 		if v.Connected {
 			v.Vehicle, v.Detecting = m.detect(lp, in.Now, taken)
 			taken[v.Vehicle] = v.Vehicle != Guest
 			if veh, ok := m.vehicles[v.Vehicle]; ok {
 				vs = m.vehicleSettings(v.Vehicle)
-				v.Mode = vs.Mode
+				v.Mode, v.Modes = vs.Mode, vs.Modes
 				v.VehicleName = displayName(Vehicle{Info: veh.Info, Settings: vs})
 			} else {
 				v.VehicleName = "Gastfahrzeug"
@@ -777,7 +834,12 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 		// mode chosen for this session (wallbox buttons or card), until unplugged
 		v.SessionMode = false
 		if sm := Mode(m.loadString("mode:" + v.ID)); sm.Valid() && v.Connected {
-			v.Mode, v.SessionMode = sm, true
+			if vs.Allows(sm) {
+				v.Mode, v.SessionMode = sm, true
+			} else { // chosen before the vehicle was known (card, guest): its default applies
+				slog.Info("charge mode not offered for the vehicle, using its default", "loadpoint", v.ID, "vehicle", v.Vehicle, "mode", sm, "default", v.Mode)
+				_ = m.settings.Put("mode:"+v.ID, []byte{})
+			}
 		}
 		// the wallbox itself switched off: wins over every vehicle mode
 		v.Off = m.loadString("off:"+v.ID) == "1"
