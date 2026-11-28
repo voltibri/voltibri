@@ -168,6 +168,11 @@ type Device struct {
 	// off as long as it is done by its deadline) or surplus (no target, runs
 	// only on PV surplus).
 	Flexibility string `yaml:"flexibility,omitempty" json:"flexibility,omitempty"`
+	// Battery (appliances): the device charges a battery, e.g. an e-bike
+	// charger or a power bank at a smart plug. voltibri estimates its state
+	// of charge from the measured energy and, if it may switch the plug
+	// (mode owned, flexibility not none), switches it off at the limit.
+	Battery *DeviceBattery `yaml:"battery,omitempty" json:"battery,omitempty"`
 	// Kind of asset (pv, battery, ev-charger, heat-pump, heating-rod, ...);
 	// empty = derived from the driver and icon, see KindOf.
 	Kind string `yaml:"kind,omitempty" json:"kind,omitempty"`
@@ -322,6 +327,7 @@ func (c *Config) Validate() error {
 	errs = append(errs, c.validateLifecycle()...)
 	errs = append(errs, c.validateCards()...)
 	errs = append(errs, c.validateVehicles()...)
+	errs = append(errs, c.validateDeviceBatteries()...)
 	return errors.Join(errs...)
 }
 

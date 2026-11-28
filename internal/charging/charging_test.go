@@ -438,6 +438,7 @@ func TestGuestDefaultOffAndCards(t *testing.T) {
 type fakeOwn struct {
 	id    string
 	capWh float64
+	def   float64 // typical state of charge when plugging in
 }
 
 func (f fakeOwn) ID() string { return f.id }
@@ -446,7 +447,7 @@ func (f fakeOwn) Vehicles(context.Context) ([]sdk.VehicleInfo, error) {
 	if capWh == 0 {
 		capWh = 77000
 	}
-	return []sdk.VehicleInfo{{ID: f.id, Name: "Tavascan", CapacityWh: capWh}}, nil
+	return []sdk.VehicleInfo{{ID: f.id, Name: "Tavascan", CapacityWh: capWh, DefaultSoC: f.def}}, nil
 }
 func (f fakeOwn) VehicleStatus(context.Context, string) (sdk.VehicleStatus, error) {
 	return sdk.VehicleStatus{SoC: math.NaN(), LimitSoC: math.NaN(), RangeKm: math.NaN()}, nil
@@ -520,18 +521,18 @@ func TestFinishAndPhases(t *testing.T) {
 	now := t0
 	nan := math.NaN()
 	// 40 % -> limit 80 % of 60 kWh = 24 kWh / 0.85 at 11 kW: about 2 h 34 min
-	f := finish(sdk.VehicleStatus{SoC: 0.4, LimitSoC: 0.8}, 60000, nil, true, 11000, now)
+	f := finish(sdk.VehicleStatus{SoC: 0.4, LimitSoC: 0.8}, 60000, nil, nil, 0, true, 11000, now)
 	if f == nil || f.Basis != "limit" || f.At.Sub(now) < 2*time.Hour+30*time.Minute || f.At.Sub(now) > 2*time.Hour+40*time.Minute {
 		t.Fatalf("limit: %+v", f)
 	}
 	// plan wins; not charging: no time, but the need
-	if f := finish(sdk.VehicleStatus{SoC: 0.4, LimitSoC: 0.8}, 60000, &Schedule{SoC: 0.6}, false, 0, now); f.Basis != "plan" || !f.At.IsZero() || f.NeedWh < 13000 {
+	if f := finish(sdk.VehicleStatus{SoC: 0.4, LimitSoC: 0.8}, 60000, &Schedule{SoC: 0.6}, nil, 0, false, 0, now); f.Basis != "plan" || !f.At.IsZero() || f.NeedWh < 13000 {
 		t.Fatalf("plan: %+v", f)
 	}
-	if f := finish(sdk.VehicleStatus{SoC: 0.8, LimitSoC: 0.8}, 60000, nil, false, 0, now); !f.Reached {
+	if f := finish(sdk.VehicleStatus{SoC: 0.8, LimitSoC: 0.8}, 60000, nil, nil, 0, false, 0, now); !f.Reached {
 		t.Fatalf("reached: %+v", f)
 	}
-	if f := finish(sdk.VehicleStatus{SoC: nan, LimitSoC: nan}, 60000, nil, true, 11000, now); f != nil {
+	if f := finish(sdk.VehicleStatus{SoC: nan, LimitSoC: nan}, 60000, nil, nil, 0, true, 11000, now); f != nil {
 		t.Fatalf("unknown SoC: %+v", f)
 	}
 	for _, c := range []struct {

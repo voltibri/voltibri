@@ -57,7 +57,11 @@ func (h *handler) chargingRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/charging", h.getCharging)
 	mux.HandleFunc("GET /api/sessions", h.getSessions)
 	mux.HandleFunc("PUT /api/vehicles/{key...}", h.local(h.putVehicle))
+	mux.HandleFunc("PUT /api/vehicle-soc/{key...}", h.local(h.putVehicleSoC))
+	mux.HandleFunc("DELETE /api/vehicle-soc/{key...}", h.local(h.putVehicleSoC))
 	mux.HandleFunc("PUT /api/loadpoints/{id}/vehicle", h.local(h.putLoadpointVehicle))
+	mux.HandleFunc("PUT /api/loadpoints/{id}/limit", h.local(h.putLoadpointLimit))
+	mux.HandleFunc("DELETE /api/loadpoints/{id}/limit", h.local(h.putLoadpointLimit))
 	mux.HandleFunc("PUT /api/loadpoints/{id}/guestmode", h.local(h.putGuestMode))
 	mux.HandleFunc("PUT /api/loadpoints/{id}/mode", h.local(h.putGuestMode)) // mode of the current session
 	mux.HandleFunc("GET /api/charging/cards", h.getCards)
@@ -158,6 +162,60 @@ func (h *handler) putLoadpointVehicle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := m.SetLoadpointVehicle(r.PathValue("id"), body.Vehicle); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// putVehicleSoC sets the state of charge of a vehicle by hand
+// ({"soc": 0.45}); DELETE goes back to the data source.
+func (h *handler) putVehicleSoC(w http.ResponseWriter, r *http.Request) {
+	m := h.manager(w)
+	if m == nil {
+		return
+	}
+	var v *float64
+	if r.Method != http.MethodDelete {
+		var body struct {
+			SoC *float64 `json:"soc"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<12)).Decode(&body); err != nil || body.SoC == nil {
+			writeErr(w, http.StatusBadRequest, "ungültige Daten: soc fehlt", err)
+			return
+		}
+		v = body.SoC
+	}
+	if !auth.From(r.Context()).Vehicle(r.PathValue("key")) {
+		writeErr(w, http.StatusForbidden, "Dieses Fahrzeug ist für dich nicht freigegeben.", nil)
+		return
+	}
+	if err := m.SetVehicleSoC(r.PathValue("key"), v); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// putLoadpointLimit sets the charge limit of the current session
+// ({"soc": 0.8} or {"add": 0.2}); DELETE goes back to the vehicle's.
+func (h *handler) putLoadpointLimit(w http.ResponseWriter, r *http.Request) {
+	m := h.manager(w)
+	if m == nil {
+		return
+	}
+	var l *charging.Limit
+	if r.Method != http.MethodDelete {
+		l = &charging.Limit{}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<12)).Decode(l); err != nil {
+			writeErr(w, http.StatusBadRequest, "ungültige Daten", err)
+			return
+		}
+	}
+	if !h.mayControl(w, r, m, r.PathValue("id")) {
+		return
+	}
+	if err := m.SetLoadpointLimit(r.PathValue("id"), l); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
@@ -331,7 +389,7 @@ func visibleCharging(p *auth.Principal, res *chargingResponse) {
 		}
 		if foreign(p, lp) {
 			lp.Foreign = true
-			lp.Vehicle, lp.VehicleName, lp.Manual, lp.Card, lp.Reason, lp.Plan, lp.Finish, lp.Prices = "", "belegt", false, "", "", nil, nil, nil
+			lp.Vehicle, lp.VehicleName, lp.Manual, lp.Card, lp.Reason, lp.Plan, lp.Finish, lp.Prices, lp.Limit = "", "belegt", false, "", "", nil, nil, nil, nil
 			if lp.Session != nil {
 				lp.Session = &charging.Session{Start: lp.Session.Start, EnergyWh: lp.Session.EnergyWh, CostUnknown: true}
 			}

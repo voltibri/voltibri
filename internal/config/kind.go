@@ -295,6 +295,49 @@ func (c *Config) validateVehicles() []error {
 	return errs
 }
 
+// DeviceBattery is the battery an appliance charges (e-bike, power bank).
+type DeviceBattery struct {
+	CapacityWh float64 `yaml:"capacityWh" json:"capacityWh"`
+	// DefaultSoC: typical state of charge when charging starts (0..1, 0 =
+	// unknown); a value entered by hand wins.
+	DefaultSoC float64 `yaml:"defaultSoC,omitempty" json:"defaultSoC,omitempty"`
+	// LimitSoC: switch off here (0..1, 0 = none); a session can set its own.
+	LimitSoC float64 `yaml:"limitSoC,omitempty" json:"limitSoC,omitempty"`
+	// Efficiency from the plug into the battery (0 = 0.85).
+	Efficiency float64 `yaml:"efficiency,omitempty" json:"efficiency,omitempty"`
+}
+
+// Eff is the charging efficiency (default 0.85).
+func (b DeviceBattery) Eff() float64 {
+	if b.Efficiency > 0 {
+		return b.Efficiency
+	}
+	return 0.85
+}
+
+func (c *Config) validateDeviceBatteries() []error {
+	var errs []error
+	for _, d := range c.Devices {
+		b := d.Battery
+		if b == nil {
+			continue
+		}
+		switch {
+		case KindOf(d) != KindAppliance:
+			errs = append(errs, fmt.Errorf("devices.%s: battery is for household devices (e-bike, power bank) only", d.ID))
+		case b.CapacityWh < 10 || b.CapacityWh > 200000:
+			errs = append(errs, fmt.Errorf("devices.%s: battery.capacityWh must be between 10 and 200000", d.ID))
+		case b.DefaultSoC < 0 || b.DefaultSoC > 1:
+			errs = append(errs, fmt.Errorf("devices.%s: battery.defaultSoC must be between 0 and 1", d.ID))
+		case b.LimitSoC != 0 && (b.LimitSoC < 0.2 || b.LimitSoC > 1):
+			errs = append(errs, fmt.Errorf("devices.%s: battery.limitSoC must be between 0.2 and 1", d.ID))
+		case b.Efficiency != 0 && (b.Efficiency < 0.3 || b.Efficiency > 1):
+			errs = append(errs, fmt.Errorf("devices.%s: battery.efficiency must be between 0.3 and 1", d.ID))
+		}
+	}
+	return errs
+}
+
 // Heating rod uses.
 const (
 	HeatUseHotWater = "hotwater" // hot water (top of the buffer)

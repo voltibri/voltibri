@@ -27,6 +27,8 @@ func init() {
 				Description: "Fahrzeugkonto, das Ladestand und Ladeziel liefert (z. B. Tibber). Leer = manuell, Ladestand unbekannt."},
 			{Name: "sourceVehicle", Label: "Fahrzeug im Konto", Type: sdk.TypeString},
 			{Name: "capacityKWh", Label: "Akkukapazität", Type: sdk.TypeFloat, Unit: "kWh", Min: sdk.Ptr(1), Max: sdk.Ptr(300)},
+			{Name: "defaultSoC", Label: "Typischer Ladestand beim Anstecken", Type: sdk.TypeFloat, Unit: "%", Min: sdk.Ptr(0), Max: sdk.Ptr(100),
+				Description: "Gilt beim Einstecken, solange weder die Datenquelle noch eine Eingabe von Hand den Ladestand kennt; voltibri rechnet ihn während des Ladens hoch. Leer = unbekannt."},
 			{Name: "phases", Label: "Ladephasen", Type: sdk.TypeInt, Default: 3.0, Min: sdk.Ptr(1), Max: sdk.Ptr(3),
 				Description: "Mit wie vielen Phasen das Auto lädt (manche Autos nur mit 1 oder 2)."},
 			{Name: "maxCurrent", Label: "Max. Ladestrom", Type: sdk.TypeFloat, Unit: "A", Default: 16.0, Min: sdk.Ptr(6), Max: sdk.Ptr(32)},
@@ -54,7 +56,8 @@ func New(cfg sdk.DeviceConfig) (sdk.Device, error) {
 	phases := cfg.FloatOr("phases", 3)
 	maxA := cfg.FloatOr("maxCurrent", 16)
 	return &Vehicle{id: cfg.ID, info: sdk.VehicleInfo{ID: cfg.ID, Name: name, Brand: cfg.StringOr("brand", ""), Model: cfg.StringOr("model", ""),
-		CapacityWh: math.Round(cfg.FloatOr("capacityKWh", 0) * 1000), MaxPowerW: math.Round(phases * maxA * 230), Phases: int(phases)}}, nil
+		CapacityWh: math.Round(cfg.FloatOr("capacityKWh", 0) * 1000), MaxPowerW: math.Round(phases * maxA * 230), Phases: int(phases),
+		DefaultSoC: math.Max(0, math.Min(1, cfg.FloatOr("defaultSoC", 0)/100))}}, nil
 }
 
 func (v *Vehicle) ID() string { return v.id }

@@ -318,6 +318,13 @@ const voltibri = (() => {
         <span class="note" id="sp__flexwarn"${flex !== 'none' && controlOf(d)[0] === 'keine' ? '' : ' hidden'}>voltibri kann dieses Gerät nicht schalten – die Flexibilität wirkt erst mit einem schaltbaren Anschluss, z. B. einem Zwischenstecker.</span></label>
       <label class="f cb"><input type="checkbox" id="sp__runs"${st.dev.runs === false ? '' : ' checked'}> Läufe erfassen</label>
       <span class="why">Jeder Betrieb (z. B. ein Waschgang) wird als Lauf mit Energie, PV-Anteil und Kosten gespeichert. Für Geräte, die ständig takten wie ein Kühlschrank, ausschalten – der Verbrauch wird trotzdem im Lastgang erfasst.</span>` : '';
+    // household devices that charge a battery (e-bike, power bank): state of charge and limit
+    const bt = st.dev.battery || {}, pc = v => v ? Math.round(v * 100) : '';
+    const akku = consumer && !['heat-pump', 'heating-rod', 'climate'].includes(st.dev.kind || '') ? `<fieldset class="price"><legend>Akku (E-Bike, Powerbank …)</legend>
+        <div class="row2"><label class="f" for="sp__bcap">Akkukapazität (Wh)<input type="number" id="sp__bcap" min="10" step="1" value="${bt.capacityWh || ''}" placeholder="leer = kein Akku"></label>
+        <label class="f" for="sp__bdef">Typischer Ladestand beim Start (%)<input type="number" id="sp__bdef" min="0" max="100" step="5" value="${pc(bt.defaultSoC)}" placeholder="unbekannt"></label></div>
+        <label class="f" for="sp__blim">Ladelimit (%)<input type="number" id="sp__blim" min="20" max="100" step="5" value="${pc(bt.limitSoC)}" placeholder="keins"></label>
+        <span class="why">voltibri rechnet den Ladestand aus der gemessenen Energie hoch; in der Übersicht lässt er sich von Hand eingeben, das Limit auch als +x %. Am Limit schaltet voltibri die Steckdose ab – dafür Steuerung „voltibri“ und eine Flexibilität wählen.</span></fieldset>` : '';
     const thresholdOpt = consumer ? `<label class="f" for="sp__thr">Lauf beginnt ab (W)<input type="number" id="sp__thr" min="1" step="1" value="${st.dev.runThresholdW || ''}" placeholder="Standard: 25"></label>` : '';
     $('setupTitle').textContent = st.isNew && bare ? 'Gerät ohne Verbindung hinzufügen' : st.isNew ? shortName(d) + (steps.length ? ' verbinden' : ' hinzufügen') : (st.dev.name || st.dev.id) + ' bearbeiten';
     body(`<div class="stack">
@@ -331,6 +338,7 @@ const voltibri = (() => {
       ${ctl ? `<label class="f" for="sp__mode">Steuerung<select id="sp__mode">${Object.keys(MODE_TEXT).map(m => `<option value="${m}"${m === mode ? ' selected' : ''}>${MODE_TEXT[m]}</option>`).join('')}</select>
         <span class="why">„Fremdgesteuert“: ein anderes System (z. B. evcc, Home Assistant) steuert, voltibri liest nur mit.</span></label>` : ''}
       ${consumerOpts}
+      ${akku}
       ${(st.dev.kind || '') === 'heating-rod' || st.dev.icon === 'water' ? `<label class="f" for="sp__heatuse">Heizstab für<select id="sp__heatuse">
         <option value=""${st.dev.heatUse ? '' : ' selected'}>–</option>
         <option value="hotwater"${st.dev.heatUse === 'hotwater' ? ' selected' : ''}>Warmwasser (oberer Pufferbereich)</option>
@@ -409,6 +417,15 @@ const voltibri = (() => {
       if ($('sp__runs').checked) delete dev.runs; else dev.runs = false;
       const thr = Number($('sp__thr').value);
       if (thr > 0) dev.runThresholdW = thr; else delete dev.runThresholdW;
+    }
+    if ($('sp__bcap')) {
+      const cap = Number($('sp__bcap').value), def = Number($('sp__bdef').value), lim = Number($('sp__blim').value);
+      if (cap > 0) {
+        dev.battery = {...(st.dev.battery || {}), capacityWh: cap};
+        if (def > 0) dev.battery.defaultSoC = def / 100; else delete dev.battery.defaultSoC;
+        if (lim > 0) dev.battery.limitSoC = lim / 100; else delete dev.battery.limitSoC;
+        if (!dev.kind && !st.dev.kind) dev.kind = 'appliance';
+      } else delete dev.battery;
     }
     if (st.isNew && (dev.type === 'none' || dev.type === 'vehicle') && name) { // readable id for devices without a connection
       const base = slugify(name) || 'geraet';
