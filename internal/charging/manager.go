@@ -133,6 +133,7 @@ type SiteInput struct {
 	PVW, LoadW      float64
 	Chargers        map[string]sdk.ChargerStatus // corrected power
 	BatteryPriority bool                         // PV goes to the home battery first
+	BatteryFirst    bool                         // the home battery is below its priority SoC (PV the vehicle takes is priced at the grid price)
 	Circuits        *circuit.Tree                // load management (nil: no fuses configured)
 	// Alloc shares the surplus between all surplus loads (wallboxes and
 	// heating rods) in priority order; nil: the loadpoints in configuration
@@ -807,7 +808,11 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 				// the shares at both tariffs, to price them by the vehicle rule
 				// now and to recalculate later
 				sh, _ := pricing.FromAttrs(s.Attrs)
-				sh.PV.Add(e-fromGrid-fromBattery, feedPrice, gridPrice)
+				if in.BatteryFirst { // the battery misses this PV and buys it later
+					sh.PVPriority.Add(e-fromGrid-fromBattery, feedPrice, gridPrice)
+				} else {
+					sh.PV.Add(e-fromGrid-fromBattery, feedPrice, gridPrice)
+				}
 				sh.Battery.Add(fromBattery, feedPrice, gridPrice)
 				sh.Grid.Add(fromGrid, feedPrice, gridPrice)
 				if s.Attrs == nil {
@@ -822,10 +827,11 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 					s.CostCt += nz(gridPrice) * e / 1000 // guests pay grid price for everything
 				default:
 					// PV and battery at the lost feed-in tariff, grid at the
-					// tariff – unless the vehicle has its own price rule
+					// tariff – unless the vehicle has its own price rule; PV
+					// while the battery had priority like grid energy
 					rule, name := m.priceRule(v.Vehicle)
 					s.CostCt, _ = rule.Cost(sh, "")
-					if !rule.Empty() {
+					if !rule.Empty() || sh.PVPriority.Wh > 0 {
 						_, s.PriceNote = rule.Cost(sh, name)
 					}
 				}

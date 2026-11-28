@@ -650,7 +650,7 @@ func (s *Site) updateCharging(ctx context.Context, st State, chargers map[string
 		prios[lp.Charger], top[lp.Charger] = ls.Priority, ls.top(st.Time)
 	}
 	res := s.charge.Update(ctx, charging.SiteInput{Now: st.Time, GridW: st.GridW, BatteryW: st.BatteryW, PVW: st.PVW, LoadW: st.LoadW,
-		Chargers: chargers, BatteryPriority: s.batteryFirst(st) && !autoBoost, Circuits: tree, Alloc: alloc,
+		Chargers: chargers, BatteryPriority: s.batteryFirst(st) && !autoBoost, BatteryFirst: s.batteryFirst(st), Circuits: tree, Alloc: alloc,
 		BoostW: boostW, AutoBoost: autoBoost, Priority: prios, Top: top})
 
 	return res.GuestW, res.ExcludedW, res.ForceBatteryW

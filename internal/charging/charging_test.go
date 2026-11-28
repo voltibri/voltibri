@@ -844,3 +844,24 @@ func TestConfigChangeKeepsSession(t *testing.T) {
 		t.Fatalf("nothing must be stored while charging: %+v", *ss)
 	}
 }
+
+// While the home battery is below its priority SoC, the PV a vehicle takes
+// is the battery's: it is priced at the grid price, even with a cheaper PV
+// rule; it still counts as PV energy.
+func TestPVWhileBatteryHasPriority(t *testing.T) {
+	m, ch, _ := setup(t, config.Loadpoint{GuestMode: "fast"}, fakeProvider{})
+	ch.st = sdk.ChargerStatus{Connected: true, Charging: true, PowerW: 6000}
+	for i := 0; i <= 360; i++ { // one hour at 6 kW: 3 kW PV, 3 kW grid
+		m.Update(context.Background(), SiteInput{Now: t0.Add(time.Duration(i) * 10 * time.Second), GridW: 3000, PVW: 3500, LoadW: 6500,
+			BatteryFirst: true, Chargers: map[string]sdk.ChargerStatus{"wb": ch.st}})
+	}
+	s := m.Loadpoints()[0].Session
+	sh, _ := pricing.FromAttrs(s.Attrs)
+	if math.Abs(s.PVWh-3000) > 1 || math.Abs(sh.PVPriority.Wh-3000) > 1 || sh.PV.Wh != 0 {
+		t.Fatalf("shares: pv %v, %+v", s.PVWh, sh)
+	}
+	// a guest pays the grid price anyway; priced by the default rule: all 6 kWh at 30 ct
+	if c, note := (*pricing.Rule)(nil).Cost(sh, ""); math.Abs(c-180) > 0.5 || !strings.Contains(note, "Akku-Vorrang") {
+		t.Fatalf("cost %v %q", c, note)
+	}
+}

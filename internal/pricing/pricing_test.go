@@ -131,3 +131,20 @@ func TestUnit(t *testing.T) {
 		t.Fatalf("default %+v", u)
 	}
 }
+
+// PV taken while the home battery had priority costs the grid price (by
+// the grid rule), whatever the PV rule says.
+func TestPVPriority(t *testing.T) {
+	var s Shares
+	s.PV.Add(1000, 7.35, 31.26)
+	s.PVPriority.Add(2000, 7.35, 31.26)
+	s.Grid.Add(1000, 7.35, 31.26)
+	r := &Rule{PV: &Share{Mode: Replace, Base: BaseFixed, Ct: 15}}
+	c, note := r.Cost(s, "e-Up")
+	if math.Abs(c-(15+2*31.26+31.26)) > 1e-9 || !strings.Contains(note, "PV bei Akku-Vorrang Tarif") {
+		t.Fatalf("cost %v %q", c, note)
+	}
+	if c, _ := (*Rule)(nil).Cost(s, ""); math.Abs(c-(7.35+3*31.26)) > 1e-9 {
+		t.Fatalf("default %v", c)
+	}
+}

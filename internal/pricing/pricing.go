@@ -76,6 +76,10 @@ type Shares struct {
 	PV      Amount `json:"pv"`
 	Battery Amount `json:"battery"`
 	Grid    Amount `json:"grid"`
+	// PVPriority is PV taken while the home battery had priority (below its
+	// priority SoC): the battery misses it and buys it from the grid later,
+	// so it is priced like grid energy (the grid rule).
+	PVPriority Amount `json:"pvPriority,omitzero"`
 }
 
 // Uniform returns shares with the same average prices for every share
@@ -204,13 +208,14 @@ func (r *Rule) Cost(s Shares, who string) (float64, string) {
 		rule  *Share
 		feed  bool // default base: feed-in (PV, battery) or grid
 	}
-	parts := []part{{"PV", s.PV, pv, true}, {"Akku", s.Battery, bat, true}, {"Netz", s.Grid, grid, false}}
+	parts := []part{{"PV", s.PV, pv, true}, {"Akku", s.Battery, bat, true}, {"Netz", s.Grid, grid, false},
+		{"PV bei Akku-Vorrang", s.PVPriority, grid, false}}
 	total := 0.0
 	var notes []string
 	for _, p := range parts {
 		c, n := p.rule.price(p.a, p.feed)
 		total += c
-		if p.a.Wh > 0 || (p.rule != nil && p.rule.Mode != "" && p.rule.Mode != Inherit) {
+		if p.a.Wh > 0 || (p.rule != nil && p.rule.Mode != "" && p.rule.Mode != Inherit && p.label != "PV bei Akku-Vorrang") {
 			notes = append(notes, p.label+" "+n)
 		}
 	}
