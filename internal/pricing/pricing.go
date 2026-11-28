@@ -221,6 +221,27 @@ func (r *Rule) Cost(s Shares, who string) (float64, string) {
 	return total, note
 }
 
+// Unit is what one kWh of each share costs (ct/kWh).
+type Unit struct {
+	GridCt    float64 `json:"gridCt"`
+	BatteryCt float64 `json:"batteryCt"`
+	PVCt      float64 `json:"pvCt"`
+}
+
+// Unit returns the price of one kWh per share at the given tariffs.
+func (r *Rule) Unit(feedinCt, gridCt float64) Unit {
+	var pv, bat, grid *Share
+	if r != nil {
+		pv, bat, grid = r.share(r.PV), r.share(r.Battery), r.share(r.Grid)
+	}
+	kwh := Amount{Wh: 1000, FeedInCt: nz(feedinCt), GridCt: nz(gridCt)}
+	u := Unit{}
+	u.PVCt, _ = pv.price(kwh, true)
+	u.BatteryCt, _ = bat.price(kwh, true)
+	u.GridCt, _ = grid.price(kwh, false)
+	return u
+}
+
 // price returns the cost of one share and a short description.
 func (s *Share) price(a Amount, feedDefault bool) (float64, string) {
 	inherited, name := a.GridCt, "Tarif"

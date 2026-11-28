@@ -85,9 +85,9 @@ func (h *handler) getCharging(w http.ResponseWriter, r *http.Request) {
 		Currency: "EUR", Local: true, Admin: auth.From(r.Context()).Admin()}
 	if m != nil {
 		res.Loadpoints, res.Vehicles, res.Providers = m.Loadpoints(), m.Vehicles(), m.Providers()
-		visibleCharging(auth.From(r.Context()), &res)
 		g, f := m.Prices(r.Context())
 		res.GridCt, res.FeedInCt = opt(g), opt(f)
+		visibleCharging(auth.From(r.Context()), &res)
 	}
 	if cfg, _, err := h.st.Current(r.Context()); err == nil && cfg.Tariffs.Currency != "" {
 		res.Currency = cfg.Tariffs.Currency
@@ -312,20 +312,25 @@ func foreign(p *auth.Principal, lp charging.Loadpoint) bool {
 }
 
 // visibleCharging filters the charging view to what the user may see.
+// Prices: a user sees only what a kWh costs the vehicle chosen at a
+// wallbox (its price rule), never the tariffs as such and nothing of
+// another user's vehicle.
 func visibleCharging(p *auth.Principal, res *chargingResponse) {
 	if p.Admin() {
 		return
 	}
+	res.GridCt, res.FeedInCt = nil, nil
 	lps := []charging.Loadpoint{}
 	for _, lp := range res.Loadpoints {
 		if !p.Loadpoint(lp.ID) {
 			continue
 		}
+		lp.PriceCt = nil
 		if foreign(p, lp) {
 			lp.Foreign = true
-			lp.Vehicle, lp.VehicleName, lp.Manual, lp.Card, lp.Reason, lp.Plan, lp.Finish = "", "belegt", false, "", "", nil, nil
+			lp.Vehicle, lp.VehicleName, lp.Manual, lp.Card, lp.Reason, lp.Plan, lp.Finish, lp.Prices = "", "belegt", false, "", "", nil, nil, nil
 			if lp.Session != nil {
-				lp.Session = &charging.Session{Start: lp.Session.Start, EnergyWh: lp.Session.EnergyWh}
+				lp.Session = &charging.Session{Start: lp.Session.Start, EnergyWh: lp.Session.EnergyWh, CostUnknown: true}
 			}
 		}
 		lps = append(lps, lp)

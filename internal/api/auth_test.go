@@ -16,8 +16,10 @@ import (
 	"github.com/voltibri/voltibri/internal/auth"
 	"github.com/voltibri/voltibri/internal/charging"
 	"github.com/voltibri/voltibri/internal/config"
+	"github.com/voltibri/voltibri/internal/pricing"
 	"github.com/voltibri/voltibri/internal/run"
 	"github.com/voltibri/voltibri/internal/store"
+	"github.com/voltibri/voltibri/internal/tariff"
 	"github.com/voltibri/voltibri/sdk"
 )
 
@@ -48,7 +50,10 @@ func TestGroupPermissions(t *testing.T) {
 	ctx := context.Background()
 	cfg := config.Default()
 	cfg.Devices = []config.Device{{ID: "carport", Type: "none", Kind: "ev-charger"}, {ID: "zaun", Type: "none", Kind: "ev-charger"}, {ID: "garage", Type: "none", Kind: "ev-charger"},
-		{ID: "eup", Type: "vehicle", Name: "Dräger e-Up"}, {ID: "tavascan", Type: "vehicle", Name: "Tavascan"}}
+		{ID: "eup", Type: "vehicle", Name: "Dräger e-Up", Price: &pricing.Rule{PV: &pricing.Share{Mode: pricing.Replace, Base: pricing.BaseFixed, Ct: 15.5}}},
+		{ID: "tavascan", Type: "vehicle", Name: "Tavascan"}}
+	cfg.Tariffs.Grid = &tariff.Config{Type: "fixed", Price: 30}
+	cfg.Tariffs.FeedIn = &tariff.Config{Type: "fixed", Price: 8}
 	if _, err := st.Save(ctx, cfg, "test", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -100,6 +105,25 @@ func TestGroupPermissions(t *testing.T) {
 			}
 		}
 	}
+	// prices: no tariffs as such, nothing of the foreign car, a guest pays the grid price
+	if cr.GridCt != nil || cr.FeedInCt != nil {
+		t.Fatalf("josi sees the tariffs: %s", rec.Body.String())
+	}
+	for _, lp := range cr.Loadpoints {
+		want := map[string]*pricing.Unit{"carport": nil, "zaun": {GridCt: 30, BatteryCt: 30, PVCt: 30}}[lp.ID]
+		if lp.PriceCt != nil || (want == nil) != (lp.Prices == nil) || (want != nil && *lp.Prices != *want) {
+			t.Fatalf("josi prices at %s: %+v %+v", lp.ID, lp.Prices, lp.PriceCt)
+		}
+		if lp.ID == "carport" && lp.Session != nil && !lp.Session.CostUnknown {
+			t.Fatalf("cost of the foreign car: %+v", lp.Session)
+		}
+	}
+	// the admin sees the tariffs and the Tavascan's prices (default rule)
+	var ca chargingResponse
+	json.Unmarshal(do(admin, "GET", "/api/charging", "", local).Body.Bytes(), &ca)
+	if ca.GridCt == nil || *ca.GridCt != 30 || ca.Loadpoints[0].Prices == nil || *ca.Loadpoints[0].Prices != (pricing.Unit{GridCt: 30, BatteryCt: 8, PVCt: 8}) {
+		t.Fatalf("admin prices: %+v %+v", ca.GridCt, ca.Loadpoints[0].Prices)
+	}
 	try := func(h http.Handler, method, path, body string, want int) {
 		t.Helper()
 		if rec := do(h, method, path, body, local); rec.Code != want {
@@ -111,6 +135,14 @@ func TestGroupPermissions(t *testing.T) {
 	try(josi, "PUT", "/api/loadpoints/garage/off", `{"off":true}`, 403)      // not her wallbox
 	try(josi, "PUT", "/api/loadpoints/zaun/vehicle", `{"vehicle":"tavascan"}`, 403)
 	try(josi, "PUT", "/api/loadpoints/zaun/vehicle", `{"vehicle":"eup"}`, 204)
+	// her e-Up chosen: its prices, PV by its rule
+	m.Update(ctx, charging.SiteInput{Now: time.Now(), Chargers: map[string]sdk.ChargerStatus{"carport": {Connected: true}, "zaun": {Connected: true}, "garage": {}}})
+	json.Unmarshal(do(josi, "GET", "/api/charging", "", local).Body.Bytes(), &cr)
+	for _, lp := range cr.Loadpoints {
+		if lp.ID == "zaun" && (lp.Prices == nil || *lp.Prices != (pricing.Unit{GridCt: 30, BatteryCt: 8, PVCt: 15.5})) {
+			t.Fatalf("e-Up prices: %+v", lp.Prices)
+		}
+	}
 	try(josi, "PUT", "/api/vehicles/eup", `{"mode":"fast"}`, 204)
 	try(josi, "PUT", "/api/vehicles/tavascan", `{"mode":"fast"}`, 403)
 	try(josi, "GET", "/api/state", "", 403)  // no overview

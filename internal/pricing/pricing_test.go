@@ -120,3 +120,14 @@ func TestFromAttrs(t *testing.T) {
 		t.Fatal("no shares expected")
 	}
 }
+
+func TestUnit(t *testing.T) {
+	r := &Rule{PV: &Share{Mode: Replace, Base: BaseFixed, Ct: 15.5}}
+	if u := r.Unit(7.35, 31.26); u != (Unit{GridCt: 31.26, BatteryCt: 7.35, PVCt: 15.5}) {
+		t.Fatalf("unit %+v", u)
+	}
+	var none *Rule
+	if u := none.Unit(8, 30); u != (Unit{GridCt: 30, BatteryCt: 8, PVCt: 8}) {
+		t.Fatalf("default %+v", u)
+	}
+}

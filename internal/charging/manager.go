@@ -75,43 +75,44 @@ type Session = run.Run
 
 // Loadpoint is the public view of a charge point.
 type Loadpoint struct {
-	ID              string    `json:"id"`
-	Name            string    `json:"name"`
-	Owned           bool      `json:"owned"`          // voltibri may write to the charger
-	CanSwitch       bool      `json:"canSwitch"`      // charger can switch between 1 and 3 phases
-	Off             bool      `json:"off"`            // switched off by the user (any vehicle)
-	Card            string    `json:"card,omitempty"` // charging card of this session
-	SessionMode     bool      `json:"sessionMode"`    // mode chosen for this session (until unplugged)
-	Phases          int       `json:"phases"`
-	MinCurrentA     float64   `json:"minCurrent"`
-	MaxCurrentA     float64   `json:"maxCurrent"`
-	Guest           string    `json:"guestPolicy"`
-	Separate        bool      `json:"separateMeter"`
-	Connected       bool      `json:"connected"`
-	Charging        bool      `json:"charging"`
-	PowerW          float64   `json:"powerW"`
-	Vehicle         string    `json:"vehicle"` // key, "guest" or ""
-	VehicleName     string    `json:"vehicleName"`
-	Manual          bool      `json:"manual"`               // vehicle chosen by the user
-	ManualUntil     time.Time `json:"manualUntil,omitzero"` // chosen before plugging in: plug in by then, else the choice ends
-	Detecting       bool      `json:"detecting"`            // still waiting for the vehicle cloud
-	Mode            Mode      `json:"mode"`
-	Target          State     `json:"target"` // what voltibri wants
-	Reason          string    `json:"reason"`
-	Plan            *Schedule `json:"plan,omitempty"`
-	Session         *Session  `json:"session,omitempty"`
-	PriceCt         *float64  `json:"priceCt,omitempty"`         // current price at this loadpoint
-	LimitA          *float64  `json:"limitA,omitempty"`          // load management: max current per phase right now
-	LimitBy         string    `json:"limitBy,omitempty"`         // circuit that limits
-	BatteryExcluded bool      `json:"batteryExcluded,omitempty"` // the home battery is held back for this charging
-	Boosting        bool      `json:"boosting,omitempty"`        // the home battery adds power (boost)
-	Priority        int       `json:"priority"`                  // surplus order: higher first (0-10)
-	Top             bool      `json:"top,omitempty"`             // first before all others for today
-	Foreign         bool      `json:"foreign,omitempty"`         // set by the API: another user's vehicle is connected (details hidden)
-	ActivePhases    int       `json:"activePhases"`              // phases the car draws on right now, measured (0 = not charging or the charger does not measure)
-	PhaseCurrentA   float64   `json:"phaseCurrentA"`             // current per active phase right now (with ActivePhases)
-	CarPhases       int       `json:"carPhases,omitempty"`       // phases the car draws on as far as known (measured in this session or set at the vehicle; 0 = unknown)
-	Finish          *Finish   `json:"finish,omitempty"`          // expected end of charging (own vehicle with state of charge)
+	ID              string        `json:"id"`
+	Name            string        `json:"name"`
+	Owned           bool          `json:"owned"`          // voltibri may write to the charger
+	CanSwitch       bool          `json:"canSwitch"`      // charger can switch between 1 and 3 phases
+	Off             bool          `json:"off"`            // switched off by the user (any vehicle)
+	Card            string        `json:"card,omitempty"` // charging card of this session
+	SessionMode     bool          `json:"sessionMode"`    // mode chosen for this session (until unplugged)
+	Phases          int           `json:"phases"`
+	MinCurrentA     float64       `json:"minCurrent"`
+	MaxCurrentA     float64       `json:"maxCurrent"`
+	Guest           string        `json:"guestPolicy"`
+	Separate        bool          `json:"separateMeter"`
+	Connected       bool          `json:"connected"`
+	Charging        bool          `json:"charging"`
+	PowerW          float64       `json:"powerW"`
+	Vehicle         string        `json:"vehicle"` // key, "guest" or ""
+	VehicleName     string        `json:"vehicleName"`
+	Manual          bool          `json:"manual"`               // vehicle chosen by the user
+	ManualUntil     time.Time     `json:"manualUntil,omitzero"` // chosen before plugging in: plug in by then, else the choice ends
+	Detecting       bool          `json:"detecting"`            // still waiting for the vehicle cloud
+	Mode            Mode          `json:"mode"`
+	Target          State         `json:"target"` // what voltibri wants
+	Reason          string        `json:"reason"`
+	Plan            *Schedule     `json:"plan,omitempty"`
+	Session         *Session      `json:"session,omitempty"`
+	PriceCt         *float64      `json:"priceCt,omitempty"`         // current price at this loadpoint
+	Prices          *pricing.Unit `json:"prices,omitempty"`          // what a kWh costs the chosen vehicle now, per share (nil: no vehicle chosen yet)
+	LimitA          *float64      `json:"limitA,omitempty"`          // load management: max current per phase right now
+	LimitBy         string        `json:"limitBy,omitempty"`         // circuit that limits
+	BatteryExcluded bool          `json:"batteryExcluded,omitempty"` // the home battery is held back for this charging
+	Boosting        bool          `json:"boosting,omitempty"`        // the home battery adds power (boost)
+	Priority        int           `json:"priority"`                  // surplus order: higher first (0-10)
+	Top             bool          `json:"top,omitempty"`             // first before all others for today
+	Foreign         bool          `json:"foreign,omitempty"`         // set by the API: another user's vehicle is connected (details hidden)
+	ActivePhases    int           `json:"activePhases"`              // phases the car draws on right now, measured (0 = not charging or the charger does not measure)
+	PhaseCurrentA   float64       `json:"phaseCurrentA"`             // current per active phase right now (with ActivePhases)
+	CarPhases       int           `json:"carPhases,omitempty"`       // phases the car draws on as far as known (measured in this session or set at the vehicle; 0 = unknown)
+	Finish          *Finish       `json:"finish,omitempty"`          // expected end of charging (own vehicle with state of charge)
 }
 
 // Finish is the expected end of a charging session: when the vehicle reaches
@@ -973,6 +974,7 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 		if veh, ok := m.vehicles[v.Vehicle]; ok && v.Connected {
 			v.Finish = finish(veh.status, vs.CapacityWh, v.Plan, v.Charging, v.PowerW, in.Now)
 		}
+		v.Prices = m.unitPrices(lp, v, feedPrice, gridPrice, chargePrice)
 		if in.Circuits != nil {
 			next := own // observed or external: the charger keeps drawing what it draws
 			if lp.ctl != nil && mode != ModeExternal {
@@ -1090,6 +1092,34 @@ func (m *Manager) closeSessions() {
 			_ = m.settings.Put("open:"+lp.view.ID, b)
 		}
 	}
+}
+
+// unitPrices are what a kWh costs the vehicle at the loadpoint now, per
+// share, as its session is priced: behind a separate meter the charging
+// tariff, guests the grid price for everything, own vehicles by their price
+// rule. nil while no vehicle is chosen (or still being detected) or the
+// tariff is unknown.
+func (m *Manager) unitPrices(lp *lpRuntime, v *Loadpoint, feedCt, gridCt, chargeCt float64) *pricing.Unit {
+	if v.Vehicle == "" || v.Detecting {
+		return nil
+	}
+	all := func(ct float64) *pricing.Unit {
+		if math.IsNaN(ct) {
+			return nil
+		}
+		return &pricing.Unit{GridCt: ct, BatteryCt: ct, PVCt: ct}
+	}
+	switch {
+	case lp.cfg.SeparateMeter:
+		return all(chargeCt)
+	case v.Vehicle == Guest:
+		return all(gridCt)
+	case math.IsNaN(gridCt) || math.IsNaN(feedCt):
+		return nil
+	}
+	rule, _ := m.priceRule(v.Vehicle)
+	u := rule.Unit(feedCt, gridCt)
+	return &u
 }
 
 // openSession is the session left open by the previous manager (restart

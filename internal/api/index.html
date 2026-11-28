@@ -788,9 +788,15 @@ function renderLoadpoint(lp) {
     `<option value="guest"${lp.manual && guest ? ' selected' : ''}>Gastfahrzeug</option>`,
     ...(charging.vehicles || []).map(v => `<option value="${esc(v.key)}"${lp.manual && lp.vehicle === v.key ? ' selected' : ''}>${esc(v.name)}</option>`)];
   const s = lp.session;
-  const sess = s ? `<div class="sess"><span>Dieser Ladevorgang <b>${kwh(s.energyWh)}</b></span>
-      <span>PV/Akku <b>${s.energyWh > 0 ? Math.round(100 * (s.pvWh + s.batteryWh) / s.energyWh) : 0} %</b></span>
-      <span>${guest ? 'Verrechnung' : 'Kosten'} <b>${money(s.costCt, charging.currency)}</b></span></div>` : '';
+  // what a kWh costs the chosen vehicle now (its price rule); absent while
+  // no vehicle is chosen and for another user's car
+  const pr = lp.prices, ctS = v => v.toLocaleString('de-DE', {maximumFractionDigits: 2}) + ' ct';
+  const prices = !pr ? '' : pr.gridCt === pr.batteryCt && pr.gridCt === pr.pvCt
+    ? `<span title="Preis je kWh für dieses Fahrzeug">je kWh <b>${ctS(pr.gridCt)}</b></span>`
+    : `<span title="Preis je kWh für dieses Fahrzeug, je nach Herkunft des Stroms">je kWh Netz <b>${ctS(pr.gridCt)}</b> · Akku <b>${ctS(pr.batteryCt)}</b> · PV <b>${ctS(pr.pvCt)}</b></span>`;
+  const sess = s || prices ? `<div class="sess">${s ? `<span>Dieser Ladevorgang <b>${kwh(s.energyWh)}</b></span>
+      ${s.costUnknown ? '' : `<span>PV/Akku <b>${s.energyWh > 0 ? Math.round(100 * (s.pvWh + s.batteryWh) / s.energyWh) : 0} %</b></span>
+      <span>${guest ? 'Verrechnung' : 'Kosten'} <b>${money(s.costCt, charging.currency)}</b></span>`}` : ''}${prices}</div>` : '';
   // chosen before plugging in: plug in by lp.manualUntil, else the wallbox is locked again
   const pre = !lp.connected && !!lp.manualUntil;
   const who = (pre && !lp.foreign ? ` <span class="pill" title="Vor dem Einstecken gewählt – bis ${esc(etaTime(lp.manualUntil))} einstecken, sonst wird die Wallbox wieder gesperrt">vorgewählt · bis ${esc(etaTime(lp.manualUntil))}</span>` : '') +
