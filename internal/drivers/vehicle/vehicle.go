@@ -54,7 +54,7 @@ func New(cfg sdk.DeviceConfig) (sdk.Device, error) {
 	phases := cfg.FloatOr("phases", 3)
 	maxA := cfg.FloatOr("maxCurrent", 16)
 	return &Vehicle{id: cfg.ID, info: sdk.VehicleInfo{ID: cfg.ID, Name: name, Brand: cfg.StringOr("brand", ""), Model: cfg.StringOr("model", ""),
-		CapacityWh: math.Round(cfg.FloatOr("capacityKWh", 0) * 1000), MaxPowerW: math.Round(phases * maxA * 230)}}, nil
+		CapacityWh: math.Round(cfg.FloatOr("capacityKWh", 0) * 1000), MaxPowerW: math.Round(phases * maxA * 230), Phases: int(phases)}}, nil
 }
 
 func (v *Vehicle) ID() string { return v.id }

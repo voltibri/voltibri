@@ -65,6 +65,20 @@ func TestGoE(t *testing.T) {
 	}
 }
 
+// A car with a 2-phase charger at a wallbox with 3 released phases: the
+// phases come from the current per phase, not from pnp.
+func TestGoETwoPhaseCar(t *testing.T) {
+	var calls []string
+	srv := server(t, map[string]string{
+		"/api/status": `{"car":2,"amp":11,"pnp":3,"nrg":[238,238,238,0,11,11,0.2,2600,2600,40,0,5240]}`,
+	}, &calls)
+	d := newDev(t, "go-e", sdk.ModeOwned, map[string]any{"url": srv.URL})
+	st, err := d.(sdk.Charger).ChargerStatus(context.Background())
+	if err != nil || st.Phases != 2 || st.PowerW != 5240 {
+		t.Errorf("status %+v %v", st, err)
+	}
+}
+
 // The forecast survives a restart (shared persistent cache) and bridges API
 // errors such as the rate limit with the cached answer.
 func TestForecastSolarCache(t *testing.T) {

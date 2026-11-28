@@ -63,7 +63,7 @@ type ChargerStatus struct {
 	Charging  bool    // energy is flowing
 	PowerW    float64 // current charging power
 	CurrentA  float64 // configured current per phase
-	Phases    int     // active phases
+	Phases    int     // phases the car draws on, measured (0 = unknown or not charging)
 	Card      string  // RFID card used for this session ("" = none)
 }
 
@@ -157,6 +157,7 @@ type VehicleInfo struct {
 	// Defaults known without the car (manual vehicles); user settings win.
 	CapacityWh float64 `json:"capacityWh,omitempty"`
 	MaxPowerW  float64 `json:"maxPowerW,omitempty"` // onboard charger limit
+	Phases     int     `json:"phases,omitempty"`    // phases the onboard charger uses (0 = unknown)
 }
 
 // VehicleStatus is the state reported by the vehicle (via its cloud).

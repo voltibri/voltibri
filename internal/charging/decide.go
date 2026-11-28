@@ -72,6 +72,7 @@ type Input struct {
 	MinA      float64
 	MaxA      float64
 	Phases    int     // installed phases (1 or 3)
+	CarPhases int     // phases the car draws on (0 = unknown: all released)
 	CanSwitch bool    // charger can switch between 1 and 3 phases
 	MinPowerW float64 // minpv: minimum power (0 = minimum current)
 	MaxPowerW float64 // vehicle limit (0 = none)
@@ -98,6 +99,15 @@ func clamp(v, lo, hi float64) float64 { return math.Max(lo, math.Min(hi, v)) }
 // amps converts power to current per phase.
 func amps(w float64, phases int) float64 { return w / (Voltage * float64(phases)) }
 
+// DrawPhases are the phases a car draws on when the charger releases
+// released phases: a car with a 1- or 2-phase charger takes fewer.
+func DrawPhases(released, car int) int {
+	if car > 0 && car < released {
+		return car
+	}
+	return released
+}
+
 // Decide computes the target charger state. It never decides for
 // ModeExternal (the caller must not write in that case).
 func Decide(in Input) Decision {
@@ -108,11 +118,15 @@ func Decide(in Input) Decision {
 	if d.Phases == 0 {
 		d.Phases = in.Phases
 	}
-	maxA := in.MaxA
-	if in.MaxPowerW > 0 {
-		maxA = math.Min(maxA, amps(in.MaxPowerW, in.Phases))
+	// power and current per phase convert over the phases the car draws on
+	draw := func(phases int) int { return DrawPhases(phases, in.CarPhases) }
+	maxAt := func(phases int) float64 {
+		a := in.MaxA
+		if in.MaxPowerW > 0 {
+			a = math.Min(a, amps(in.MaxPowerW, draw(phases)))
+		}
+		return math.Max(a, in.MinA)
 	}
-	maxA = math.Max(maxA, in.MinA)
 	off := func(reason string) Decision {
 		d.Enabled, d.CurrentA = false, 0
 		d.SurplusSince, d.DeficitSince = time.Time{}, time.Time{}
@@ -133,7 +147,9 @@ func Decide(in Input) Decision {
 		return off("kein Fahrzeug angesteckt")
 	}
 	if in.Mode == ModeFast || in.PlanSlot {
-		d.Enabled, d.CurrentA, d.Phases = true, maxA, in.Phases
+		// the wallbox's maximum (load management included) on all its
+		// phases: the car takes what its onboard charger can
+		d.Enabled, d.CurrentA, d.Phases = true, math.Max(in.MaxA, in.MinA), in.Phases
 		d.SurplusSince, d.DeficitSince = time.Time{}, time.Time{}
 		d.Reason = "Schnellladen mit maximaler Leistung"
 		if in.PlanSlot && in.Mode != ModeFast {
@@ -147,13 +163,14 @@ func Decide(in Input) Decision {
 	switch {
 	case in.Mode == ModePV1 && (in.CanSwitch || in.Phases == 1):
 		phases = 1 // always one phase: starts earlier, finer steps
-	case in.CanSwitch && in.Phases == 3 && in.SurplusW < in.MinA*Voltage*3:
+	case in.CanSwitch && in.Phases == 3 && in.SurplusW < in.MinA*Voltage*float64(draw(3)):
 		phases = 1
 	}
-	target := amps(in.SurplusW, phases)
+	maxA := maxAt(phases)
+	target := amps(in.SurplusW, draw(phases))
 	minA := in.MinA
 	if in.Mode == ModeMinPV && in.MinPowerW > 0 {
-		minA = clamp(amps(in.MinPowerW, phases), in.MinA, maxA)
+		minA = clamp(amps(in.MinPowerW, draw(phases)), in.MinA, maxA)
 	}
 
 	if in.Mode == ModeMinPV {
@@ -161,7 +178,7 @@ func Decide(in Input) Decision {
 		d.CurrentA = clamp(math.Floor(target), minA, maxA)
 		d.SurplusSince, d.DeficitSince = time.Time{}, time.Time{}
 		if target < minA {
-			d.Reason = fmt.Sprintf("Mindestleistung %.1f kW, Rest aus Netz/Batterie", minA*Voltage*float64(phases)/1000)
+			d.Reason = fmt.Sprintf("Mindestleistung %.1f kW, Rest aus Netz/Batterie", minA*Voltage*float64(draw(phases))/1000)
 		} else {
 			d.Reason = "lädt mit PV-Überschuss (mindestens Mindestleistung)"
 		}
@@ -172,7 +189,7 @@ func Decide(in Input) Decision {
 	enough := target >= in.MinA
 	if !d.Enabled {
 		if !enough {
-			return off(fmt.Sprintf("wartet auf Überschuss (ab %.1f kW)", in.MinA*Voltage*float64(phases)/1000))
+			return off(fmt.Sprintf("wartet auf Überschuss (ab %.1f kW)", in.MinA*Voltage*float64(draw(phases))/1000))
 		}
 		if d.SurplusSince.IsZero() {
 			d.SurplusSince = in.Now

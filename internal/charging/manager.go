@@ -108,8 +108,9 @@ type Loadpoint struct {
 	Priority        int       `json:"priority"`                  // surplus order: higher first (0-10)
 	Top             bool      `json:"top,omitempty"`             // first before all others for today
 	Foreign         bool      `json:"foreign,omitempty"`         // set by the API: another user's vehicle is connected (details hidden)
-	ActivePhases    int       `json:"activePhases"`              // phases the car draws on right now (0 = not charging)
-	PhaseCurrentA   float64   `json:"phaseCurrentA"`             // current per active phase right now
+	ActivePhases    int       `json:"activePhases"`              // phases the car draws on right now, measured (0 = not charging or the charger does not measure)
+	PhaseCurrentA   float64   `json:"phaseCurrentA"`             // current per active phase right now (with ActivePhases)
+	CarPhases       int       `json:"carPhases,omitempty"`       // phases the car draws on as far as known (measured in this session or set at the vehicle; 0 = unknown)
 	Finish          *Finish   `json:"finish,omitempty"`          // expected end of charging (own vehicle with state of charge)
 }
 
@@ -181,6 +182,9 @@ type lpRuntime struct {
 	observedLg string
 	resume     *Session // open session from before a restart
 	ticked     bool
+	carPhases  int       // phases the car drew on in this session (measured, 0 = not yet)
+	released   int       // phases released by the last decision
+	releasedAt time.Time // since then
 }
 
 // Manager runs all loadpoints.
@@ -785,6 +789,8 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 			v.Mode = ModeOff
 		}
 		guest := v.Connected && v.Vehicle == Guest
+		carPhases := m.carPhases(lp, st, v.Vehicle, in.Now)
+		v.CarPhases = carPhases
 
 		// session bookkeeping
 		if v.Connected && lp.session == nil {
@@ -841,7 +847,7 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 		planSlot := false
 		if veh, ok := m.vehicles[v.Vehicle]; ok && v.Connected && v.Mode.Surplus() {
 			if p, target := nextPlan(vs.Plans, in.Now, m.loc); !target.IsZero() {
-				powerW := lp.cfg.MaxCurrentA * Voltage * float64(lp.cfg.Phases)
+				powerW := lp.cfg.MaxCurrentA * Voltage * float64(DrawPhases(lp.cfg.Phases, carPhases))
 				if vs.MaxPowerW > 0 {
 					powerW = math.Min(powerW, vs.MaxPowerW)
 				}
@@ -922,7 +928,7 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 			}
 		}
 		d := Decide(Input{Now: in.Now, Mode: mode, PlanSlot: planSlot, Connected: v.Connected, SurplusW: surplus,
-			MinA: lp.cfg.MinCurrentA, MaxA: math.Max(maxA, lp.cfg.MinCurrentA), Phases: lp.cfg.Phases, CanSwitch: lp.phaseSw != nil,
+			MinA: lp.cfg.MinCurrentA, MaxA: math.Max(maxA, lp.cfg.MinCurrentA), Phases: lp.cfg.Phases, CarPhases: carPhases, CanSwitch: lp.phaseSw != nil,
 			MinPowerW: vs.MinPowerW, MaxPowerW: vs.MaxPowerW, Prev: lp.state})
 		if guest && lp.cfg.Guest == config.GuestBatteryFirst && v.Mode == ModeFast {
 			d.Reason = "Gast: Batterie hat Vorrang – " + d.Reason
@@ -950,6 +956,9 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 			d.Reason = offReason(v.Off, v.SessionMode, guest, v.Connected)
 		}
 		lp.state = d.State
+		if d.Phases != lp.released {
+			lp.released, lp.releasedAt = d.Phases, in.Now
+		}
 		v.Target, v.Reason = d.State, d.Reason
 		if !v.Connected { // a vehicle chosen before plugging in
 			why := v.Reason
@@ -981,17 +990,20 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 			if lp.ctl != nil && mode != ModeExternal {
 				w = 0
 				if d.Enabled && v.Connected {
-					w = d.CurrentA * Voltage * float64(d.Phases)
+					// over the phases the car draws on: a 2-phase car at a
+					// 3-phase wallbox takes two thirds
+					ph := float64(DrawPhases(d.Phases, carPhases))
+					w = d.CurrentA * Voltage * ph
 					// a car that takes clearly less (its own limit) leaves the
 					// rest to the next loads; one amp more to ramp up
 					if v.Charging && v.PowerW > 0 && v.PowerW < 0.8*w {
-						w = v.PowerW + Voltage*float64(d.Phases)
+						w = v.PowerW + Voltage*ph
 					}
 				}
 			}
 			in.Alloc.Take(v.ID, w, boosted)
 		case mode != ModeExternal && d.Enabled:
-			remaining = math.Max(0, surplus-d.CurrentA*Voltage*float64(d.Phases))
+			remaining = math.Max(0, surplus-d.CurrentA*Voltage*float64(DrawPhases(d.Phases, carPhases)))
 		case mode != ModeExternal:
 			remaining = math.Max(0, surplus)
 		}
@@ -1054,6 +1066,7 @@ func (m *Manager) apply(ctx context.Context, lp *lpRuntime, mode Mode, d Decisio
 func (m *Manager) endSession(ctx context.Context, lp *lpRuntime, now time.Time) {
 	s := lp.session
 	lp.session, lp.lastTick, lp.state, lp.applied = nil, time.Time{}, State{}, nil
+	lp.carPhases, lp.released, lp.releasedAt = 0, 0, time.Time{}
 	if s == nil || m.sessions == nil {
 		return
 	}
@@ -1206,18 +1219,44 @@ func (m *Manager) Cards(ctx context.Context) []string {
 	return out
 }
 
-// livePhases are the phases the car draws on: as reported by the charger,
-// else estimated from the power.
+// livePhases are the phases the car draws on as measured by the charger
+// (0 = not charging, or the charger does not measure per phase). It is not
+// guessed from the power: a 2-phase car at 16 A and a 3-phase car at 11 A
+// draw the same.
 func livePhases(st sdk.ChargerStatus, charging bool) int {
-	switch {
-	case !charging || st.PowerW < 100:
+	if !charging || st.PowerW < 100 {
 		return 0
-	case st.Phases > 0:
-		return st.Phases
-	case st.PowerW > 1.15*Voltage*16: // more than one phase can carry
-		return 3
 	}
-	return 1
+	return st.Phases
+}
+
+// learnAfter is how long released phases must hold before the measured
+// phases count: right after switching, the car still draws on the old ones.
+const learnAfter = 30 * time.Second
+
+// carPhases are the phases the car draws on as far as known: measured in
+// this session (fewer than released, or all of the wallbox's), else the
+// phases set at the vehicle, else 0 (unknown).
+func (m *Manager) carPhases(lp *lpRuntime, st sdk.ChargerStatus, vehicle string, now time.Time) int {
+	installed := 3
+	if lp.cfg.Phases == 1 {
+		installed = 1
+	}
+	released := lp.released
+	if released == 0 {
+		released = installed
+	}
+	if n := livePhases(st, st.Charging); n > 0 && st.PowerW >= 500 && !lp.releasedAt.IsZero() && now.Sub(lp.releasedAt) >= learnAfter &&
+		(n < released || released == installed) {
+		lp.carPhases = min(n, installed)
+	}
+	if lp.carPhases > 0 {
+		return lp.carPhases
+	}
+	if veh, ok := m.vehicles[vehicle]; ok && veh.Info.Phases > 0 {
+		return veh.Info.Phases
+	}
+	return 0
 }
 
 // finish estimates the end of charging at the current power. The target is

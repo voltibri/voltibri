@@ -286,6 +286,7 @@
   .wbviz .wv-body { fill:var(--card-2); stroke:var(--line); stroke-width:1.5; }
   .wbviz.st-off .wv-body { fill:var(--track); }
   .wbviz .wv-dot { fill:var(--track); }
+  .wbviz .wv-dot.rel { fill:none; stroke-width:1.6; }
   :is(.wbviz, .wbcar) .wv-car { fill:var(--card-2); stroke:var(--line); stroke-width:1.5; }
   :is(.wbviz, .wbcar) .wv-ghost { fill:none; stroke:var(--muted); stroke-width:1.3; stroke-dasharray:4 4; opacity:.7; }
   :is(.wbviz, .wbcar) .wv-wheel { fill:var(--card); stroke:var(--muted); stroke-width:3; }
@@ -659,8 +660,21 @@ function planText(p) {
 const CAR = 'M0 60v-20q2-8 12-10l20-3 14-16q4-4 12-4h22q8 0 12 8l8 14q4 4 4 12v19z'; // 100 × 53, front right
 const CAR_T = 'translate(100 0) scale(-1 1)';
 const CABLE_Y = 46; // cable height in the car (72 px high) = 26 px above the bottom of the wallbox
+// phases of a wallbox: n installed, rel released by voltibri, act measured
+// (the car draws on them), draw the ones the car takes as far as known (a
+// 2-phase car at a 3-phase wallbox: 3 released, 2 drawn). Without measuring
+// per phase act is 0: nothing is claimed beyond the released phases.
+function wbPhases(lp) {
+  const n = lp.phases || 3;
+  const rel = Math.min(n, (lp.target && lp.target.enabled && lp.target.phases) || n);
+  const act = lp.connected ? Math.min(rel, lp.activePhases || 0) : 0;
+  const draw = act || Math.min(rel, lp.carPhases || rel);
+  return {n, rel, act, draw};
+}
 function wallboxViz(lp, veh, left, control) {
-  const maxW = Math.max(1, (lp.limitA != null ? Math.min(lp.limitA, lp.maxCurrent) : lp.maxCurrent) * (lp.activePhases || lp.phases || 3) * 230);
+  const ph = wbPhases(lp);
+  const maxA = lp.limitA != null ? Math.min(lp.limitA, lp.maxCurrent) : lp.maxCurrent;
+  const maxW = Math.max(1, maxA * ph.draw * 230); // possible now: over the phases the car takes
   const st = lp.off && !lp.charging ? 'off' : !lp.connected ? 'free' : lp.foreign ? 'busy' : lp.charging ? 'charging' : 'connected';
   const col = {charging: 'var(--accent)', connected: 'var(--accent-2)', busy: 'var(--accent-2)', free: 'var(--muted)', off: 'var(--muted)'}[st];
   const label = {charging: 'lädt', connected: 'angesteckt', busy: 'belegt', free: 'frei', off: 'ausgeschaltet'}[st];
@@ -671,16 +685,29 @@ function wallboxViz(lp, veh, left, control) {
   const centre = lp.connected
     ? `<text x="64" y="70" text-anchor="middle" class="wv-p">${num(lp.powerW / 1000, 1)}<tspan class="wv-u" dx="1">kW</tspan></text>`
     : icon(st === 'off' ? 'power' : 'plug');
-  // a dot per phase of the wallbox, lit while the car draws on it
-  const n = lp.phases || 3, act = lp.connected ? Math.min(n, lp.activePhases || 0) : 0;
-  const dots = Array.from({length: n}, (_, i) => `<circle cx="${64 + (i - (n - 1) / 2) * 12}" cy="90" r="3.5" class="wv-dot"${i < act ? ` style="fill:${col}"` : ''}/>`).join('');
-  const sub = lp.connected ? `von ${num(maxW / 1000, maxW % 1000 ? 1 : 0)} kW${act && lp.phaseCurrentA ? ' · ' + num(lp.phaseCurrentA, 0) + ' A' : ''}` : '';
-  const cw = [4, 3, 4.5, 6][act], flow = st === 'charging' ? ' class="wv-flow"' : '';
+  // a dot per phase of the wallbox: a ring while released, filled while the
+  // car draws on it (measured); unmeasured, the released ones stay rings
+  const {n, rel, act} = ph, on = lp.connected && st !== 'off';
+  const phN = k => k + (k === 1 ? ' Phase' : ' Phasen');
+  const phTitle = !on ? phN(n)
+    : act === rel ? `lädt auf ${act === 1 ? '1 Phase' : 'allen ' + phN(act)}`
+    : act ? `${phN(rel)} freigegeben, das Auto lädt auf ${act}`
+    : `${phN(rel)} freigegeben${lp.carPhases && lp.carPhases < rel ? `, das Auto lädt auf ${lp.carPhases}` : ''}`;
+  const dots = `<g><title>${esc(phTitle)}</title>${Array.from({length: n}, (_, i) => {
+    const x = 64 + (i - (n - 1) / 2) * 12;
+    if (on && i < act) return `<circle cx="${x}" cy="90" r="3.5" class="wv-dot" style="fill:${col}"/>`;
+    if (on && i < rel) return `<circle cx="${x}" cy="90" r="3" class="wv-dot rel" stroke="${col}"/>`;
+    return `<circle cx="${x}" cy="90" r="3.5" class="wv-dot"/>`;
+  }).join('')}</g>`;
+  // the current: per phase it draws on, "2 × 11 A" when it takes fewer than released
+  const amps = act && lp.phaseCurrentA ? ' · ' + (act < rel ? act + ' × ' : '') + num(lp.phaseCurrentA, 0) + ' A' : '';
+  const sub = lp.connected ? `von ${num(maxW / 1000, maxW % 1000 ? 1 : 0)} kW${amps}` : '';
+  const cw = [4, 3, 4.5, 6][act || (st === 'charging' ? ph.draw : 0)], flow = st === 'charging' ? ' class="wv-flow"' : '';
   const plug = lp.connected
     ? `<line x1="-2" x2="10" y1="174" y2="174" stroke="${col}" stroke-width="${cw}"${flow}/>`
     : `<path d="M10 174c-12 0-10 12-10 20" fill="none" stroke="var(--muted)" stroke-width="5" stroke-linecap="round" opacity=".5"/>
        <rect x="-6" y="192" width="12" height="9" rx="3" fill="var(--muted)" opacity=".5"/>`;
-  const box = `<svg class="wbviz st-${st}" viewBox="0 0 124 200" role="img" aria-label="Wallbox ${esc(label)}${lp.connected ? ', ' + kw(lp.powerW) + ' von ' + kw(maxW) + (act ? ', ' + act + '-phasig' : '') : ''}">
+  const box = `<svg class="wbviz st-${st}" viewBox="0 0 124 200" role="img" aria-label="Wallbox ${esc(label)}${lp.connected ? ', ' + kw(lp.powerW) + ' von ' + kw(maxW) + (act ? ', ' + act + '-phasig' + (act < rel ? ' (' + rel + ' freigegeben)' : '') : '') : ''}">
     <rect x="8" y="1" width="115" height="198" rx="26" class="wv-body"/>
     ${st === 'off' ? '' : `<circle cx="64" cy="64" r="${R}" class="wv-trk" stroke-dasharray="${arc.toFixed(1)} ${C.toFixed(1)}" transform="rotate(135 64 64)"/>
     <circle cx="64" cy="64" r="${R}" class="wv-val" stroke="${col}" stroke-dasharray="${(arc * frac).toFixed(1)} ${C.toFixed(1)}" transform="rotate(135 64 64)"/>${dots}`}

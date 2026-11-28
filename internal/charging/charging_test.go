@@ -63,9 +63,13 @@ func TestDecideOtherModes(t *testing.T) {
 		t.Fatalf("minpv with 9.2 kW surplus: %+v", d)
 	}
 	i := in(ModeFast, 0, State{}, 0)
-	i.MaxPowerW = 7400 // vehicle limit
-	if d := Decide(i); !d.Enabled || math.Abs(d.CurrentA-10.72) > 0.01 {
+	i.MaxPowerW = 7400 // vehicle limit: the car limits itself, fast sets the wallbox's maximum
+	if d := Decide(i); !d.Enabled || d.CurrentA != 16 || d.Phases != 3 {
 		t.Fatalf("fast with vehicle limit: %+v", d)
+	}
+	i.CanSwitch, i.Prev = true, State{Enabled: true, CurrentA: 8, Phases: 1}
+	if d := Decide(i); d.CurrentA != 16 || d.Phases != 3 {
+		t.Fatalf("fast after 1-phase PV charging must switch to 3 phases: %+v", d)
 	}
 	prev := State{Enabled: true, CurrentA: 8, Phases: 3}
 	if d := Decide(in(ModeExternal, 0, prev, 0)); d.State != prev {
@@ -534,7 +538,7 @@ func TestFinishAndPhases(t *testing.T) {
 		st   sdk.ChargerStatus
 		on   bool
 		want int
-	}{{sdk.ChargerStatus{PowerW: 11000, Phases: 3}, true, 3}, {sdk.ChargerStatus{PowerW: 3600}, true, 1}, {sdk.ChargerStatus{PowerW: 9000}, true, 3}, {sdk.ChargerStatus{PowerW: 5000, Phases: 1}, false, 0}} {
+	}{{sdk.ChargerStatus{PowerW: 11000, Phases: 3}, true, 3}, {sdk.ChargerStatus{PowerW: 5200, Phases: 2}, true, 2}, {sdk.ChargerStatus{PowerW: 3600}, true, 0}, {sdk.ChargerStatus{PowerW: 9000}, true, 0}, {sdk.ChargerStatus{PowerW: 5000, Phases: 1}, false, 0}} {
 		if got := livePhases(c.st, c.on); got != c.want {
 			t.Errorf("phases %+v: %d", c.st, got)
 		}
@@ -740,5 +744,49 @@ func TestPreselectSurvivesRestart(t *testing.T) {
 	tick(m, time.Hour, ch, 0, 0, 0, 500)
 	if lp := m.Loadpoints()[0]; !lp.ManualUntil.Equal(t0.Add(time.Hour + PreselectTimeout)) {
 		t.Fatalf("old choice: %+v", lp)
+	}
+}
+
+// A car with a 2-phase charger at a 3-phase wallbox: power and current
+// convert over the two phases it draws on.
+func TestDecideTwoPhaseCar(t *testing.T) {
+	i := in(ModeFast, 0, State{}, 0)
+	i.MaxPowerW, i.CarPhases = 7360, 2 // e-up: 16 A on 2 phases
+	if d := Decide(i); !d.Enabled || d.CurrentA != 16 || d.Phases != 3 {
+		t.Fatalf("fast: %+v", d)
+	}
+	i = in(ModePV, 4600, State{Enabled: true, CurrentA: 6, Phases: 3}, 0)
+	i.CarPhases = 2
+	if d := Decide(i); d.CurrentA != 10 {
+		t.Fatalf("pv: 4.6 kW on 2 phases are 10 A, got %+v", d)
+	}
+	i = in(ModePV, 2000, State{}, 0)
+	i.CarPhases = 2
+	if d := Decide(i); d.Enabled || !strings.Contains(d.Reason, "ab 2.8 kW") {
+		t.Fatalf("pv start threshold on 2 phases: %+v", d)
+	}
+	if DrawPhases(3, 0) != 3 || DrawPhases(1, 2) != 1 || DrawPhases(3, 2) != 2 {
+		t.Fatal("DrawPhases")
+	}
+}
+
+// A guest's 2-phase car: the measured phases are learned once the released
+// phases have held, the surplus is then given out over two phases.
+func TestManagerTwoPhaseGuest(t *testing.T) {
+	m, ch, _ := setup(t, config.Loadpoint{GuestMode: "pv"}, fakeProvider{})
+	ch.st = sdk.ChargerStatus{Connected: true, Charging: true, PowerW: 2760, CurrentA: 6, Phases: 2}
+	var lp Loadpoint
+	for i := 0; i <= 12; i++ { // 2 minutes, 1.8 kW exported beside the car
+		tick(m, time.Duration(i)*10*time.Second, ch, -1840, 0, 5000, 3160)
+		lp = m.Loadpoints()[0]
+		if i == 0 && lp.CarPhases != 0 {
+			t.Fatalf("learned right away: %+v", lp)
+		}
+	}
+	if lp.CarPhases != 2 || lp.ActivePhases != 2 || lp.PhaseCurrentA != 6 || lp.Target.Phases != 3 {
+		t.Fatalf("phases: %+v", lp)
+	}
+	if !lp.Target.Enabled || lp.Target.CurrentA != 10 {
+		t.Fatalf("4.6 kW surplus on 2 phases must be 10 A: %+v", lp.Target)
 	}
 }

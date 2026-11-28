@@ -60,7 +60,7 @@ func (d *Device) ID() string { return d.cfg.ID }
 type status struct {
 	Car   int       `json:"car"` // 1 idle, 2 charging, 3 wait for car, 4 complete, 5 error
 	Amp   float64   `json:"amp"`
-	Pnp   int       `json:"pnp"` // active phases
+	Pnp   int       `json:"pnp"` // phases the charger has released (not what the car draws)
 	Nrg   []float64 `json:"nrg"` // 4..6 = current L1..L3 A, 11 = total power W
 	Eto   float64   `json:"eto"` // total energy Wh
 	Trx   *int      `json:"trx"` // transaction: null none, 0 without card, n = card n (1-based)
@@ -69,6 +69,10 @@ type status struct {
 		CardID bool   `json:"cardId"` // a card is taught in
 	} `json:"cards"`
 }
+
+// drawA is the current from which a phase counts as drawn (the car's
+// standby on a phase stays below).
+const drawA = 1.0
 
 // Currents implements sdk.PhaseCurrents.
 func (d *Device) Currents(ctx context.Context) (sdk.Phases, error) {
@@ -110,10 +114,18 @@ func (d *Device) ChargerStatus(ctx context.Context) (sdk.ChargerStatus, error) {
 		Connected: s.Car >= 2 && s.Car <= 4,
 		Charging:  s.Car == 2,
 		CurrentA:  s.Amp,
-		Phases:    s.Pnp,
 	}
 	if len(s.Nrg) > 11 {
 		st.PowerW = s.Nrg[11]
+	}
+	// the phases the car draws on, from the current per phase: pnp counts
+	// the released phases, a car with a 2-phase charger draws on fewer
+	if st.Charging && len(s.Nrg) > 6 {
+		for _, a := range s.Nrg[4:7] {
+			if a >= drawA {
+				st.Phases++
+			}
+		}
 	}
 	if s.Trx != nil && *s.Trx > 0 && st.Connected {
 		if names, err := d.cardNames(ctx); err == nil && *s.Trx-1 < len(names) {
