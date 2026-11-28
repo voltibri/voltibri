@@ -312,9 +312,9 @@ func foreign(p *auth.Principal, lp charging.Loadpoint) bool {
 }
 
 // visibleCharging filters the charging view to what the user may see.
-// Prices: a user sees only what a kWh costs the vehicle chosen at a
-// wallbox (its price rule), never the tariffs as such and nothing of
-// another user's vehicle.
+// Prices: a user sees only what a kWh costs one of their vehicles chosen
+// at a wallbox (its price rule), never the tariffs as such, nothing for a
+// guest vehicle and nothing of another user's vehicle.
 func visibleCharging(p *auth.Principal, res *chargingResponse) {
 	if p.Admin() {
 		return
@@ -326,6 +326,9 @@ func visibleCharging(p *auth.Principal, res *chargingResponse) {
 			continue
 		}
 		lp.PriceCt = nil
+		if lp.Vehicle == charging.Guest {
+			lp.Prices = nil
+		}
 		if foreign(p, lp) {
 			lp.Foreign = true
 			lp.Vehicle, lp.VehicleName, lp.Manual, lp.Card, lp.Reason, lp.Plan, lp.Finish, lp.Prices = "", "belegt", false, "", "", nil, nil, nil

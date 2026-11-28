@@ -105,13 +105,12 @@ func TestGroupPermissions(t *testing.T) {
 			}
 		}
 	}
-	// prices: no tariffs as such, nothing of the foreign car, a guest pays the grid price
+	// prices: no tariffs as such, nothing of the foreign car or for a guest
 	if cr.GridCt != nil || cr.FeedInCt != nil {
 		t.Fatalf("josi sees the tariffs: %s", rec.Body.String())
 	}
 	for _, lp := range cr.Loadpoints {
-		want := map[string]*pricing.Unit{"carport": nil, "zaun": {GridCt: 30, BatteryCt: 30, PVCt: 30}}[lp.ID]
-		if lp.PriceCt != nil || (want == nil) != (lp.Prices == nil) || (want != nil && *lp.Prices != *want) {
+		if lp.PriceCt != nil || lp.Prices != nil {
 			t.Fatalf("josi prices at %s: %+v %+v", lp.ID, lp.Prices, lp.PriceCt)
 		}
 		if lp.ID == "carport" && lp.Session != nil && !lp.Session.CostUnknown {
