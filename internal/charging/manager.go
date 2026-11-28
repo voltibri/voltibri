@@ -18,6 +18,7 @@ import (
 	"github.com/voltibri/voltibri/internal/config"
 	"github.com/voltibri/voltibri/internal/pricing"
 	"github.com/voltibri/voltibri/internal/run"
+	"github.com/voltibri/voltibri/internal/soc"
 	"github.com/voltibri/voltibri/internal/tariff"
 	"github.com/voltibri/voltibri/sdk"
 )
@@ -40,6 +41,9 @@ type VehicleSettings struct {
 	MinPowerW  float64 `json:"minPowerW,omitempty"`  // minpv minimum (0 = minimum current)
 	MaxPowerW  float64 `json:"maxPowerW,omitempty"`  // onboard charger limit (0 = none)
 	Plans      []Plan  `json:"plans,omitempty"`
+	// Limit: voltibri stops charging there (nil = none; the car's own limit
+	// applies anyway). A session can set its own at the loadpoint.
+	Limit *Limit `json:"limit,omitempty"`
 	// NoBatteryModes: in these charge modes the home battery is held back
 	// (the car charges from PV and grid only).
 	NoBatteryModes []Mode `json:"noBatteryModes,omitempty"`
@@ -47,22 +51,29 @@ type VehicleSettings struct {
 
 // Vehicle is a known vehicle with its state.
 type Vehicle struct {
-	Key       string          `json:"key"`                // asset id, or account/id for vehicles without an asset
-	Asset     bool            `json:"asset"`              // configured as its own vehicle
-	Provider  string          `json:"provider"`           // account the live data comes from ("" = manual)
-	SourceID  string          `json:"sourceId,omitempty"` // vehicle id within the account
-	Info      sdk.VehicleInfo `json:"info"`
-	Name      string          `json:"name"`
-	Settings  VehicleSettings `json:"settings"`
-	SoC       *float64        `json:"soc,omitempty"`
-	LimitSoC  *float64        `json:"limitSoc,omitempty"`
-	RangeKm   *float64        `json:"rangeKm,omitempty"`
-	Connected bool            `json:"connected"`
-	Charging  bool            `json:"charging"`
-	Updated   time.Time       `json:"updated,omitzero"`
-	Error     string          `json:"error,omitempty"`
-	NextPlan  *Plan           `json:"nextPlan,omitempty"`
-	status    sdk.VehicleStatus
+	Key      string          `json:"key"`                // asset id, or account/id for vehicles without an asset
+	Asset    bool            `json:"asset"`              // configured as its own vehicle
+	Provider string          `json:"provider"`           // account the live data comes from ("" = manual)
+	SourceID string          `json:"sourceId,omitempty"` // vehicle id within the account
+	Info     sdk.VehicleInfo `json:"info"`
+	Name     string          `json:"name"`
+	Settings VehicleSettings `json:"settings"`
+	SoC      *float64        `json:"soc,omitempty"`
+	// SoCSource: where the state of charge comes from: "api" (data
+	// source), "manual" (by hand) or "default" (typical when plugging in);
+	// SoCAt: when that value was taken; SoCEstimated: charged energy added
+	// since (hochgerechnet).
+	SoCSource    string    `json:"socSource,omitempty"`
+	SoCAt        time.Time `json:"socAt,omitzero"`
+	SoCEstimated bool      `json:"socEstimated,omitempty"`
+	LimitSoC     *float64  `json:"limitSoc,omitempty"`
+	RangeKm      *float64  `json:"rangeKm,omitempty"`
+	Connected    bool      `json:"connected"`
+	Charging     bool      `json:"charging"`
+	Updated      time.Time `json:"updated,omitzero"`
+	Error        string    `json:"error,omitempty"`
+	NextPlan     *Plan     `json:"nextPlan,omitempty"`
+	status       sdk.VehicleStatus
 }
 
 // MinSessionWh: sessions with less energy (plugged in, nothing charged)
@@ -75,50 +86,54 @@ type Session = run.Run
 
 // Loadpoint is the public view of a charge point.
 type Loadpoint struct {
-	ID              string    `json:"id"`
-	Name            string    `json:"name"`
-	Owned           bool      `json:"owned"`          // voltibri may write to the charger
-	CanSwitch       bool      `json:"canSwitch"`      // charger can switch between 1 and 3 phases
-	Off             bool      `json:"off"`            // switched off by the user (any vehicle)
-	Card            string    `json:"card,omitempty"` // charging card of this session
-	SessionMode     bool      `json:"sessionMode"`    // mode chosen for this session (until unplugged)
-	Phases          int       `json:"phases"`
-	MinCurrentA     float64   `json:"minCurrent"`
-	MaxCurrentA     float64   `json:"maxCurrent"`
-	Guest           string    `json:"guestPolicy"`
-	Separate        bool      `json:"separateMeter"`
-	Connected       bool      `json:"connected"`
-	Charging        bool      `json:"charging"`
-	PowerW          float64   `json:"powerW"`
-	Vehicle         string    `json:"vehicle"` // key, "guest" or ""
-	VehicleName     string    `json:"vehicleName"`
-	Manual          bool      `json:"manual"`               // vehicle chosen by the user
-	ManualUntil     time.Time `json:"manualUntil,omitzero"` // chosen before plugging in: plug in by then, else the choice ends
-	Detecting       bool      `json:"detecting"`            // still waiting for the vehicle cloud
-	Mode            Mode      `json:"mode"`
-	Target          State     `json:"target"` // what voltibri wants
-	Reason          string    `json:"reason"`
-	Plan            *Schedule `json:"plan,omitempty"`
-	Session         *Session  `json:"session,omitempty"`
-	PriceCt         *float64  `json:"priceCt,omitempty"`         // current price at this loadpoint
-	LimitA          *float64  `json:"limitA,omitempty"`          // load management: max current per phase right now
-	LimitBy         string    `json:"limitBy,omitempty"`         // circuit that limits
-	BatteryExcluded bool      `json:"batteryExcluded,omitempty"` // the home battery is held back for this charging
-	Boosting        bool      `json:"boosting,omitempty"`        // the home battery adds power (boost)
-	Priority        int       `json:"priority"`                  // surplus order: higher first (0-10)
-	Top             bool      `json:"top,omitempty"`             // first before all others for today
-	Foreign         bool      `json:"foreign,omitempty"`         // set by the API: another user's vehicle is connected (details hidden)
-	ActivePhases    int       `json:"activePhases"`              // phases the car draws on right now (0 = not charging)
-	PhaseCurrentA   float64   `json:"phaseCurrentA"`             // current per active phase right now
-	Finish          *Finish   `json:"finish,omitempty"`          // expected end of charging (own vehicle with state of charge)
+	ID              string      `json:"id"`
+	Name            string      `json:"name"`
+	Owned           bool        `json:"owned"`          // voltibri may write to the charger
+	CanSwitch       bool        `json:"canSwitch"`      // charger can switch between 1 and 3 phases
+	Off             bool        `json:"off"`            // switched off by the user (any vehicle)
+	Card            string      `json:"card,omitempty"` // charging card of this session
+	SessionMode     bool        `json:"sessionMode"`    // mode chosen for this session (until unplugged)
+	Phases          int         `json:"phases"`
+	MinCurrentA     float64     `json:"minCurrent"`
+	MaxCurrentA     float64     `json:"maxCurrent"`
+	Guest           string      `json:"guestPolicy"`
+	Separate        bool        `json:"separateMeter"`
+	Connected       bool        `json:"connected"`
+	Charging        bool        `json:"charging"`
+	PowerW          float64     `json:"powerW"`
+	Vehicle         string      `json:"vehicle"` // key, "guest" or ""
+	VehicleName     string      `json:"vehicleName"`
+	Manual          bool        `json:"manual"`               // vehicle chosen by the user
+	ManualUntil     time.Time   `json:"manualUntil,omitzero"` // chosen before plugging in: plug in by then, else the choice ends
+	Detecting       bool        `json:"detecting"`            // still waiting for the vehicle cloud
+	Mode            Mode        `json:"mode"`
+	Target          State       `json:"target"` // what voltibri wants
+	Reason          string      `json:"reason"`
+	Plan            *Schedule   `json:"plan,omitempty"`
+	Session         *Session    `json:"session,omitempty"`
+	PriceCt         *float64    `json:"priceCt,omitempty"`         // current price at this loadpoint
+	LimitA          *float64    `json:"limitA,omitempty"`          // load management: max current per phase right now
+	LimitBy         string      `json:"limitBy,omitempty"`         // circuit that limits
+	BatteryExcluded bool        `json:"batteryExcluded,omitempty"` // the home battery is held back for this charging
+	Boosting        bool        `json:"boosting,omitempty"`        // the home battery adds power (boost)
+	Priority        int         `json:"priority"`                  // surplus order: higher first (0-10)
+	Top             bool        `json:"top,omitempty"`             // first before all others for today
+	Foreign         bool        `json:"foreign,omitempty"`         // set by the API: another user's vehicle is connected (details hidden)
+	ActivePhases    int         `json:"activePhases"`              // phases the car draws on right now (0 = not charging)
+	PhaseCurrentA   float64     `json:"phaseCurrentA"`             // current per active phase right now
+	Finish          *Finish     `json:"finish,omitempty"`          // expected end of charging (own vehicle with state of charge)
+	Limit           *LimitState `json:"limit,omitempty"`           // voltibri's charge limit (session or vehicle)
 }
 
 // Finish is the expected end of a charging session: when the vehicle reaches
 // its target at the current power. Basis says where the target comes from:
-// "plan" (charge plan), "limit" (charge limit set in the car) or "full".
+// "plan" (charge plan), "own-limit" (voltibri's charge limit), "limit"
+// (charge limit set in the car) or "full". With +x % (Add) the target is an
+// amount of energy, the state of charge may be unknown.
 type Finish struct {
 	At        time.Time `json:"at,omitzero"` // zero while not charging
 	TargetSoC float64   `json:"targetSoc"`
+	Add       float64   `json:"add,omitempty"`
 	Basis     string    `json:"basis"`
 	NeedWh    float64   `json:"needWh"`
 	Reached   bool      `json:"reached,omitempty"`
@@ -181,6 +196,7 @@ type lpRuntime struct {
 	observedLg string
 	resume     *Session // open session from before a restart
 	ticked     bool
+	limitHit   string // the charge limit reached in this session (until it changes)
 }
 
 // Manager runs all loadpoints.
@@ -203,6 +219,8 @@ type Manager struct {
 	lps      []*lpRuntime
 	vehicles map[string]*Vehicle
 	prices   map[string]priceCache
+	est      map[string]*soc.Estimate // state of charge per vehicle (loaded lazily; nil = none)
+	estSaved map[string]time.Time
 }
 
 // ownVehicle is a vehicle asset (driver "vehicle").
@@ -224,7 +242,8 @@ func New(cfg *config.Config, loc *time.Location, devices map[string]sdk.Device, 
 		settings = sdk.NewMemCache()
 	}
 	m := &Manager{loc: loc, cfg: cfg, providers: map[string]sdk.VehicleProvider{}, settings: settings, sessions: sessions, now: time.Now,
-		vehicles: map[string]*Vehicle{}, prices: map[string]priceCache{}, batteryNever: map[string]bool{}, alias: map[string]string{}}
+		vehicles: map[string]*Vehicle{}, prices: map[string]priceCache{}, batteryNever: map[string]bool{}, alias: map[string]string{},
+		est: map[string]*soc.Estimate{}, estSaved: map[string]time.Time{}}
 	for _, d := range cfg.Devices {
 		if d.BatteryUse == config.BatteryNever {
 			m.batteryNever[d.ID] = true
@@ -460,6 +479,13 @@ func (m *Manager) Vehicles() []Vehicle {
 		c.Settings = m.vehicleSettings(v.Key)
 		c.Name = displayName(c)
 		c.SoC, c.LimitSoC, c.RangeKm = optional(v.status.SoC), optional(v.status.LimitSoC), optional(v.status.RangeKm)
+		if !math.IsNaN(v.status.SoC) {
+			c.SoCSource, c.SoCAt = string(soc.SourceAPI), v.status.Updated
+		}
+		if e := m.est[v.Key]; e != nil {
+			c.SoC = optional(e.Value(v.Info.CapacityWh))
+			c.SoCSource, c.SoCAt, c.SoCEstimated = string(e.Source), e.At, e.Interpolated()
+		}
 		c.Connected, c.Charging, c.Updated = v.status.Connected, v.status.Charging, v.status.Updated
 		if p, t := nextPlan(c.Settings.Plans, now, m.loc); !t.IsZero() {
 			c.NextPlan = &p
@@ -522,6 +548,13 @@ func (m *Manager) SetVehicleSettings(key string, s VehicleSettings) error {
 	}
 	// configuration, not settings (see vehicleSettings)
 	s.CapacityWh, s.MaxPowerW, s.MinPowerW, s.NoBatteryModes = 0, 0, 0, nil
+	if s.Limit != nil {
+		if s.Limit.Empty() {
+			s.Limit = nil
+		} else if err := s.Limit.Validate(); err != nil {
+			return err
+		}
+	}
 	for i := range s.Plans {
 		if s.Plans[i].ID == "" {
 			s.Plans[i].ID = fmt.Sprintf("p%d", time.Now().UnixNano()+int64(i))
@@ -723,6 +756,11 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 		if !v.Connected && wasConnected {
 			m.endSession(ctx, lp, in.Now)
 			m.setManual(lp, "", time.Time{})
+			if v.Vehicle != "" && v.Vehicle != Guest { // the state of charge of this session ends
+				m.setEstimate(v.Vehicle, nil)
+			}
+			lp.limitHit = ""
+			_ = m.settings.Put("limit:"+v.ID, []byte{})
 			_ = m.settings.Put("mode:"+v.ID, []byte{})
 			lp.card = ""
 		}
@@ -764,6 +802,7 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 			if veh, ok := m.vehicles[v.Vehicle]; ok {
 				vs = m.vehicleSettings(v.Vehicle)
 				v.Mode = vs.Mode
+				m.trackSoC(v.Vehicle, veh, in.Now)
 				v.VehicleName = displayName(Vehicle{Info: veh.Info, Settings: vs})
 			} else {
 				v.VehicleName = "Gastfahrzeug"
@@ -799,6 +838,9 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 				fromGrid := math.Min(v.PowerW, math.Max(0, in.GridW)) * dt
 				fromBattery := math.Min(e-fromGrid, math.Max(0, in.BatteryW)*dt)
 				s.EnergyWh += e
+				if est := m.est[v.Vehicle]; est != nil && !guest && v.Vehicle != "" {
+					est.Charge(e, Efficiency, vs.CapacityWh)
+				}
 				s.GridWh += fromGrid
 				s.BatteryWh += fromBattery
 				s.PVWh += e - fromGrid - fromBattery
@@ -839,17 +881,25 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 		// plan
 		v.Plan = nil
 		planSlot := false
-		if veh, ok := m.vehicles[v.Vehicle]; ok && v.Connected && v.Mode.Surplus() {
+		socNow, _ := m.socOf(v.Vehicle)
+		sessionWh := 0.0
+		if lp.session != nil {
+			sessionWh = lp.session.EnergyWh
+		}
+		if _, ok := m.vehicles[v.Vehicle]; ok && v.Connected && v.Mode.Surplus() {
 			if p, target := nextPlan(vs.Plans, in.Now, m.loc); !target.IsZero() {
 				powerW := lp.cfg.MaxCurrentA * Voltage * float64(lp.cfg.Phases)
 				if vs.MaxPowerW > 0 {
 					powerW = math.Min(powerW, vs.MaxPowerW)
 				}
-				need := NeedWh(veh.status.SoC, p.SoC, vs.CapacityWh)
+				need := planNeed(p, socNow, vs.CapacityWh, sessionWh)
 				var sch Schedule
-				if math.IsNaN(need) {
-					sch = Schedule{Target: target, SoC: p.SoC, Reason: "Ladestand oder Akkukapazität unbekannt – Plan kann nicht berechnet werden"}
-				} else {
+				switch {
+				case math.IsNaN(need) && p.Add > 0:
+					sch = Schedule{Target: target, Add: p.Add, Reason: "Akkukapazität unbekannt – Plan mit +x % kann nicht berechnet werden"}
+				case math.IsNaN(need):
+					sch = Schedule{Target: target, SoC: p.SoC, Reason: "Ladestand oder Akkukapazität unbekannt – Plan kann nicht berechnet werden (Ladestand eingeben oder +x % planen)"}
+				default:
 					var prices []float64
 					t := m.grid
 					if lp.cfg.SeparateMeter {
@@ -859,7 +909,7 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 						prices, _ = t.Prices(ctx, in.Now, target)
 					}
 					sch = MakeSchedule(in.Now, target, need, powerW, prices) // need is grid energy, powerW grid power
-					sch.SoC = p.SoC
+					sch.SoC, sch.Add = p.SoC, p.Add
 				}
 				v.Plan = &sch
 				planSlot = sch.Active(in.Now)
@@ -935,6 +985,11 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 		case mode == ModeBoost && in.BoostW <= 0:
 			d.Reason = "Boost: Hausbatterie ist an ihrer Boost-Grenze – " + d.Reason
 		}
+		v.Limit = nil
+		if _, ok := m.vehicles[v.Vehicle]; ok && v.Connected {
+			v.Limit = m.limitOf(lp, vs, socNow, sessionWh)
+		}
+		lp.applyLimit(v.Limit, mode, &d)
 		if v.Detecting {
 			d.Reason = "Fahrzeug wird erkannt (bis zu 10 min), solange gelten die Gast-Einstellungen – " + d.Reason
 		}
@@ -963,7 +1018,9 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 			v.PhaseCurrentA = v.PowerW / Voltage / float64(v.ActivePhases)
 		}
 		if veh, ok := m.vehicles[v.Vehicle]; ok && v.Connected {
-			v.Finish = finish(veh.status, vs.CapacityWh, v.Plan, v.Charging, v.PowerW, in.Now)
+			stx := veh.status
+			stx.SoC = socNow
+			v.Finish = finish(stx, vs.CapacityWh, v.Plan, v.Limit, sessionWh, v.Charging, v.PowerW, in.Now)
 		}
 		if in.Circuits != nil {
 			next := own // observed or external: the charger keeps drawing what it draws
@@ -997,6 +1054,13 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 		}
 		m.apply(ctx, lp, mode, d)
 	}
+	plugged := map[string]bool{}
+	for _, lp := range m.lps {
+		if lp.view.Connected {
+			plugged[lp.view.Vehicle] = true
+		}
+	}
+	m.dropStaleEstimates(plugged, in.Now)
 	return res
 }
 
@@ -1076,6 +1140,11 @@ func (m *Manager) closeSessions() {
 		if lp.session != nil && m.settings != nil {
 			b, _ := json.Marshal(lp.session)
 			_ = m.settings.Put("open:"+lp.view.ID, b)
+		}
+	}
+	for k, e := range m.est { // the energy charged since the last save
+		if e != nil {
+			soc.Save(m.settings, "soc:"+k, e)
 		}
 	}
 }
@@ -1222,18 +1291,31 @@ func livePhases(st sdk.ChargerStatus, charging bool) int {
 
 // finish estimates the end of charging at the current power. The target is
 // the plan, else the charge limit in the car, else full.
-func finish(st sdk.VehicleStatus, capacityWh float64, plan *Schedule, charging bool, powerW float64, now time.Time) *Finish {
-	if math.IsNaN(st.SoC) || capacityWh <= 0 {
+func finish(st sdk.VehicleStatus, capacityWh float64, plan *Schedule, lim *LimitState, sessionWh float64, charging bool, powerW float64, now time.Time) *Finish {
+	if capacityWh <= 0 {
 		return nil
 	}
 	f := &Finish{TargetSoC: 1, Basis: "full"}
 	switch {
+	case plan != nil && plan.Add > 0:
+		f.Add, f.Basis, f.NeedWh = plan.Add, "plan", plan.NeedWh
 	case plan != nil:
 		f.TargetSoC, f.Basis = plan.SoC, "plan"
+	case lim != nil && lim.Add > 0 && lim.TargetWh > 0:
+		f.Add, f.Basis, f.NeedWh = lim.Add, "own-limit", math.Max(0, lim.TargetWh-sessionWh)
+	case lim != nil && lim.SoC > 0:
+		f.TargetSoC, f.Basis = lim.SoC, "own-limit"
 	case !math.IsNaN(st.LimitSoC) && st.LimitSoC > 0:
 		f.TargetSoC, f.Basis = st.LimitSoC, "limit"
 	}
-	f.NeedWh = NeedWh(st.SoC, f.TargetSoC, capacityWh)
+	if f.Add == 0 {
+		if math.IsNaN(st.SoC) {
+			return nil
+		}
+		f.NeedWh = NeedWh(st.SoC, f.TargetSoC, capacityWh)
+	} else if !math.IsNaN(st.SoC) { // the target as a state of charge, as far as known
+		f.TargetSoC = math.Min(1, st.SoC+f.NeedWh*Efficiency/capacityWh)
+	}
 	switch {
 	case f.NeedWh < 50:
 		f.Reached = true

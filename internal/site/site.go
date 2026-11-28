@@ -25,6 +25,7 @@ import (
 	"github.com/voltibri/voltibri/internal/planner"
 	"github.com/voltibri/voltibri/internal/run"
 	"github.com/voltibri/voltibri/internal/series"
+	"github.com/voltibri/voltibri/internal/soc"
 	"github.com/voltibri/voltibri/sdk"
 )
 
@@ -53,6 +54,7 @@ type State struct {
 	BatteryW        float64              `json:"batteryW"`
 	LoadW           float64              `json:"loadW"`
 	SoC             float64              `json:"soc"`
+	SoCSource       string               `json:"socSource,omitempty"` // api (read), manual (by hand), estimated (reading fails)
 	HasBattery      bool                 `json:"hasBattery"`
 	LimitW          float64              `json:"chargeLimitW"`
 	DischargeLimitW float64              `json:"dischargeLimitW"`       // -1 = battery not held back
@@ -89,6 +91,8 @@ type Reading struct {
 	Boosting bool     `json:"boosting,omitempty"` // the home battery adds power (boost)
 	Top      bool     `json:"top,omitempty"`      // first before all others for today
 	Circuit  string   `json:"circuit,omitempty"`  // sub-distribution the device belongs to
+	// Battery: household devices that charge a battery (e-bike, power bank)
+	Battery *ChargeView `json:"battery,omitempty"`
 }
 
 type producer struct {
@@ -121,14 +125,18 @@ type Site struct {
 	forceCh    sdk.BatteryForceCharger // battery can be force-charged (guest policy forceBattery)
 	forcing    bool
 	forceErr   bool
-	batCache   sdk.Cache              // battery settings, force charging and boost (nil without store)
-	batSet     BatterySettings        // runtime settings (targets, max. discharge, boost)
-	force      *ForceCharge           // running force charging
-	boost      *Boost                 // running boost
-	boostHold  bool                   // automatic boost stopped by hand: no new start until the SoC fell below the start
-	boostEmpty bool                   // the battery is at the boost stop SoC (with hysteresis)
-	guard      socGuard               // charge targets with hysteresis
+	batCache   sdk.Cache       // battery settings, force charging and boost (nil without store)
+	batSet     BatterySettings // runtime settings (targets, max. discharge, boost)
+	force      *ForceCharge    // running force charging
+	boost      *Boost          // running boost
+	boostHold  bool            // automatic boost stopped by hand: no new start until the SoC fell below the start
+	boostEmpty bool            // the battery is at the boost stop SoC (with hysteresis)
+	guard      socGuard        // charge targets with hysteresis
+	batEst     *soc.Estimate   // state of charge: last reading or value by hand, plus energy since
+	batTick    time.Time
+	batSaved   time.Time
 	loadCache  sdk.Cache              // load settings (priority, mode)
+	chargers   *chargeables           // household devices with a battery (e-bike, power bank)
 	loadSet    map[string]LoadSetting // load settings per device
 	auto       planner.Targets        // automatic charge targets (from the last plan)
 
@@ -234,12 +242,14 @@ func New(cfg *config.Config, hist History) (*Site, error) {
 		s.loadCache = cp.Cache(loadsNS)
 	}
 	s.loadLoads()
+	s.chargers = newChargeables(cfg, s.devices, s.loadCache)
 	sessions, _ := hist.(run.Store)
 	s.flex = newFlex(cfg, s.devices)
 	if s.charge, err = charging.New(cfg, loc, s.devices, settings, sessions); err != nil {
 		return nil, err
 	}
 	s.loadBattery() // after the loads: whether a boost is possible depends on them
+	s.loadBatSoC()
 	if id := cfg.Roles.PVForecast; id != "" {
 		if s.pvf, ok = s.devices[id].(sdk.PVForecaster); !ok {
 			return nil, fmt.Errorf("roles.pvForecast: device %q provides no PV forecast", id)
@@ -442,11 +452,13 @@ func (s *Site) measure(ctx context.Context) bool {
 		st.Producers = append(st.Producers, r)
 	}
 	if s.bat != nil {
-		st.SoC, err = s.bat.SoC(ctx)
-		note(err)
+		var socErr error
+		st.SoC, socErr = s.bat.SoC(ctx)
+		note(socErr)
 		st.BatteryW, err = s.bat.BatteryPower(ctx)
 		note(err)
 		st.BatteryW = s.power(s.cfg.Roles.Battery, st.BatteryW)
+		st.SoC, st.SoCSource = s.batterySoC(st.SoC, socErr, st.BatteryW, st.Time)
 	}
 	st.LoadW = math.Max(0, st.GridW+st.PVW+st.BatteryW)
 	known := 0.0
@@ -473,6 +485,11 @@ func (s *Site) measure(ctx context.Context) bool {
 		st.Consumers = append(st.Consumers, r)
 	}
 	st.RestW = math.Max(0, st.LoadW-known)
+	if views := s.chargers.update(ctx, readingPowers(st.Consumers), st.Time); views != nil {
+		for i := range st.Consumers {
+			st.Consumers[i].Battery = views[st.Consumers[i].ID]
+		}
+	}
 	var tree *circuit.Tree
 	if s.circuits != nil {
 		powers, phases := map[string]float64{}, map[string]int{}

@@ -157,6 +157,9 @@ type VehicleInfo struct {
 	// Defaults known without the car (manual vehicles); user settings win.
 	CapacityWh float64 `json:"capacityWh,omitempty"`
 	MaxPowerW  float64 `json:"maxPowerW,omitempty"` // onboard charger limit
+	// DefaultSoC: typical state of charge when plugging in (0..1, 0 =
+	// none); used while neither the car nor the user tell the real one.
+	DefaultSoC float64 `json:"defaultSoc,omitempty"`
 }
 
 // VehicleStatus is the state reported by the vehicle (via its cloud).

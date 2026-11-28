@@ -16,10 +16,12 @@ const SlotLen = 15 * time.Minute
 // Efficiency of AC charging (grid to battery), as in evcc.
 const Efficiency = 0.85
 
-// Plan is a charge target: reach SoC by a time.
+// Plan is a charge target: reach SoC by a time, or, with an unknown state
+// of charge, add a share of the battery (Add, "+30 % bis 07:00").
 type Plan struct {
 	ID   string    `json:"id"`
 	SoC  float64   `json:"soc"`            // target 0..1
+	Add  float64   `json:"add,omitempty"`  // instead of SoC: share to add 0.05..1 (needs the capacity)
 	At   time.Time `json:"at,omitzero"`    // one-off target time
 	Days []int     `json:"days,omitempty"` // repeating: weekdays 0=So..6=Sa
 	Time string    `json:"time,omitempty"` // repeating: "07:30"
@@ -59,7 +61,14 @@ func (p Plan) Next(now time.Time, loc *time.Location) time.Time {
 
 // Validate checks a plan.
 func (p Plan) Validate() error {
-	if p.SoC <= 0 || p.SoC > 1 {
+	switch {
+	case p.Add != 0 && p.SoC != 0:
+		return fmt.Errorf("plan: either a target SoC or +x %%, not both")
+	case p.Add != 0:
+		if err := (Limit{Add: p.Add}).Validate(); err != nil {
+			return err
+		}
+	case p.SoC <= 0 || p.SoC > 1:
 		return fmt.Errorf("target SoC must be between 1 and 100 %%")
 	}
 	if len(p.Days) == 0 {
@@ -84,6 +93,7 @@ func (p Plan) Validate() error {
 type Schedule struct {
 	Target   time.Time   `json:"target"`
 	SoC      float64     `json:"soc"`
+	Add      float64     `json:"add,omitempty"` // plan with +x %
 	NeedWh   float64     `json:"needWh"`
 	Slots    []time.Time `json:"slots"`            // slot starts, sorted
 	Start    time.Time   `json:"start,omitzero"`   // first slot

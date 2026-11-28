@@ -48,7 +48,7 @@ func levelFor(method, path string) level {
 		return levelForecast
 	case "/berichte", "/api/assets", "/api/sessions":
 		return levelReports
-	case "/api/battery", "/api/battery/force", "/api/battery/boost":
+	case "/api/battery", "/api/battery/force", "/api/battery/boost", "/api/battery/soc":
 		return levelAdmin // runtime settings: no re-authentication like the configuration
 	case "/konfiguration", "/api/oauth/callback":
 		return levelAdmin
@@ -64,6 +64,9 @@ func levelFor(method, path string) level {
 		return levelUser // list, mode of a heating rod
 	case method == http.MethodPut && (strings.HasPrefix(path, "/api/vehicles/") || strings.HasPrefix(path, "/api/loadpoints/")):
 		return levelUser // checked per wallbox and vehicle in the handlers
+	case (method == http.MethodPut || method == http.MethodDelete) &&
+		(strings.HasPrefix(path, "/api/vehicle-soc/") || strings.HasPrefix(path, "/api/loadpoints/") && strings.HasSuffix(path, "/limit")):
+		return levelUser // state of charge by hand, charge limit: checked per vehicle and wallbox in the handlers
 	case method == http.MethodGet && strings.HasPrefix(path, "/api/runs"):
 		return levelReports
 	}

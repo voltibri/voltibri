@@ -21,6 +21,36 @@ func (h *handler) batteryRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/battery/force", h.postForce)
 	mux.HandleFunc("DELETE /api/battery/force", h.deleteForce)
 	mux.HandleFunc("DELETE /api/battery/boost", h.deleteBoost)
+	mux.HandleFunc("PUT /api/battery/soc", h.putBatterySoC)
+	mux.HandleFunc("DELETE /api/battery/soc", h.putBatterySoC)
+}
+
+// putBatterySoC sets the state of charge by hand ({"soc": 0.55}) while the
+// battery does not report it; DELETE goes back to the reading.
+func (h *handler) putBatterySoC(w http.ResponseWriter, r *http.Request) {
+	s := h.battery(w)
+	if s == nil {
+		return
+	}
+	var v *float64
+	if r.Method != http.MethodDelete {
+		var req struct {
+			SoC *float64 `json:"soc"`
+		}
+		if !decode(w, r, &req) {
+			return
+		}
+		if req.SoC == nil {
+			writeErr(w, http.StatusBadRequest, "ungültige Daten: soc fehlt", nil)
+			return
+		}
+		v = req.SoC
+	}
+	if err := s.SetBatterySoC(v); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.BatteryInfo())
 }
 
 func (h *handler) battery(w http.ResponseWriter) *site.Site {

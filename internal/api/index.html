@@ -395,6 +395,7 @@
 <dialog class="plans-dlg" id="plansDlg" aria-labelledby="pdTitle"><div class="pd" id="pdInner"></div></dialog>
 <dialog class="plans-dlg" id="vehDlg" aria-labelledby="vdTitle"><div class="pd" id="vehInner"></div></dialog>
 <dialog class="plans-dlg" id="lpDlg" aria-labelledby="lpdTitle"><div class="pd" id="lpInner"></div></dialog>
+<dialog class="plans-dlg" id="akkuDlg" aria-labelledby="akTitle"><div class="pd" id="akInner"></div></dialog>
 <script src="common.js"></script>
 <script>
 const kw = w => (Math.abs(w) >= 1000 ? (w/1000).toFixed(1).replace('.', ',') + ' kW' : Math.round(w) + ' W');
@@ -645,9 +646,19 @@ async function send(method, url, body) {
   return true;
 }
 const vehicleOf = key => (charging.vehicles || []).find(v => v.key === key);
+// target of a plan or limit: "80 %" or "+20 %" (with an unknown state of charge)
+const tgtText = p => p.add ? '+' + pct(p.add) : pct(p.soc);
+// where a state of charge comes from: by hand, typical value, data source; hochgerechnet
+function socSrc(v) {
+  if (!v || v.soc == null) return '';
+  const at = v.socAt ? new Date(v.socAt).toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'}) : '';
+  const s = {manual: 'von Hand' + (at ? ' ' + at : ''), default: 'typischer Wert beim Anstecken', api: 'aus der Datenquelle'}[v.socSource] || '';
+  return s + (v.socEstimated ? ' · hochgerechnet' : '');
+}
+const socApprox = v => v && (v.socSource === 'manual' || v.socSource === 'default' || v.socEstimated) ? '≈ ' : '';
 
 function planText(p) {
-  const soc = Math.round(p.soc * 100) + ' %';
+  const soc = tgtText(p);
   if (p.days && p.days.length) return `${soc} um ${p.time} · ${p.days.map(d => DAYS[d]).join(', ')}`;
   return `${soc} bis ${new Date(p.at).toLocaleString('de-DE', {weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'})}`;
 }
@@ -695,9 +706,10 @@ function wallboxViz(lp, veh, left, control) {
       <path d="${CAR}" transform="${CAR_T}" class="wv-car"/>
       ${soc != null ? `<g clip-path="url(#${cid})"><rect x="0" y="0" width="${(100 * soc).toFixed(1)}" height="64" fill="${col}" opacity=".28"/>
         ${veh.limitSoc != null ? mark(veh.limitSoc, 'var(--fg)', 'Ladelimit im Auto ' + pct(veh.limitSoc)) : ''}
-        ${lp.finish && lp.finish.basis === 'plan' ? mark(lp.finish.targetSoc, 'var(--accent-2)', 'Ziel laut Ladeplan ' + pct(lp.finish.targetSoc)) : ''}</g>` : ''}
+        ${lp.finish && lp.finish.basis === 'plan' ? mark(lp.finish.targetSoc, 'var(--accent-2)', 'Ziel laut Ladeplan ' + pct(lp.finish.targetSoc)) : ''}
+        ${lp.finish && lp.finish.basis === 'own-limit' ? mark(lp.finish.targetSoc, 'var(--accent-2)', 'Ladelimit ' + pct(lp.finish.targetSoc)) : ''}</g>` : ''}
       <circle cx="24" cy="62" r="9" class="wv-wheel"/><circle cx="78" cy="62" r="9" class="wv-wheel"/>
-      ${soc != null ? `<text x="50" y="48" text-anchor="middle" class="wv-soc">${pct(soc)}</text>` : lp.foreign ? '<text x="50" y="47" text-anchor="middle" class="wv-t">belegt</text>' : ''}
+      ${soc != null ? `<text x="50" y="48" text-anchor="middle" class="wv-soc"><title>${esc(socSrc(veh))}</title>${socApprox(veh)}${pct(soc)}</text>` : lp.foreign ? '<text x="50" y="47" text-anchor="middle" class="wv-t">belegt</text>' : ''}
       ${soc != null && veh.rangeKm != null ? `<text x="108" y="${CABLE_Y - 8}" class="wv-t">${Math.round(veh.rangeKm)} km</text>` : ''}`;
   } else {
     car = `<path d="${CAR}" transform="${CAR_T}" class="wv-ghost"/><circle cx="24" cy="62" r="9" class="wv-ghost wv-wheel"/><circle cx="78" cy="62" r="9" class="wv-ghost wv-wheel"/>
@@ -730,7 +742,9 @@ function modeControl(lp, canEdit) {
 function etaView(lp, veh) {
   if (!lp.connected || lp.foreign) return '';
   const f = lp.finish, sch = lp.plan, clock = iconSVG('clock', 18);
-  const target = f ? (f.basis === 'plan' ? `bis ${pct(f.targetSoc)} laut Plan` : f.basis === 'limit' ? `bis ${pct(f.targetSoc)} (Limit im Auto)` : 'bis 100 %') : '';
+  const goal = f && f.add ? '+' + pct(f.add) : f ? 'bis ' + pct(f.targetSoc) : '';
+  const target = f ? (f.basis === 'plan' ? `${goal} laut Plan` : f.basis === 'own-limit' ? `${goal} (Ladelimit)` : f.basis === 'limit' ? `${goal} (Limit im Auto)` : 'bis 100 %') : '';
+  if (lp.limit && lp.limit.reached) return `<div class="eta">${iconSVG('target', 18)}<div><b>Ladelimit erreicht</b><span>${lp.limit.add ? '+' + pct(lp.limit.add) + ' geladen' : pct(lp.limit.soc)}</span></div></div>`;
   if (f && f.reached) return `<div class="eta">${iconSVG('target', 18)}<div><b>Ziel erreicht</b><span>${pct(f.targetSoc)} geladen</span></div></div>`;
   if (lp.charging && f && f.at) {
     const mins = Math.max(0, Math.round((new Date(f.at) - Date.now()) / 60000));
@@ -738,9 +752,9 @@ function etaView(lp, veh) {
     return `<div class="eta">${clock}<div><b>fertig ca. ${etaTime(f.at)}</b><span>noch ${left} · ${kwh(f.needWh)} ${target}</span></div></div>`;
   }
   if (sch && sch.start && !lp.charging && new Date(sch.start) > Date.now()) {
-    return `<div class="eta">${iconSVG('calendar', 18)}<div><b>Start ${etaTime(sch.start)}</b><span>laut Plan: ${pct(sch.soc)} bis ${etaTime(sch.target)}${sch.needWh ? ' · ' + kwh(sch.needWh) : ''}</span></div></div>`;
+    return `<div class="eta">${iconSVG('calendar', 18)}<div><b>Start ${etaTime(sch.start)}</b><span>laut Plan: ${tgtText(sch)} bis ${etaTime(sch.target)}${sch.needWh ? ' · ' + kwh(sch.needWh) : ''}</span></div></div>`;
   }
-  if (lp.charging && !f) return `<div class="eta muted">${clock}<div><b>Ladeende unbekannt</b><span>${veh ? 'Ladestand oder Akkugröße fehlt' : 'Gastfahrzeug – Ladestand unbekannt'}</span></div></div>`;
+  if (lp.charging && !f) return `<div class="eta muted">${clock}<div><b>Ladeende unbekannt</b><span>${veh ? 'Ladestand oder Akkugröße fehlt – unter „Fahrzeug &amp; Ladeplan“ eingeben' : 'Gastfahrzeug – Ladestand unbekannt'}</span></div></div>`;
   if (f && !lp.charging) return `<div class="eta muted">${clock}<div><b>wartet</b><span>noch ${kwh(f.needWh)} ${target}</span></div></div>`;
   return '';
 }
@@ -801,12 +815,17 @@ function renderVehiclesDlg() {
     const meta = [[v.info.brand, v.info.model].filter(Boolean).join(' '), v.settings.capacityWh ? 'Akku ' + kwh(v.settings.capacityWh) : '',
       batKey(v.settings.noBatteryModes) !== 'allow' ? 'Hausbatterie ' + BAT_OPTS[batKey(v.settings.noBatteryModes)].label : ''].filter(Boolean).join(' · ');
     const soc = v.soc != null ? `<div class="vsoc"><div class="socbar"><i style="width:${(v.soc * 100).toFixed(0)}%"></i>${v.limitSoc != null ? `<b style="left:${(v.limitSoc * 100).toFixed(0)}%" title="Ladelimit im Auto"></b>` : ''}</div>
-      <div class="socline"><span>${pct(v.soc)}${v.rangeKm != null ? ' · ' + Math.round(v.rangeKm) + ' km' : ''}</span><span>${v.limitSoc != null ? 'Limit ' + pct(v.limitSoc) : ''}</span></div></div>` : '';
+      <div class="socline"><span>${socApprox(v)}${pct(v.soc)}${v.rangeKm != null ? ' · ' + Math.round(v.rangeKm) + ' km' : ''}${v.socSource && v.socSource !== 'api' ? ' · ' + esc(socSrc(v)) : ''}</span><span>${v.limitSoc != null ? 'Limit ' + pct(v.limitSoc) : ''}</span></div></div>` : '';
     const plans = (v.settings.plans || []).filter(p => !p.off).length;
+    // default charge limit: a state of charge, or +x % for vehicles without one
+    const lim = v.settings.limit || {}, limKey = lim.add ? 'a' + Math.round(lim.add * 100) : lim.soc ? 's' + Math.round(lim.soc * 100) : '';
+    const limOpts = [['', 'kein Limit'], ...[60, 70, 80, 90].map(x => ['s' + x, x + ' %']), ...(v.settings.capacityWh ? [10, 20, 30, 50].map(x => ['a' + x, '+' + x + ' %']) : [])];
+    if (limKey && !limOpts.some(o => o[0] === limKey)) limOpts.push([limKey, lim.add ? '+' + pct(lim.add) : pct(lim.soc)]);
     return `<div class="vcard" data-veh="${esc(v.key)}"><span class="vic">${iconSVG('car', 22)}</span>
       <div><div class="vn">${esc(v.name)} ${st}</div><div class="vm">${esc(meta || (v.soc == null ? 'ohne Ladestand' : ''))}</div></div><span></span>
       ${soc}
       <div class="vctl"><label>Standardmodus <select data-vmode ${charging.local ? '' : 'disabled'}>${Object.keys(MODE_LABEL).map(m => `<option value="${m}"${m === v.settings.mode ? ' selected' : ''}>${MODE_LABEL[m]}</option>`).join('')}</select></label>
+        <label title="voltibri hört hier auf zu laden; +x % gilt ab dem Anstecken (für Fahrzeuge ohne Ladestand)">Ladelimit <select data-vlimit ${charging.local ? '' : 'disabled'}>${limOpts.map(o => `<option value="${o[0]}"${o[0] === limKey ? ' selected' : ''}>${o[1]}</option>`).join('')}</select></label>
         <span class="spacer"></span><button type="button" class="btn" data-plans="${esc(v.key)}">${iconSVG('calendar', 14)} ${plans ? nextPlanShort(v) : 'Ladeplan'}</button></div></div>`;
   }).join('');
   $('vehInner').innerHTML = `<div class="pd-head"><div class="top"><span class="ic">${iconSVG('car', 22)}</span>
@@ -850,7 +869,7 @@ async function refreshCharging(force) {
   $('vehNote').hidden = !needLogin.length;
   $('vehNote').innerHTML = needLogin.map(p => `${esc(p.name)}: noch nicht angemeldet – Ladestand fehlt. ${charging.admin ? `<a class="btn primary" href="api/oauth/${encodeURIComponent(p.id)}/login">Bei ${esc(p.name)} anmelden</a>` : ''}`).join('<br>');
   if ($('vehDlg').open) renderVehiclesDlg();
-  if ($('lpDlg').open && !$('lpDlg').contains(document.activeElement && document.activeElement.tagName === 'SELECT' ? document.activeElement : null)) renderLpDlg();
+  if ($('lpDlg').open && !$('lpDlg').contains(document.activeElement && /SELECT|INPUT/.test(document.activeElement.tagName) ? document.activeElement : null)) renderLpDlg();
   restoreDetails(box);
 }
 function vehicleSettings(key) { return JSON.parse(JSON.stringify(vehicleOf(key).settings)); }
@@ -912,12 +931,12 @@ function planNext(p, now = new Date()) {
 const limitNote = (v, x) => v.limitSoc != null && x > v.limitSoc + 0.001 ? ` · Achtung: das Auto stoppt bei seinem Limit von ${pct(v.limitSoc)} (in der Fahrzeug-App ändern)` : '';
 function nextPlanShort(v) {
   const n = (v.settings.plans || []).map(p => [p, planNext(p)]).filter(x => x[1]).sort((a, b) => a[1] - b[1])[0];
-  return n ? `${pct(n[0].soc)} bis ${etaTime(n[1])}` : 'Ladeplan';
+  return n ? `${tgtText(n[0])} bis ${etaTime(n[1])}` : 'Ladeplan';
 }
 // summary on the wallbox tile
 function planSummary(veh, sch, canEdit) {
   const n = (veh.settings.plans || []).map(p => [p, planNext(p)]).filter(x => x[1]).sort((a, b) => a[1] - b[1])[0];
-  const txt = n ? `<b>${pct(n[0].soc)} bis ${etaTime(n[1])}</b><span>${sch ? esc(sch.reason) : (n[0].days && n[0].days.length ? dayList(n[0].days) + ' ' + n[0].time : 'einmalig')}</span>`
+  const txt = n ? `<b>${tgtText(n[0])} bis ${etaTime(n[1])}</b><span>${sch ? esc(sch.reason) : (n[0].days && n[0].days.length ? dayList(n[0].days) + ' ' + n[0].time : 'einmalig')}</span>`
     : '<b>Kein Ladeplan</b><span>Ziel-Ladestand zur Abfahrt festlegen</span>';
   return `<div class="planline">${iconSVG('calendar', 18)}<div class="txt">${txt}</div>${canEdit ? `<button type="button" class="btn" data-plans="${esc(veh.key)}">${n ? 'Bearbeiten' : 'Planen'}</button>` : ''}</div>`;
 }
@@ -933,7 +952,7 @@ function renderPlans() {
   if (!v) { $('plansDlg').close(); return; }
   const s = v.settings, cap = s.capacityWh || 0, plans = s.plans || [];
   const soc = v.soc != null ? v.soc : null;
-  const edit = PD.edit, tgt = edit ? edit.soc : null;
+  const edit = PD.edit, tgt = edit && !edit.add ? edit.soc : null;
   const ro = !charging.local;
   const batt = `<div class="pd-batt"><div class="bar">${soc != null ? `<i style="width:${(soc * 100).toFixed(0)}%"></i>` : ''}${tgt != null && soc != null && tgt > soc ? `<em style="left:${(soc * 100).toFixed(0)}%;width:${((tgt - soc) * 100).toFixed(0)}%"></em>` : ''}</div>
     <div class="lbl"><span>${soc != null ? 'jetzt ' + pct(soc) : 'Ladestand unbekannt'}${v.rangeKm != null ? ' · ' + Math.round(v.rangeKm) + ' km' : ''}</span><span>${cap ? 'Akku ' + kwh(cap) : 'Akkugröße fehlt'}${v.limitSoc != null ? ' · Limit im Auto ' + pct(v.limitSoc) : ''}</span></div></div>`;
@@ -942,7 +961,7 @@ function renderPlans() {
     const t = rep ? p.time : hm2(p.at);
     return `<div class="pcard${p.off ? ' off' : ''}">
       <div class="t">${esc(t)}<small>${rep ? 'Abfahrt' : new Date(p.at).toLocaleDateString('de-DE', {weekday: 'short', day: '2-digit', month: '2-digit'})}</small></div>
-      <div class="mid"><div class="soc">${pct(p.soc)} geladen</div>
+      <div class="mid"><div class="soc">${p.add ? tgtText(p) + ' laden' : pct(p.soc) + ' geladen'}</div>
         ${rep ? `<div class="dchips">${WD_ORDER.map(d => `<span class="${p.days.includes(d) ? 'on' : ''}">${DAYS[d]}</span>`).join('')}</div>` : ''}
         <div class="next">${p.off ? 'pausiert' : nx ? 'nächste Abfahrt ' + etaTime(nx) : 'abgelaufen'}</div></div>
       ${ro ? '<span></span>' : `<div class="acts"><label class="switch" title="${p.off ? 'Plan einschalten' : 'Plan pausieren'}"><input type="checkbox" data-ptoggle="${esc(p.id)}"${p.off ? '' : ' checked'} aria-label="Plan aktiv"><i></i></label>
@@ -953,14 +972,17 @@ function renderPlans() {
   let form = '';
   if (edit) {
     const rep = !!(edit.days && edit.days.length) || edit.mode === 'rep';
-    const need = cap && soc != null ? Math.max(0, (edit.soc - soc) * cap / 0.85) : null;
+    const add = !!edit.add, val = add ? edit.add : edit.soc;
+    const need = add ? (cap ? edit.add * cap / 0.85 : null) : cap && soc != null ? Math.max(0, (edit.soc - soc) * cap / 0.85) : null;
     const atLocal = (() => { const d = edit.at ? new Date(edit.at) : (() => { const t = new Date(); t.setDate(t.getDate() + 1); t.setHours(7, 0, 0, 0); return t; })();
       const z = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}T${z(d.getHours())}:${z(d.getMinutes())}`; })();
     form = `<form class="pform" id="pform" novalidate>
       <h3>${edit.id ? 'Plan bearbeiten' : 'Neuer Plan'}</h3>
-      <div><div class="lab">Ziel-Ladestand <span class="socval" id="pfSocVal">${pct(edit.soc)}</span></div>
-        <input type="range" id="pfSoc" min="20" max="100" step="5" value="${Math.round(edit.soc * 100)}" aria-label="Ziel-Ladestand">
-        <div class="need" id="pfNeed">${(need != null ? (need > 0 ? `noch ca. ${kwh(need)} zu laden` : 'schon erreicht') : 'Für eine Schätzung fehlen Ladestand oder Akkugröße.') + limitNote(v, edit.soc)}</div></div>
+      <div><div class="seg" role="group" aria-label="Art des Ziels"><button type="button" data-padd="0" aria-pressed="${!add}">Ziel-Ladestand</button><button type="button" data-padd="1" aria-pressed="${add}" title="Für Fahrzeuge ohne bekannten Ladestand: einen Anteil des Akkus dazuladen">+x %</button></div></div>
+      <div><div class="lab">${add ? 'Dazuladen' : 'Ziel-Ladestand'} <span class="socval" id="pfSocVal">${add ? '+' : ''}${pct(val)}</span></div>
+        <input type="range" id="pfSoc" min="${add ? 5 : 20}" max="100" step="5" value="${Math.round(val * 100)}" aria-label="${add ? 'Dazuladen' : 'Ziel-Ladestand'}">
+        <div class="need" id="pfNeed">${add ? (need != null ? `ca. ${kwh(need)} zu laden` : 'Für +x % fehlt die Akkugröße.')
+          : (need != null ? (need > 0 ? `noch ca. ${kwh(need)} zu laden` : 'schon erreicht') : 'Für eine Schätzung fehlen Ladestand oder Akkugröße – Ladestand eingeben oder +x % wählen.') + limitNote(v, edit.soc)}</div></div>
       <div><div class="lab">Abfahrt</div>
         <div class="seg" role="group" aria-label="Wiederholung"><button type="button" data-prep="1" aria-pressed="${rep}">Wiederkehrend</button><button type="button" data-prep="0" aria-pressed="${!rep}">Einmalig</button></div></div>
       ${rep ? `<div class="row"><input type="time" class="timein" id="pfTime" value="${esc(edit.time || '07:00')}" required aria-label="Uhrzeit"></div>
@@ -983,7 +1005,7 @@ function renderPlans() {
 function readPlanForm() {
   const e = PD.edit, f = $('pform');
   if (!e || !f) return;
-  e.soc = Number($('pfSoc').value) / 100;
+  if (e.add) e.add = Number($('pfSoc').value) / 100; else e.soc = Number($('pfSoc').value) / 100;
   if ($('pfTime')) { e.time = $('pfTime').value; e.days = [...f.querySelectorAll('[data-wd]:checked')].map(x => Number(x.dataset.wd)); e.mode = 'rep'; }
   if ($('pfAt')) { e.at = $('pfAt').value ? new Date($('pfAt').value).toISOString() : ''; e.mode = 'once'; }
 }
@@ -1000,7 +1022,9 @@ $('plansDlg').addEventListener('click', async e => {
   const d = $('plansDlg');
   if (e.target === d || e.target.closest('[data-pclose]')) return d.close();
   const v = vehicleOf(PD.key), plans = JSON.parse(JSON.stringify((v && v.settings.plans) || []));
-  if (e.target.closest('[data-pnew]')) { PD.edit = {id: '', soc: 0.8, time: '07:00', days: [1, 2, 3, 4, 5], mode: 'rep'}; return renderPlans(); }
+  if (e.target.closest('[data-pnew]')) { PD.edit = {id: '', soc: 0.8, add: v && v.soc == null ? 0.3 : 0, time: '07:00', days: [1, 2, 3, 4, 5], mode: 'rep'}; return renderPlans(); }
+  const pa = e.target.closest('[data-padd]');
+  if (pa) { readPlanForm(); PD.edit.add = pa.dataset.padd === '1' ? (PD.edit.add || 0.3) : 0; PD.edit.soc = PD.edit.soc || 0.8; return renderPlans(); }
   if (e.target.closest('[data-pcancel]')) { PD.edit = null; PD.err = ''; return renderPlans(); }
   const ed = e.target.closest('[data-pedit]');
   if (ed) { const p = plans.find(x => x.id === ed.dataset.pedit); PD.edit = {...p, mode: p.days && p.days.length ? 'rep' : 'once'}; return renderPlans(); }
@@ -1017,7 +1041,7 @@ $('plansDlg').addEventListener('click', async e => {
   if (pre) { const on = pre.dataset.preset.split(',').map(Number); $('pform').querySelectorAll('[data-wd]').forEach(x => { x.checked = on.includes(Number(x.dataset.wd)); }); return; }
   if (e.target.closest('[data-psave]')) {
     readPlanForm();
-    const ed2 = PD.edit, p = {id: ed2.id || undefined, soc: ed2.soc};
+    const ed2 = PD.edit, p = ed2.add ? {id: ed2.id || undefined, add: ed2.add} : {id: ed2.id || undefined, soc: ed2.soc};
     if (ed2.mode === 'rep') {
       if (!ed2.days.length) { PD.err = 'Bitte mindestens einen Wochentag wählen.'; return renderPlans(); }
       if (!ed2.time) { PD.err = 'Bitte eine Uhrzeit wählen.'; return renderPlans(); }
@@ -1043,6 +1067,11 @@ $('plansDlg').addEventListener('change', async e => {
 $('plansDlg').addEventListener('input', e => {
   if (e.target.id !== 'pfSoc') return;
   const v = vehicleOf(PD.key), soc = v && v.soc, cap = v && v.settings.capacityWh, x = Number(e.target.value) / 100;
+  if (PD.edit && PD.edit.add) {
+    $('pfSocVal').textContent = '+' + pct(x);
+    if (cap) $('pfNeed').textContent = `ca. ${kwh(x * cap / 0.85)} zu laden`;
+    return;
+  }
   $('pfSocVal').textContent = pct(x);
   if (soc != null && cap) $('pfNeed').textContent = (x > soc ? `noch ca. ${kwh((x - soc) * cap / 0.85)} zu laden` : 'schon erreicht') + limitNote(v, x);
   const em = document.querySelector('.pd-batt em');
@@ -1070,9 +1099,10 @@ $('vehDlg').addEventListener('click', e => {
 });
 $('vehDlg').addEventListener('change', async e => {
   const t = e.target, card = t.closest('[data-veh]');
-  if (!card || !t.matches('[data-vmode]')) return;
+  if (!card || !t.matches('[data-vmode], [data-vlimit]')) return;
   const s = vehicleSettings(card.dataset.veh);
-  s.mode = t.value;
+  if (t.matches('[data-vmode]')) s.mode = t.value;
+  else { const x = Number(t.value.slice(1)) / 100; s.limit = !t.value ? null : t.value[0] === 'a' ? {add: x} : {soc: x}; }
   await send('PUT', 'api/vehicles/' + card.dataset.veh, s);
 });
 
@@ -1158,7 +1188,9 @@ function detailTiles(st) {
     const bs0 = (batInfo && batInfo.settings) || {}, bs = {...bs0, minSoc: batInfo ? batInfo.minSocNow : 0, maxSoc: batInfo ? batInfo.maxSocNow : 0}, mark = (v, t) => v > 0 && v < 1 ? `<b class="dmark" style="left:${(v * 100).toFixed(0)}%" title="${t} ${pct(v)}"></b>` : '';
     const ring = `<span class="dbar dsoc"><i style="width:${(st.soc * 100).toFixed(0)}%;background:linear-gradient(90deg, var(--accent), var(--battery))"></i>${mark(bs.minSoc, 'Unteres Ladeziel')}${mark(bs.maxSoc, 'Oberes Ladeziel')}${st.forceCharge ? mark(st.forceCharge.targetSoc, 'Zwangsladung bis') : ''}${st.boost ? mark(st.boost.stopSoc, 'Boost bis') : bs.boostStartSoc > 0 ? mark(bs.boostStartSoc, 'Boost ab') : ''}</span>`;
     const targets = [bs.minSoc > 0 ? pct(bs.minSoc) : '', bs.maxSoc > 0 ? pct(bs.maxSoc) : ''];
-    return [tile('Ladestand', unit(Math.round(st.soc * 100), '%'), bs.minSoc > 0 || bs.maxSoc > 0 ? `${bs0.limitMode === 'manual' ? 'von Hand' : 'automatisch'}  ${targets[0] || '0 %'} – ${targets[1] || '100 %'}` : '', ring),
+    const socNote = {manual: 'von Hand eingegeben · hochgerechnet', estimated: 'geschätzt – die Batterie meldet keinen Ladestand'}[st.socSource];
+    return [tile('Ladestand', st.soc == null || isNaN(st.soc) ? '–' : (socNote ? '≈ ' : '') + unit(Math.round(st.soc * 100), '%'),
+        socNote || (bs.minSoc > 0 || bs.maxSoc > 0 ? `${bs0.limitMode === 'manual' ? 'von Hand' : 'automatisch'}  ${targets[0] || '0 %'} – ${targets[1] || '100 %'}` : ''), ring),
       tile(state === 'Ruhe' ? 'Leistung' : state === 'lädt' ? 'Lädt mit' : 'Entlädt mit', unit(num1(Math.abs(w) / 1000), 'kW'), state === 'Ruhe' ? 'in Ruhe' : ''),
       tile('Heute', `${kwhS(t.batteryInWh || 0)}<small>kWh geladen</small>`, `${kwh(t.batteryOutWh || 0)} entladen`),
       st.forceCharge ? tile('Steuerung', 'Zwangsladung', `lädt bis ${pct(st.forceCharge.targetSoc)} · seit ${hm(st.forceCharge.since)}`)
@@ -1176,7 +1208,12 @@ function detailTiles(st) {
   case 'home': {
     const top = [...(st.consumers || [])].filter(c => c.powerW > 15).sort((a, b) => b.powerW - a.powerW).slice(0, 4)
       .map(c => `<span class="drow"><span>${esc(c.name)}</span><b>${kw(c.powerW)}</b></span>`).join('');
+    const akkus = (st.consumers || []).filter(c => c.battery).map(c => {
+      const b = c.battery, state = b.off ? 'am Limit aus' : b.active ? (c.powerW > 5 ? 'lädt' : 'wartet') : 'nicht am Laden';
+      return `<span class="drow"><span>${esc(c.name)} · ${state}</span><b>${b.soc != null ? '≈ ' + pct(b.soc) : '? %'}</b><em><button type="button" class="linkbtn" data-akku="${esc(c.id)}">Akku</button></em></span>`;
+    }).join('');
     return [tile('Verbrauch jetzt', unit(num1(st.loadW / 1000), 'kW')),
+      akkus ? `<div class="dtile wide"><span class="eyebrow">Akkus an Steckdosen</span>${akkus}</div>` : '',
       tile('Heute', unit(kwhS(t.loadWh || 0), 'kWh'), t.autarky != null ? `Autarkie ${pct(t.autarky)}` : ''),
       `<div class="dtile wide"><span class="eyebrow">Größte Verbraucher jetzt</span>${top || '<span class="ds">–</span>'}<span class="drow"><span>übriges Haus</span><b>${kw(st.restW || 0)}</b></span></div>`].join('');
   }
@@ -1252,11 +1289,17 @@ function buildBatCtl() {
   const force = !f.forceCharge ? '' : fc
     ? grp('Zwangsladung', `<small>läuft bis ${pct(fc.targetSoc)} – auch aus dem Netz · seit ${hm(fc.since)}</small><button class="btn danger" id="bForceEnd">Beenden</button>`, '')
     : grp('Zwangsladung', `<small>sofort mit voller Leistung, notfalls aus dem Netz</small><select id="bForce" aria-label="Zwangsladung bis">${opts(Math.max(P(i.maxSocNow || 1), 50), 20, 100, 5, v => 'bis ' + v + ' %')}</select><button class="btn" id="bForceGo">${iconSVG('bolt', 14)} Starten</button>`, '');
+  // state of charge by hand: when the battery does not report it (or reports nonsense)
+  const last = window._last || {}, srcTxt = {manual: 'von Hand · hochgerechnet', estimated: 'geschätzt aus der letzten Messung', api: 'von der Batterie gemeldet'}[last.socSource] || '';
+  const socOpen = last.socSource && last.socSource !== 'api';
+  const socG = `<details class="more"${socOpen ? ' open' : ''}><summary>Ladestand von Hand</summary>${socForm({url: 'api/battery/soc', title: 'Ladestand',
+    cur: last.soc != null && !isNaN(last.soc) ? last.soc : null, what: `${last.soc != null ? pct(last.soc) : ''} · ${srcTxt}`, manual: last.socSource === 'manual', canEdit: true,
+    note: 'Für Batterien ohne Ladestand oder wenn die Abfrage ausfällt: gilt, bis die Batterie wieder einen anderen Wert meldet; voltibri rechnet mit der gemessenen Leistung hoch.'})}</details>`;
   if (!limits && !boost && !force) {
-    batEl.innerHTML = `<p class="bnote">${esc(i.note || 'Hier gibt es nichts einzustellen.')} ${f.priority || f.boost ? more : ''}</p>`;
+    batEl.innerHTML = `<p class="bnote">${esc(i.note || 'Hier gibt es nichts einzustellen.')} ${f.priority || f.boost ? more : ''}</p>${socG}`;
     return;
   }
-  batEl.innerHTML = `<div class="pform">${limits}${boost}${force}<p class="err"></p></div>`;
+  batEl.innerHTML = `<div class="pform">${limits}${boost}${force}<p class="err"></p></div>${socG}`;
   const q = id => batEl.querySelector('#' + id);
   const body = over => Object.assign({
     limitMode: s.limitMode, manualFor: s.manualFor || 'morning',
@@ -1315,6 +1358,76 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape' && sel) selec
 
 // --- vehicle & charge plan of a wallbox (dialog from the tile) ---
 let lpDlgId = null;
+// --- state of charge by hand and charge limit: the same form for vehicles,
+// the home battery and household batteries (e-bike, power bank) ---
+const LD = {soc: null, lim: null}; // values being chosen (kept across re-renders)
+// o: {url (PUT {soc} / DELETE), title, cur (0..1 or null), what (source text), manual, note, canEdit}
+function socForm(o) {
+  const x = LD.soc != null ? LD.soc : o.cur != null ? Math.round(o.cur * 20) / 20 : 0.5;
+  return `<div class="pform" data-socurl="${esc(o.url)}"><div><div class="lab">${esc(o.title)} <span class="socval" data-socval>${pct(x)}</span></div>
+      ${o.canEdit ? `<input type="range" data-socin min="0" max="100" step="1" value="${Math.round(x * 100)}" aria-label="Ladestand eingeben">` : ''}
+      <div class="need">Jetzt: ${o.cur != null ? esc(o.what) : 'unbekannt'}. ${esc(o.note)}</div></div>
+    ${o.canEdit ? `<div class="row"><button type="button" class="btn primary" data-socset>Ladestand übernehmen</button>${o.manual ? '<button type="button" class="btn" data-socdel>Eingabe verwerfen</button>' : ''}</div>` : ''}</div>`;
+}
+// o: {url (PUT {soc}|{add} / DELETE), l (limit state or null), known (state of charge known), cap (Wh), eff, canEdit, stop (what happens)}
+function limitForm(o) {
+  const l = o.l, add = !o.known;
+  if (add && !o.cap) return '<div class="hint">Ladelimit: dafür fehlen Ladestand und Akkugröße.</div>';
+  const x = LD.lim != null ? LD.lim : l && add && l.add ? l.add : l && !add && l.soc ? l.soc : add ? 0.2 : 0.8;
+  const now = l ? `${l.add ? '+' + pct(l.add) : 'bis ' + pct(l.soc)}${l.session ? ' (nur diese Ladung)' : ' (Standard)'}${l.reached ? ' · erreicht' : ''}${l.note ? ' · ' + l.note : ''}` : 'keins';
+  return `<div class="pform" data-limurl="${esc(o.url)}" data-eff="${o.eff}" data-cap="${o.cap || 0}" data-stop="${esc(o.stop)}"><div><div class="lab">Ladelimit${add ? ' (Ladestand unbekannt)' : ''} <span class="socval" data-limval>${add ? '+' : ''}${pct(x)}</span></div>
+      ${o.canEdit ? `<input type="range" data-limin min="${add ? 5 : 20}" max="100" step="5" value="${Math.round(x * 100)}" aria-label="Ladelimit">` : ''}
+      <div class="need" data-limneed>${limNeed(add, x, o.cap, o.eff, o.stop)}</div><div class="need">Jetzt: ${esc(now)}.</div></div>
+    ${o.canEdit ? `<div class="row"><button type="button" class="btn primary" data-limset data-add="${add ? 1 : 0}">Limit setzen</button>${l && l.session ? '<button type="button" class="btn" data-limdel>Limit entfernen</button>' : ''}</div>` : ''}</div>`;
+}
+const limNeed = (add, x, cap, eff, stop) => add ? `+${pct(x)} sind ca. ${kwh(x * cap / eff)} ab jetzt, dann ${stop}.` : `Bei ${pct(x)} ${stop}.`;
+// after a change: re-render what shows a state of charge
+function socDone() {
+  if ($('lpDlg').open) renderLpDlg();
+  if ($('akkuDlg').open) renderAkku();
+  if (sel === 'battery') loadBattery();
+}
+document.addEventListener('click', async e => {
+  const f = e.target.closest('[data-socurl], [data-limurl]');
+  if (!f) return;
+  const req = async (method, url, body) => {
+    const r = await fetch(url, {method, headers: {'Content-Type': 'application/json'}, body: body ? JSON.stringify(body) : undefined}).catch(() => null);
+    if (!r || !r.ok) { const j = r ? await r.json().catch(() => ({})) : {}; alert(j.error || 'Keine Verbindung.'); return false; }
+    return true;
+  };
+  let ok;
+  if (e.target.closest('[data-socset]')) ok = await req('PUT', f.dataset.socurl, {soc: Number(f.querySelector('[data-socin]').value) / 100});
+  else if (e.target.closest('[data-socdel]')) ok = await req('DELETE', f.dataset.socurl);
+  else if (e.target.closest('[data-limset]')) {
+    const x = Number(f.querySelector('[data-limin]').value) / 100;
+    ok = await req('PUT', f.dataset.limurl, e.target.closest('[data-limset]').dataset.add === '1' ? {add: x} : {soc: x});
+  } else if (e.target.closest('[data-limdel]')) ok = await req('DELETE', f.dataset.limurl);
+  else return;
+  if (!ok) return;
+  LD.soc = LD.lim = null;
+  await Promise.all([refreshCharging(true), refresh()]);
+  socDone();
+});
+document.addEventListener('input', e => {
+  const x = Number(e.target.value) / 100;
+  if (e.target.matches('[data-socin]')) { LD.soc = x; e.target.closest('[data-socurl]').querySelector('[data-socval]').textContent = pct(x); }
+  if (e.target.matches('[data-limin]')) {
+    const f = e.target.closest('[data-limurl]'), add = e.target.min === '5';
+    LD.lim = x; f.querySelector('[data-limval]').textContent = (add ? '+' : '') + pct(x);
+    f.querySelector('[data-limneed]').textContent = limNeed(add, x, Number(f.dataset.cap), Number(f.dataset.eff), f.dataset.stop);
+  }
+});
+function socBlock(lp, veh, canEdit) {
+  if (!veh || lp.foreign) return '';
+  return socForm({url: 'api/vehicle-soc/' + veh.key, title: 'Ladestand · ' + veh.name, cur: veh.soc, what: `${socApprox(veh)}${veh.soc != null ? pct(veh.soc) : ''} · ${socSrc(veh)}`,
+    manual: veh.socSource === 'manual', canEdit,
+    note: lp.connected ? 'Eine Eingabe gilt bis zum Abstecken und wird während des Ladens hochgerechnet; meldet das Fahrzeugkonto einen neuen Wert, gilt dieser.' : 'Gilt für den nächsten Ladevorgang bis zum Abstecken.'});
+}
+function limitBlock(lp, veh, canEdit) {
+  if (!veh || !lp.connected || lp.foreign) return '';
+  return limitForm({url: `api/loadpoints/${encodeURIComponent(lp.id)}/limit`, l: lp.limit, known: veh.soc != null, cap: veh.settings.capacityWh || 0, eff: 0.85, canEdit,
+    stop: 'hört voltibri auf zu laden'});
+}
 function renderLpDlg() {
   const lp = (charging.loadpoints || []).find(l => l.id === lpDlgId);
   if (!lp) { $('lpDlg').close(); return; }
@@ -1334,6 +1447,8 @@ function renderLpDlg() {
           : lp.connected ? 'Gilt bis zum Abstecken. „Automatisch“ erkennt das Auto über sein Fahrzeugkonto.'
           : 'Wähle das Fahrzeug schon vor dem Einstecken – ohne Ladekarte und automatische Erkennung. Wird innerhalb von 10 min nichts eingesteckt, wird die Wallbox wieder gesperrt.'}</div>
         ${guest && !lp.detecting ? `<div class="need">${esc(GUEST_POLICY[lp.guestPolicy] || '')}</div>` : ''}</div></div>` : ''}
+      ${socBlock(lp, veh, canEdit)}
+      ${limitBlock(lp, veh, canEdit)}
       ${veh ? `<div class="pform"><div class="lab">Ladeplan · ${esc(veh.name)}</div>${planSummary(veh, lp.plan, charging.local)}</div>` : '<div class="hint">Ladepläne gibt es für bekannte Fahrzeuge, nicht für Gäste.</div>'}
     </div>
     <div class="pd-foot"><button type="button" class="btn" data-lpclose>Fertig</button></div>`;
@@ -1342,8 +1457,48 @@ $('laden').addEventListener('click', e => {
   const b = e.target.closest('[data-lpmore]');
   if (!b) return;
   lpDlgId = b.dataset.lpmore;
+  LD.soc = LD.lim = null;
   renderLpDlg();
   $('lpDlg').showModal();
+});
+// --- battery of a household device (e-bike, power bank): state of charge and limit ---
+let akkuId = null;
+function renderAkku() {
+  const c = ((window._last || {}).consumers || []).find(x => x.id === akkuId), b = c && c.battery;
+  if (!b) { $('akkuDlg').close(); return; }
+  const id = encodeURIComponent(c.id), cur = b.soc != null ? b.soc : null;
+  const src = {manual: 'von Hand' + (b.socAt ? ' ' + hm(b.socAt) : ''), default: 'typischer Wert beim Start'}[b.socSource] || '';
+  const state = b.off ? 'am Ladelimit ausgeschaltet' : b.active ? `lädt seit ${hm(b.since)} · ${kwh(b.energyWh || 0)}` : 'lädt gerade nicht';
+  $('akInner').innerHTML = `<div class="pd-head"><div class="top"><span class="ic">${iconSVG('battery', 22)}</span>
+      <div><h2 id="akTitle">${esc(c.name)}</h2><div class="sub">Akku ${kwh(b.capacityWh)} · ${esc(state)}</div></div>
+      <button type="button" class="x" data-akclose aria-label="Schließen">×</button></div></div>
+    <div class="pd-body">
+      ${b.reason ? `<div class="note">${esc(b.reason)}</div>` : ''}
+      ${socForm({url: `api/loads/${id}/soc`, title: 'Ladestand', cur, what: `≈ ${cur != null ? pct(cur) : ''} · ${src}${b.socEstimated ? ' · hochgerechnet' : ''}`,
+        manual: b.socSource === 'manual', canEdit: true,
+        note: b.active ? 'Gilt für diese Ladung und wird mit der gemessenen Energie hochgerechnet.' : 'Gilt für die nächste Ladung.'})}
+      ${limitForm({url: `api/loads/${id}/limit`, l: b.limit, known: cur != null, cap: b.capacityWh, eff: 0.85, canEdit: true,
+        stop: b.switchable ? 'schaltet voltibri die Steckdose ab' : 'meldet voltibri das Limit (Steckdose wird nicht geschaltet)'})}
+      ${b.off && b.switchable ? '<div class="row"><button type="button" class="btn" data-akon>Wieder einschalten (neue Ladung)</button></div>' : ''}
+    </div>
+    <div class="pd-foot"><button type="button" class="btn" data-akclose>Fertig</button></div>`;
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-akku]');
+  if (!b) return;
+  e.stopPropagation();
+  akkuId = b.dataset.akku; LD.soc = LD.lim = null;
+  renderAkku();
+  $('akkuDlg').showModal();
+}, true);
+$('akkuDlg').addEventListener('click', async e => {
+  const d = $('akkuDlg');
+  if (e.target === d || e.target.closest('[data-akclose]')) return d.close();
+  if (e.target.closest('[data-akon]')) {
+    const r = await fetch(`api/loads/${encodeURIComponent(akkuId)}/on`, {method: 'PUT'}).catch(() => null);
+    if (!r || !r.ok) { const j = r ? await r.json().catch(() => ({})) : {}; alert(j.error || 'Keine Verbindung.'); return; }
+    await refresh(); renderAkku();
+  }
 });
 $('lpDlg').addEventListener('click', e => {
   const d = $('lpDlg');
@@ -1434,6 +1589,7 @@ async function refresh() {
       `<span class="live" title="letzte Messung">${new Date(st.time).toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit', second: '2-digit'})}</span>`;
     $('errors').textContent = (st.errors || []).join(' · ');
     window._last = st;
+    if ($('akkuDlg').open && !(document.activeElement && document.activeElement.tagName === 'INPUT' && $('akkuDlg').contains(document.activeElement))) renderAkku();
     refreshCharging();
   } catch (e) {
     $('errors').textContent = 'Keine Verbindung zu voltibri: ' + e;

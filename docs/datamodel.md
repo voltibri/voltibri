@@ -40,6 +40,18 @@ The physical thing, with a stable ID that is never reused.
 | control (from the driver) | `none` (only measured), `switchable` (on/off: smart plug, relay, SG-Ready contact), `stepped` (a few fixed levels: SG-Ready states), `adjustable` (power set continuously: wallbox, heating rod with power controller, battery), `remote start` (start a prepared program: Home Connect, Miele) |
 | flexibility (user policy) | `none` (default), `shiftable` (start can be delayed, the program then runs to its end: washing machine), `interruptible` (needs X kWh by a deadline, pauses are fine: e-bike, car, hot water by 6 pm), `surplus` (no target, runs only on PV surplus: heating rod, dehumidifier, pool pump) |
 | runs | detect runs from the power (threshold, pause by kind); off for devices that cycle all day (fridge) – their consumption is still in the load profile |
+| battery (appliances) | the device charges a battery (e-bike, power bank): `capacityWh`, `defaultSoC`, `limitSoC`, `efficiency`. voltibri estimates the state of charge from the measured energy and switches the plug off at the limit |
+
+**State of charge (all batteries).** Vehicles, the home battery and
+appliances with a battery share one estimate (package `internal/soc`): a
+base value plus the energy charged since. The base is a value entered by
+hand, the device's reading or a typical value when plugging in (vehicle
+param `defaultSoC`, appliance `battery.defaultSoC`). A value by hand holds
+until unplugged (vehicles, appliances) or until the battery reports a
+different value (home battery); a reading that changes replaces it.
+voltibri's own **charge limit** is a state of charge or, when it is
+unknown, `+x %` of the capacity (5 % steps); charge plans accept `+x %`
+too.
 
 Every controllable device gets the same runtime modes as the wallbox today:
 off/external, PV only, plan (target and deadline, as much PV and as cheap

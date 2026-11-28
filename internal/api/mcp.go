@@ -103,8 +103,12 @@ var mcpTools = []mcpTool{
 - POST /api/config/versions/{id}/rollback – frühere Version zurückholen
 - PUT /api/battery {...alle Felder aus GET /api/battery settings...} – Ladegrenzen (limitMode auto|manual), Boost, Vorrang
 - POST /api/battery/force {"targetSoc": 0.8} / DELETE /api/battery/force – Zwangsladung; DELETE /api/battery/boost – Auto-Boost beenden
+- PUT /api/battery/soc {"soc": 0.55} / DELETE – Ladestand der Hausbatterie von Hand (wenn sie keinen meldet); gilt, bis die Batterie wieder einen anderen Wert meldet, wird mit der Leistung hochgerechnet
 - PUT /api/loads/{id}/priority {"priority": 0-10}, PUT /api/loads/{id}/mode {"mode": "off|surplus|boost"}, PUT /api/loads/{id}/top {"on": true}
+- Akku an einer Steckdose (Gerät mit "battery" in der Konfiguration, z. B. E-Bike): PUT /api/loads/{id}/soc {"soc": 0.3} / DELETE, PUT /api/loads/{id}/limit {"soc": 0.8} oder {"add": 0.2} / DELETE, PUT /api/loads/{id}/on (nach dem Abschalten am Limit wieder einschalten, neue Ladung)
 - PUT /api/vehicles/{key} {Fahrzeug-Einstellungen: mode, plans, ...}, PUT /api/loadpoints/{id}/mode {"mode": "..."}, PUT /api/loadpoints/{id}/vehicle {"vehicle": "<key>|guest|"} – Fahrzeug an der Wallbox wählen ("" = automatisch); vor dem Einstecken gilt die Wahl 10 min, danach ist die Wallbox wieder gesperrt
+- PUT /api/vehicle-soc/{key} {"soc": 0.45} / DELETE – Ladestand eines Fahrzeugs von Hand (auch vor dem Einstecken); gilt bis zum Abstecken, wird beim Laden hochgerechnet, ein neuer Wert der Datenquelle löst ihn ab
+- PUT /api/loadpoints/{id}/limit {"soc": 0.8} oder {"add": 0.2} / DELETE – Ladelimit dieses Ladevorgangs (+x % in 5-%-Schritten, wenn der Ladestand unbekannt ist; braucht die Akkukapazität); Standard je Fahrzeug: "limit" in PUT /api/vehicles/{key}. Ladepläne können statt "soc" auch "add" haben ("+30 % bis 07:00")
 - Preisregel eines Fahrzeugs: Feld "price" am Gerät (type vehicle), je Anteil pv|battery|grid (oder all): {"mode": "inherit|replace|adjust", "base": "fixed|feedin|grid|free" (replace), "ct": 15 (fixed), "percent": 10, "addCt": 1}
 - POST /api/runs/recalc {"vehicle": "id", "from": "JJJJ-MM-TT"?, "to": "JJJJ-MM-TT"?, "dryRun": true} – Ladevorgänge eines Fahrzeugs mit der gespeicherten Preisregel neu bewerten (erst mit dryRun prüfen)`,
 		InputSchema: obj(map[string]any{
