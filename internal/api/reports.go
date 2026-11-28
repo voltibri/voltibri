@@ -106,6 +106,7 @@ func (h *handler) runSeries(w http.ResponseWriter, r *http.Request) {
 		o.BatteryWh += p.BatteryWh
 		o.GridWh += p.GridWh
 		o.CostCt += p.CostCt
+		o.PVPriorityWh += p.PVPriorityWh
 	}
 	// since then: from the load profile
 	if len(assets) > 0 {
@@ -170,7 +171,7 @@ func (h *handler) runSummaries(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, s := range pre {
 		o := get(key{s.Asset, s.Kind})
-		o.EnergyWh, o.SolarWh, o.CostCt = s.EnergyWh, s.SolarWh, s.CostCt
+		o.EnergyWh, o.SolarWh, o.CostCt, o.PVPriorityWh = s.EnergyWh, s.SolarWh, s.CostCt, s.PVPriorityWh
 	}
 	if len(assets) > 0 {
 		sums, err := h.st.ProfileSums(ctx, assets, f.From, f.To, time.Local, "")

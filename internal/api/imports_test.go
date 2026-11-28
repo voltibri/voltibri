@@ -6,6 +6,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -267,6 +268,14 @@ devices:
 	got, _ := pricing.FromAttrs(rs[0].Attrs)
 	if math.Abs(rs[0].CostCt-5*33) > 0.01 || got.PV.Wh != 0 || got.PVPriority.Wh != 3000 || rs[0].PVWh != 3000 || !strings.Contains(rs[0].PriceNote, "Akku-Vorrang") {
 		t.Fatalf("battery priority: %+v %+v", rs[0], got)
+	}
+	// reports by vehicle (from the runs) carry it
+	q := "vehicle=" + url.QueryEscape("Dräger e-Up") + "&from=2025-05-06&to=2025-05-06"
+	if rec := do(h, "GET", "/api/runs/summary?"+q, "", local); !strings.Contains(rec.Body.String(), `"pvPriorityWh": 3000`) {
+		t.Fatalf("summary: %s", rec.Body.String())
+	}
+	if rec := do(h, "GET", "/api/runs/series?bucket=day&"+q, "", local); !strings.Contains(rec.Body.String(), `"pvPriorityWh": 3000`) {
+		t.Fatalf("series: %s", rec.Body.String())
 	}
 	// rules only on vehicles
 	rec = do(h, "POST", "/api/config/validate", `{"config":{"devices":[{"id":"demo","type":"demo","price":{"all":{"mode":"replace","base":"free"}}}]}}`, local)
