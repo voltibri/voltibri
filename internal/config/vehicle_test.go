@@ -31,3 +31,25 @@ func TestVehicleBindingAndNames(t *testing.T) {
 		t.Fatalf("errors: %v", errs)
 	}
 }
+
+func TestVehicleChargeModes(t *testing.T) {
+	c := &Config{Devices: []Device{
+		{ID: "car", Type: "vehicle", ChargeModes: []string{"pv", "fast"}},
+		{ID: "bad", Type: "vehicle", ChargeModes: []string{"pv", "turbo", "pv"}},
+	}}
+	if d := c.Devices[0]; !d.AllowsChargeMode("fast") || !d.AllowsChargeMode("off") || !d.AllowsChargeMode("") || d.AllowsChargeMode("boost") {
+		t.Fatal("car: pv, fast and off allowed, boost not")
+	}
+	if !(Device{Type: "vehicle"}).AllowsChargeMode("boost") {
+		t.Fatal("no list: every mode allowed")
+	}
+	errs := c.validateVehicles()
+	if len(errs) != 2 || !strings.Contains(errs[0].Error(), `unknown mode "turbo"`) || !strings.Contains(errs[1].Error(), `"pv" twice`) {
+		t.Fatalf("errors: %v", errs)
+	}
+	c.Charging.Cards = []Card{{Card: "A", Vehicle: "car", Mode: "boost"}, {Card: "B", Vehicle: "car", Mode: "off"}, {Card: "C", Vehicle: "guest", Mode: "boost"}}
+	errs = c.validateCards()
+	if len(errs) != 1 || !strings.Contains(errs[0].Error(), `card "A": mode "boost" is not allowed for vehicle car`) {
+		t.Fatalf("card errors: %v", errs)
+	}
+}

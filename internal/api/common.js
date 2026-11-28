@@ -51,6 +51,9 @@ const slugify = s => s.toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').r
 const BAT_OPTS = {allow: {label: 'darf liefern', modes: []}, fast: {label: 'nicht bei Schnell', modes: ['fast']},
   fastmin: {label: 'nicht bei Schnell und Min+PV', modes: ['fast', 'minpv']}, never: {label: 'nie', modes: ['external', 'pv', 'pv1', 'minpv', 'boost', 'fast']}};
 // (boost is new: older settings without it still match "nie")
+// vehicles: the charge modes offered at the wallbox ("Aus" is always possible)
+const VEHICLE_MODES = [['pv', 'Überschuss'], ['minpv', 'Min+PV'], ['pv1', '1-phasig + PV'], ['boost', 'Boost'], ['fast', 'Schnell'], ['external', 'Extern']];
+const modesText = ms => VEHICLE_MODES.filter(([k]) => ms.includes(k)).map(([, l]) => l).join(', ');
 const batKey = ms => { const n = l => [...(l || [])].filter(m => m !== 'boost').sort().join(), s = n(ms); return Object.keys(BAT_OPTS).find(k => n(BAT_OPTS[k].modes) === s) || 'allow'; };
 
 // vehicles: price rule per energy share (see internal/pricing)
@@ -337,6 +340,9 @@ const voltibri = (() => {
       ${d.type === 'vehicle' ? `<label class="f" for="sp__vbat">Hausbatterie beim Laden<select id="sp__vbat">${Object.entries(BAT_OPTS).map(([k, o]) =>
         `<option value="${k}"${k === batKey(st.dev.noBatteryModes) ? ' selected' : ''}>${o.label}</option>`).join('')}</select>
         <span class="why">In den gewählten Lademodi lädt das Auto nur aus PV und Netz; voltibri begrenzt dann die Entladung der Hausbatterie auf den übrigen Verbrauch.</span></label>` : ''}
+      ${d.type === 'vehicle' ? `<fieldset class="roles"><legend>Lademodi für dieses Fahrzeug</legend>${VEHICLE_MODES.map(([k, l]) =>
+        `<label class="f cb"><input type="checkbox" data-cmode="${k}"${!(st.dev.chargeModes || []).length || st.dev.chargeModes.includes(k) ? ' checked' : ''}> ${l}</label>`).join('')}
+        <span class="why">Nur diese Modi stehen an der Wallbox zur Wahl, sobald das Fahrzeug erkannt oder gewählt ist; „Aus“ geht immer. Alle oder keiner angehakt: alle Modi. Gäste sind nicht betroffen.</span></fieldset>` : ''}
       ${d.type === 'vehicle' ? `<fieldset class="price"><legend>Preis für dieses Fahrzeug</legend>${priceRows(st.dev.price)}
         <span class="why" id="sp__pprev"></span>
         <span class="why">Gilt für die Ladevorgänge dieses Fahrzeugs an jeder Wallbox, z. B. für die Abrechnung. Standard: PV und Hausbatterie zur entgangenen Einspeisevergütung, Netz zum Tarif. Die eigene Auswertung (Haus, Wallboxen) rechnet weiter mit dem Standard.</span>
@@ -390,6 +396,10 @@ const voltibri = (() => {
       if (v) dev[key] = v; else delete dev[key];
     }
     if (dlg.querySelector('[data-pshare]')) { const p = priceRule(dlg); if (p) dev.price = p; else delete dev.price; }
+    if (dlg.querySelector('[data-cmode]')) { // all or none = all modes (also ones added later)
+      const all = [...dlg.querySelectorAll('[data-cmode]')], on = all.filter(el => el.checked).map(el => el.dataset.cmode);
+      if (on.length && on.length < all.length) dev.chargeModes = on; else delete dev.chargeModes;
+    }
     if ($('sp__vbat')) { const m = BAT_OPTS[$('sp__vbat').value].modes; if (m.length) dev.noBatteryModes = m; else delete dev.noBatteryModes; }
     if ($('sp__heatuse')) { const v = $('sp__heatuse').value; if (v) dev.heatUse = v; else delete dev.heatUse; }
     if ($('sp__bat')) { const b = $('sp__bat').value; if (b) dev.batteryUse = b; else delete dev.batteryUse; }

@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -152,6 +153,9 @@ type Device struct {
 	// NoBatteryModes (vehicles): in these charge modes the home battery does
 	// not supply the car, e.g. [fast] or [fast, minpv].
 	NoBatteryModes []string `yaml:"noBatteryModes,omitempty" json:"noBatteryModes,omitempty"`
+	// ChargeModes (vehicles): the charge modes offered for this vehicle, e.g.
+	// [pv, fast]; empty = all. "off" is always possible.
+	ChargeModes []string `yaml:"chargeModes,omitempty" json:"chargeModes,omitempty"`
 	// Price (vehicles): price rule for the runs of this vehicle, e.g. PV at a
 	// fixed price and grid +10 %; nil = default (PV and battery at the lost
 	// feed-in tariff, grid at the tariff). See package pricing.
@@ -537,6 +541,9 @@ func (c *Config) validateCards() []error {
 		seen[strings.ToLower(k.Card)] = true
 		switch k.Mode {
 		case "", "off", "external", "pv", "pv1", "minpv", "fast", "boost":
+			if d, ok := c.Device(k.Vehicle); ok && d.IsVehicle() && !d.AllowsChargeMode(k.Mode) {
+				errs = append(errs, fmt.Errorf("charging.cards: card %q: mode %q is not allowed for vehicle %s", k.Card, k.Mode, k.Vehicle))
+			}
 		default:
 			errs = append(errs, fmt.Errorf("charging.cards: card %q: unknown mode %q", k.Card, k.Mode))
 		}
@@ -549,4 +556,14 @@ func (c *Config) validateCards() []error {
 		}
 	}
 	return errs
+}
+
+// AllowsChargeMode reports whether the charge mode may be chosen for this
+// vehicle: "off" and "" (the vehicle's default) always, the others when
+// ChargeModes is empty or lists them.
+func (d Device) AllowsChargeMode(mode string) bool {
+	if mode == "" || mode == "off" || len(d.ChargeModes) == 0 {
+		return true
+	}
+	return slices.Contains(d.ChargeModes, mode)
 }
