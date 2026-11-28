@@ -811,3 +811,36 @@ func TestImbalanceLimitsTwoPhaseCar(t *testing.T) {
 		t.Fatalf("imbalance: %+v", lp)
 	}
 }
+
+// A configuration change builds the new manager while the old one still
+// runs; the old one keeps its open session only when it stops. The new one
+// must continue it instead of starting a new session.
+func TestConfigChangeKeepsSession(t *testing.T) {
+	cfg := config.Default()
+	cfg.Devices = []config.Device{{ID: "wb", Type: "x", Mode: "owned"}}
+	cfg.Charging.Loadpoints = []config.Loadpoint{{Charger: "wb", GuestMode: "fast"}}
+	cache := sdk.NewMemCache()
+	ch := &fakeCharger{st: sdk.ChargerStatus{Connected: true, Charging: true, PowerW: 7200}}
+	ss := &memSessions{}
+	mk := func() *Manager {
+		m, err := New(cfg, time.UTC, map[string]sdk.Device{"wb": ch}, cache, ss)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+	old := mk()
+	for i := 0; i <= 180; i++ { // 30 minutes at 7.2 kW: 3.6 kWh
+		tick(old, time.Duration(i)*10*time.Second, ch, 7700, 0, 0, 7700)
+	}
+	next := mk() // built before the old one stops
+	old.Close()
+	tick(next, 30*time.Minute+10*time.Second, ch, 7700, 0, 0, 7700)
+	s := next.Loadpoints()[0].Session
+	if s == nil || !s.Start.Equal(t0) || s.EnergyWh < 3500 {
+		t.Fatalf("session not continued: %+v", s)
+	}
+	if len(*ss) != 0 {
+		t.Fatalf("nothing must be stored while charging: %+v", *ss)
+	}
+}

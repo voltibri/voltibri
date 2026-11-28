@@ -180,7 +180,6 @@ type lpRuntime struct {
 	manualTo   time.Time // chosen before plugging in: the choice ends then unless a vehicle is plugged in
 	wasLocked  bool      // voltibri disabled the charger
 	observedLg string
-	resume     *Session // open session from before a restart
 	ticked     bool
 	carPhases  int       // phases the car drew on in this session (measured, 0 = not yet)
 	released   int       // phases released by the last decision
@@ -284,12 +283,6 @@ func New(cfg *config.Config, loc *time.Location, devices map[string]sdk.Device, 
 		lp.manual = m.loadString("lp:" + dc.ID)
 		if t, err := time.Parse(time.RFC3339, m.loadString("lpUntil:"+dc.ID)); err == nil {
 			lp.manualTo = t
-		}
-		if b, _, ok := settings.Get("open:" + dc.ID); ok && len(b) > 0 {
-			var s Session
-			if json.Unmarshal(b, &s) == nil {
-				lp.resume = &s
-			}
 		}
 		m.lps = append(m.lps, lp)
 	}
@@ -704,8 +697,10 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 		v.Connected, v.Charging, v.PowerW = st.Connected, st.Charging, st.PowerW
 		if !lp.ticked { // first tick: continue a session interrupted by a restart
 			lp.ticked = true
-			if r := lp.resume; r != nil {
-				lp.resume = nil
+			// read only now, not in New: on a configuration change the new
+			// manager is built while the old one still runs and keeps its
+			// open session only when it stops
+			if r := m.openSession(v.ID); r != nil {
 				_ = m.settings.Put("open:"+v.ID, []byte{})
 				if v.Connected && in.Now.Sub(r.Start) < 48*time.Hour {
 					lp.session, lp.plugged, wasConnected = r, r.Start, true
@@ -1095,6 +1090,23 @@ func (m *Manager) closeSessions() {
 			_ = m.settings.Put("open:"+lp.view.ID, b)
 		}
 	}
+}
+
+// openSession is the session left open by the previous manager (restart
+// or configuration change), nil if none.
+func (m *Manager) openSession(id string) *Session {
+	if m.settings == nil {
+		return nil
+	}
+	b, _, ok := m.settings.Get("open:" + id)
+	if !ok || len(b) == 0 {
+		return nil
+	}
+	var s Session
+	if json.Unmarshal(b, &s) != nil {
+		return nil
+	}
+	return &s
 }
 
 // Close must be called when the site stops.
