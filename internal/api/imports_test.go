@@ -271,7 +271,7 @@ devices:
 	}
 	// reports by vehicle (from the runs) carry it
 	q := "vehicle=" + url.QueryEscape("Dräger e-Up") + "&from=2025-05-06&to=2025-05-06"
-	if rec := do(h, "GET", "/api/runs/summary?"+q, "", local); !strings.Contains(rec.Body.String(), `"pvPriorityWh": 3000`) {
+	if rec := do(h, "GET", "/api/runs/summary?"+q, "", local); !strings.Contains(rec.Body.String(), `"pvPriorityWh": 3000`) || !strings.Contains(rec.Body.String(), `"billedCt": 165`) {
 		t.Fatalf("summary: %s", rec.Body.String())
 	}
 	if rec := do(h, "GET", "/api/runs/series?bucket=day&"+q, "", local); !strings.Contains(rec.Body.String(), `"pvPriorityWh": 3000`) {

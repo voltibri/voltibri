@@ -168,6 +168,9 @@ func (h *handler) runSummaries(w http.ResponseWriter, r *http.Request) {
 	for _, s := range all {
 		o := get(key{s.Asset, s.Kind})
 		o.Count, o.Imported, o.First, o.Last = s.Count, s.Imported, s.First, s.Last
+		if s.Kind == config.RunCharging { // charged to the drivers, by the sessions' price rules
+			o.BilledCt = s.CostCt
+		}
 	}
 	for _, s := range pre {
 		o := get(key{s.Asset, s.Kind})

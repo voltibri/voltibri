@@ -100,8 +100,8 @@
     <div class="stats">
       <div class="stat"><span class="eyebrow">Energie</span><span class="big num" id="tEnergy">–</span><span class="sub" id="tCount"></span></div>
       <div class="stat"><span class="eyebrow">Aus PV &amp; Akku</span><span class="big num" id="tSolar">–</span><span class="sub" id="tSolarKwh"></span></div>
-      <div class="stat"><span class="eyebrow">Kosten</span><span class="big num" id="tCost">–</span><span class="sub" id="tCostNote"></span></div>
-      <div class="stat"><span class="eyebrow">Ø pro kWh</span><span class="big num" id="tPerKwh">–</span><span class="sub">inkl. PV-Anteil</span></div>
+      <div class="stat" title="Was der Strom das Haus gekostet hat: gemessen an der Wallbox bzw. am Gerät, PV zur entgangenen Einspeisevergütung, Netz zum Tarif – unabhängig davon, wer lädt."><span class="eyebrow" id="tCostLabel">Kosten intern</span><span class="big num" id="tCost">–</span><span class="sub" id="tCostNote"></span></div>
+      <div class="stat" id="tBilledBox" title="Was den Fahrern verrechnet wurde: Ladevorgänge nach der Preisregel des Fahrzeugs, Gäste zum Netzpreis, PV bei Akku-Vorrang zum Netzpreis."><span class="eyebrow" id="tBilledLabel">Verrechnet</span><span class="big num" id="tBilled">–</span><span class="sub" id="tBilledNote"></span></div>
     </div>
   </section>
 
@@ -273,9 +273,30 @@ function renderTotals(per) {
   $('tCount').textContent = `${num(t.count)} ${t.count === 1 ? w[0] : w[1]}`;
   $('tSolar').innerHTML = t.e > 0 ? big(num(100 * t.sol / t.e), '%') : '–';
   $('tSolarKwh').textContent = t.e > 0 ? `${kwhTxt(t.sol)} kWh selbst erzeugt${t.prio >= 1 ? `, davon ${kwhTxt(t.prio)} kWh bei Akku-Vorrang (zum Netzpreis)` : ''}` : '';
-  $('tCost').innerHTML = big(euro(t.cost).replace(/\s?€$/, ''), '€');
-  $('tCostNote').textContent = t.imp ? `davon ${num(t.imp)} aus evcc` : '';
-  $('tPerKwh').innerHTML = t.e > 0 ? big(num(t.cost / (t.e / 1000), 1), 'ct') : '–';
+  // intern: what the energy cost the house (load profile); verrechnet: what
+  // the charging sessions were charged. By vehicle there is no load profile
+  // per car: only the charged amount.
+  const perKwh = (ct, wh) => wh > 0 ? `Ø ${num(ct / (wh / 1000), 1)} ct/kWh` : '';
+  const evcc = t.imp ? ` · davon ${num(t.imp)} aus evcc` : '';
+  const ch = per.filter(s => s.kind === 'charging'), charging = ch.length > 0;
+  const billed = ch.reduce((a, s) => a + (s.billedCt || 0), 0);
+  const chCost = ch.reduce((a, s) => a + s.costCt, 0), chE = ch.reduce((a, s) => a + s.energyWh, 0); // compare charging with charging
+  if (F.vehicle) {
+    $('tCost').innerHTML = '–';
+    $('tCostNote').textContent = 'nur je Wallbox messbar';
+  } else {
+    $('tCost').innerHTML = big(euro(t.cost).replace(/\s?€$/, ''), '€');
+    $('tCostNote').textContent = perKwh(t.cost, t.e) + (charging ? '' : evcc);
+  }
+  $('tBilledLabel').textContent = charging ? 'Verrechnet' : 'Ø pro kWh';
+  if (charging) {
+    const b = F.vehicle ? chCost : billed, d = b - chCost;
+    $('tBilled').innerHTML = big(euro(b).replace(/\s?€$/, ''), '€');
+    $('tBilledNote').textContent = perKwh(b, chE) + (!F.vehicle && Math.abs(d) >= 1 ? ` · ${d > 0 ? '+' : '−'}${euro(Math.abs(d))} gegenüber intern${ch.length < per.length ? ' (Laden)' : ''}` : '') + evcc;
+  } else {
+    $('tBilled').innerHTML = t.e > 0 ? big(num(t.cost / (t.e / 1000), 1), 'ct') : '–';
+    $('tBilledNote').textContent = 'inkl. PV-Anteil';
+  }
 }
 
 // every bucket of the period, also the empty ones: hours, days or months
@@ -359,10 +380,11 @@ const prioOf = r => (r.attrs && r.attrs.shares && r.attrs.shares.pvPriority && r
 function renderPerAsset(per) {
   if (!per.length) { $('perAsset').innerHTML = '<tr><td class="empty">Keine Einträge.</td></tr>'; return; }
   per.sort((a, b) => b.energyWh - a.energyWh);
-  $('perAsset').innerHTML = `<thead><tr><th>Gerät</th><th>Art</th><th class="r">Anzahl</th><th class="r">Energie</th><th>PV &amp; Akku</th><th class="r">Kosten</th><th>Zeitraum</th></tr></thead><tbody>` +
+  $('perAsset').innerHTML = `<thead><tr><th>Gerät</th><th>Art</th><th class="r">Anzahl</th><th class="r">Energie</th><th>PV &amp; Akku</th><th class="r" title="Was der Strom das Haus gekostet hat">intern</th><th class="r" title="Was den Fahrern verrechnet wurde">verrechnet</th><th>Zeitraum</th></tr></thead><tbody>` +
     per.map(s => `<tr><td><a href="?${query({asset: s.asset})}" data-asset="${esc(s.asset)}">${esc(name(s.asset))}</a>${assets[s.asset] && assets[s.asset].retired ? ' <span class="pill">stillgelegt</span>' : ''}</td>
       <td>${(KIND_WORD[s.kind] || KIND_WORD.run)[1]}</td><td class="r">${num(s.count)}</td><td class="r">${kwhTxt(s.energyWh)} kWh</td>
-      <td>${shareBar(s.energyWh, s.solarWh, s.pvPriorityWh)}</td><td class="r">${euro(s.costCt)}</td>
+      <td>${shareBar(s.energyWh, s.solarWh, s.pvPriorityWh)}</td><td class="r">${F.vehicle ? '–' : euro(s.costCt)}</td>
+      <td class="r">${s.kind !== 'charging' ? '–' : euro(F.vehicle ? s.costCt : (s.billedCt || 0))}</td>
       <td>${new Date(s.first).toLocaleDateString('de-DE', {month: '2-digit', year: 'numeric'})} – ${new Date(s.last).toLocaleDateString('de-DE', {month: '2-digit', year: 'numeric'})}</td></tr>`).join('') + '</tbody>';
 }
 

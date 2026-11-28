@@ -102,10 +102,13 @@ type RunSummary struct {
 	SolarWh  float64 `json:"solarWh"` // PV + battery
 	// PVPriorityWh is the part of SolarWh taken while the home battery had
 	// priority: priced like grid energy (attrs.shares.pvPriority)
-	PVPriorityWh float64   `json:"pvPriorityWh"`
-	CostCt       float64   `json:"costCt"`
-	First        time.Time `json:"first"`
-	Last         time.Time `json:"last"`
+	PVPriorityWh float64 `json:"pvPriorityWh"`
+	// BilledCt is what the charging sessions were charged (their price
+	// rules), set by the reports next to CostCt, the internal cost
+	BilledCt float64   `json:"billedCt,omitempty"`
+	CostCt   float64   `json:"costCt"`
+	First    time.Time `json:"first"`
+	Last     time.Time `json:"last"`
 }
 
 // RunSummaries returns one summary per asset and run kind for the runs
