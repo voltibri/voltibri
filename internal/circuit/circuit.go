@@ -30,6 +30,9 @@ type Node struct {
 	Phases  int     // 1 or 3
 	Meter   bool    // MeterCurrents holds a measurement of the whole circuit
 	Devices []string
+	// ImbalanceA is the highest difference between the phase currents
+	// (Schieflast, house connection only); 0 = not watched.
+	ImbalanceA float64
 }
 
 // Reading is what is known about one device.
@@ -53,6 +56,10 @@ type Status struct {
 	Devices     []string `json:"devices"`
 	Utilization float64  `json:"utilization"` // highest phase / MaxA (0 without limit)
 	Over        bool     `json:"over"`
+	// unbalanced load (Schieflast): only with a measurement of all phases
+	MaxImbalanceA float64 `json:"maxImbalanceA,omitempty"` // permitted difference between the phases
+	ImbalanceA    float64 `json:"imbalanceA,omitempty"`    // highest minus lowest phase now
+	ImbalanceOver bool    `json:"imbalanceOver,omitempty"`
 }
 
 // Tree is the aggregated installation for one measurement.
@@ -81,6 +88,11 @@ func Compute(nodes []Node, readings map[string]Reading, meters map[string]Phases
 			ph = 3
 		}
 		t.st[n.ID] = &Status{ID: n.ID, Name: n.Name, Parent: p, MaxA: n.MaxA, Phases: ph, Devices: append([]string{}, n.Devices...)}
+		if n.ID == Root && ph == 3 && n.ImbalanceA > 0 {
+			if _, ok := meters[Root]; ok { // the sum of the devices misses the rest of the house
+				t.st[n.ID].MaxImbalanceA = n.ImbalanceA
+			}
+		}
 		t.parent[n.ID] = p
 		if p != "" {
 			children[p] = append(children[p], n.ID)
@@ -163,9 +175,15 @@ func (s *Status) update() {
 		s.Utilization = maxOf(s.CurrentsA) / s.MaxA
 		s.Over = s.Utilization > 1.0001
 	}
+	s.ImbalanceA, s.ImbalanceOver = 0, false
+	if s.MaxImbalanceA > 0 {
+		s.ImbalanceA = maxOf(s.CurrentsA) - minOf(s.CurrentsA)
+		s.ImbalanceOver = s.ImbalanceA > s.MaxImbalanceA+0.0001
+	}
 }
 
 func maxOf(p Phases) float64 { return math.Max(p[0], math.Max(p[1], p[2])) }
+func minOf(p Phases) float64 { return math.Min(p[0], math.Min(p[1], p[2])) }
 
 // Statuses returns all circuits, the house connection first.
 func (t *Tree) Statuses() []Status {
@@ -185,24 +203,61 @@ func (t *Tree) CircuitOf(device string) string {
 }
 
 // Headroom returns the highest current per phase the device may draw,
-// given what it draws now (own), and the circuit that limits it. Circuits
-// without a fuse do not limit (+Inf).
-func (t *Tree) Headroom(device string, own Phases) (float64, string) {
+// given what it draws now (own) on how many phases (n: 1, 2 or 3), and the
+// circuit that limits it. Circuits without a fuse do not limit (+Inf). On
+// fewer than 3 phases the unbalanced load of the house connection limits
+// too: the phases drawn on may exceed the lowest other phase by at most
+// the permitted imbalance.
+func (t *Tree) Headroom(device string, own Phases, n int) (float64, string) {
 	limit, by := math.Inf(1), ""
-	for id, n := t.CircuitOf(device), 0; id != "" && n < 17; id, n = t.parent[id], n+1 {
+	for id, k := t.CircuitOf(device), 0; id != "" && k < 17; id, k = t.parent[id], k+1 {
 		s := t.st[id]
-		if s == nil || s.MaxA <= 0 {
+		if s == nil {
 			continue
 		}
-		var others float64
-		for i := range own {
-			others = math.Max(others, s.CurrentsA[i]-own[i])
+		if s.MaxA > 0 {
+			var others float64
+			for i := range own {
+				others = math.Max(others, s.CurrentsA[i]-own[i])
+			}
+			if a := math.Max(0, s.MaxA-others); a < limit {
+				limit, by = a, s.Name
+			}
 		}
-		if a := math.Max(0, s.MaxA-others); a < limit {
-			limit, by = a, s.Name
+		if s.MaxImbalanceA > 0 && n > 0 && n < 3 {
+			on := drawnOn(own, n)
+			hi, lo := math.Inf(-1), math.Inf(1)
+			for i := range own {
+				o := s.CurrentsA[i] - own[i]
+				if on[i] {
+					hi = math.Max(hi, o)
+				} else {
+					lo = math.Min(lo, o)
+				}
+			}
+			if a := math.Max(0, s.MaxImbalanceA+lo-hi); a < limit {
+				limit, by = a, "Schieflast am "+s.Name
+			}
 		}
 	}
 	return limit, by
+}
+
+// drawnOn are the phases a device draws on: as measured when that matches
+// n, else L1 to Ln (how Spread estimates).
+func drawnOn(own Phases, n int) [3]bool {
+	var on [3]bool
+	k := 0
+	for i, a := range own {
+		if a >= 1 {
+			on[i] = true
+			k++
+		}
+	}
+	if k == n {
+		return on
+	}
+	return [3]bool{n >= 1, n >= 2, n >= 3}
 }
 
 // Commit books a changed draw of the device (from own to next) on all its

@@ -32,17 +32,17 @@ func TestComputeAndHeadroom(t *testing.T) {
 	}
 
 	// carport may use what zaun leaves: 32 - 10 = 22 A
-	a, by := tr.Headroom("carport", Phases{16, 16, 16})
+	a, by := tr.Headroom("carport", Phases{16, 16, 16}, 3)
 	if a != 22 || by != "Wallboxen" {
 		t.Fatalf("headroom %v %q", a, by)
 	}
 	// carport goes up to 22 A -> zaun may keep only 10 A
 	tr.Commit("carport", Phases{16, 16, 16}, Phases{22, 22, 22})
-	if a, _ := tr.Headroom("zaun", Phases{10, 10, 10}); a != 10 {
+	if a, _ := tr.Headroom("zaun", Phases{10, 10, 10}, 3); a != 10 {
 		t.Fatalf("after commit %v", a)
 	}
 	// device without circuit is limited by the house connection
-	if a, by := tr.Headroom("other", Phases{}); a != 63-42 || by != "Hausanschluss" {
+	if a, by := tr.Headroom("other", Phases{}, 3); a != 63-42 || by != "Hausanschluss" {
 		t.Fatalf("root headroom %v %q", a, by)
 	}
 }
@@ -54,7 +54,37 @@ func TestMeterWins(t *testing.T) {
 	if s[0].CurrentsA != (Phases{30, 30, 30}) || s[1].CurrentsA != (Phases{20, 21, 22}) || s[1].Estimated {
 		t.Fatalf("%+v", s)
 	}
-	if a, _ := tr.Headroom("nobody", Phases{}); !math.IsInf(a, 1) {
+	if a, _ := tr.Headroom("nobody", Phases{}, 3); !math.IsInf(a, 1) {
 		t.Errorf("root without fuse limits: %v", a)
+	}
+}
+
+// Unbalanced load (Schieflast): a 2-phase car at a house that already
+// draws more on L1 may add only up to 20 A above the lowest other phase.
+func TestImbalance(t *testing.T) {
+	nodes := []Node{{ID: Root, Name: "Hausanschluss", Phases: 3, Meter: true, ImbalanceA: 20, Devices: []string{"wb"}}}
+	// the car draws 16 A on L1 and L2, the house 8 A on L1 and 2 A on L2 and L3
+	r := map[string]Reading{"wb": {Currents: Phases{16, 16, 0}, HasCurrents: true}}
+	tr := Compute(nodes, r, map[string]Phases{Root: {24, 18, 2}})
+	g := tr.Statuses()[0]
+	if g.MaxImbalanceA != 20 || g.ImbalanceA != 22 || !g.ImbalanceOver {
+		t.Fatalf("root %+v", g)
+	}
+	// others: 8 / 2 / 2 -> the car may draw 20 + 2 - 8 = 14 A on L1 and L2
+	if a, by := tr.Headroom("wb", Phases{16, 16, 0}, 2); a != 14 || by != "Schieflast am Hausanschluss" {
+		t.Fatalf("2 phases: %v %q", a, by)
+	}
+	// on all three phases the imbalance does not change
+	if a, _ := tr.Headroom("wb", Phases{16, 16, 16}, 3); !math.IsInf(a, 1) {
+		t.Fatalf("3 phases: %v", a)
+	}
+	// not measured per phase: L1 (and L2) assumed
+	if a, _ := tr.Headroom("wb", Phases{}, 1); a != 0 { // others 24 / 18 / 2: L1 is 22 A above L3 already
+		t.Fatalf("1 phase unmeasured: %v", a)
+	}
+	// without a grid meter the house is not known: not watched
+	tr = Compute(nodes, r, nil)
+	if a, _ := tr.Headroom("wb", Phases{16, 16, 0}, 2); !math.IsInf(a, 1) || tr.Statuses()[0].MaxImbalanceA != 0 {
+		t.Fatalf("without meter: %v", a)
 	}
 }

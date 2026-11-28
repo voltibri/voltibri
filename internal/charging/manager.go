@@ -922,7 +922,11 @@ func (m *Manager) Update(ctx context.Context, in SiteInput) Result {
 			if own, ok = in.Circuits.Draw(v.ID); !ok {
 				own = circuit.Spread(v.PowerW/Voltage/float64(lp.cfg.Phases), lp.cfg.Phases)
 			}
-			if a, by := in.Circuits.Headroom(v.ID, own); a < maxA {
+			released := lp.state.Phases
+			if released == 0 {
+				released = lp.cfg.Phases
+			}
+			if a, by := in.Circuits.Headroom(v.ID, own, DrawPhases(released, carPhases)); a < maxA {
 				maxA, v.LimitBy = math.Floor(a), by
 				v.LimitA = &maxA
 			}

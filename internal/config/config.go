@@ -402,6 +402,26 @@ func (c *Config) RolesOf(id string) []string {
 type GridConnection struct {
 	FuseA  float64 `yaml:"fuseA,omitempty" json:"fuseA,omitempty"`   // main fuse per phase (e.g. 63); 0 = not monitored
 	Phases int     `yaml:"phases,omitempty" json:"phases,omitempty"` // default 3
+	// MaxImbalanceA is the highest difference between the phase currents
+	// (Schieflast); 0 = DefaultImbalanceA. Load management keeps 1- and
+	// 2-phase charging below it.
+	MaxImbalanceA float64 `yaml:"maxImbalance,omitempty" json:"maxImbalance,omitempty"`
+}
+
+// DefaultImbalanceA is the permitted unbalanced load in Germany: 4.6 kVA
+// between the phases (VDE-AR-N 4100), 20 A at 230 V.
+const DefaultImbalanceA = 20.0
+
+// ImbalanceA returns the permitted unbalanced load in ampere (0 for a
+// single-phase connection).
+func (g GridConnection) ImbalanceA() float64 {
+	switch {
+	case g.Phases == 1:
+		return 0
+	case g.MaxImbalanceA > 0:
+		return g.MaxImbalanceA
+	}
+	return DefaultImbalanceA
 }
 
 // Circuit is a sub-distribution with its own fuse, e.g. two wallboxes that
@@ -421,6 +441,9 @@ func (c *Config) validateCircuits() []error {
 	var errs []error
 	if c.Grid.FuseA < 0 || c.Grid.FuseA > 1000 {
 		errs = append(errs, fmt.Errorf("grid.fuseA must be between 0 and 1000"))
+	}
+	if c.Grid.MaxImbalanceA < 0 || c.Grid.MaxImbalanceA > 1000 {
+		errs = append(errs, fmt.Errorf("grid.maxImbalance must be between 0 and 1000"))
 	}
 	if p := c.Grid.Phases; p != 0 && p != 1 && p != 3 {
 		errs = append(errs, fmt.Errorf("grid.phases must be 1 or 3"))

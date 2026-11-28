@@ -332,6 +332,8 @@ const SECTIONS = {
     {key: 'fuseA', label: 'Absicherung Hausanschluss', kind: 'num', unit: 'A', min: 0, max: 1000,
      why: 'Hauptsicherung pro Phase (steht am Hausanschlusskasten oder Zähler), z. B. 35 oder 63 A. Leer = nicht überwachen.'},
     {key: 'phases', label: 'Anschluss', kind: 'select', def: 3, options: [[3, 'dreiphasig'], [1, 'einphasig']]},
+    {key: 'maxImbalance', label: 'Max. Schieflast', kind: 'num', unit: 'A', min: 1, max: 1000, def: 20,
+     why: 'Höchster Unterschied zwischen den Phasen. In Deutschland 20 A (4,6 kVA nach VDE-AR-N 4100), sofern der Netzbetreiber nichts anderes vorgibt. Das Lastmanagement hält das Laden auf 1 oder 2 Phasen darunter; braucht die Phasenströme des Netzzählers.'},
   ]},
   battery: {title: 'Hausbatterie', fields: [
     {key: 'capacityWh', label: 'Kapazität', kind: 'kwh', step: 0.1, min: 0, why: 'Nutzbare Kapazität laut Datenblatt.'},
@@ -615,8 +617,13 @@ function loadHTML(st, maxA) {
   const a = st.currentsA.map(x => num(x, 1)).join(' / ');
   const u = maxA > 0 ? Math.max(...st.currentsA) / maxA : 0;
   const cls = u > 1 ? 'over' : u > 0.9 ? 'high' : '';
+  // unbalanced load (house connection with a measurement of all phases)
+  const iu = st.maxImbalanceA > 0 ? (st.imbalanceA || 0) / st.maxImbalanceA : 0;
+  const icls = iu > 1 ? 'over' : iu > 0.9 ? 'high' : '';
+  const imb = st.maxImbalanceA > 0 ? `<span>Schieflast ${num(st.imbalanceA || 0, 1)} von ${num(st.maxImbalanceA, 0)} A</span>
+    <div class="ubar ${icls}" title="${Math.round(iu * 100)} % der erlaubten Schieflast"><i style="width:${Math.min(100, iu * 100).toFixed(0)}%"></i></div>` : '';
   return `<div class="load"><span>${a} A${st.estimated ? ' <span class="why">(teils geschätzt)</span>' : ''}</span>
-    ${maxA > 0 ? `<div class="ubar ${cls}" title="${Math.round(u * 100)} % der Absicherung"><i style="width:${Math.min(100, u * 100).toFixed(0)}%"></i></div>` : ''}</div>`;
+    ${maxA > 0 ? `<div class="ubar ${cls}" title="${Math.round(u * 100)} % der Absicherung"><i style="width:${Math.min(100, u * 100).toFixed(0)}%"></i></div>` : ''}${imb}</div>`;
 }
 
 function gridSection() {
@@ -625,8 +632,8 @@ function gridSection() {
   const head = `<div class="dev">
     <span class="ic">${iconSVG('grid', 22)}</span>
     <div><div class="nm">Hausanschluss</div>
-      <div class="meta"><span>${g.fuseA ? `${num(g.fuseA, 0)} A` : 'Absicherung nicht eingetragen'}</span><span>${g.phases === 1 ? 'einphasig' : 'dreiphasig'}</span>
-      <span>gemessen über ${esc(devName(D.cfg.roles.grid || '–'))}</span>${root && root.over ? '<span class="chip err">überlastet</span>' : ''}</div></div>
+      <div class="meta"><span>${g.fuseA ? `${num(g.fuseA, 0)} A` : 'Absicherung nicht eingetragen'}</span><span>${g.phases === 1 ? 'einphasig' : `dreiphasig · Schieflast max. ${num(g.maxImbalance || 20, 0)} A`}</span>
+      <span>gemessen über ${esc(devName(D.cfg.roles.grid || '–'))}</span>${root && root.over ? '<span class="chip err">überlastet</span>' : ''}${root && root.imbalanceOver ? '<span class="chip err">Schieflast zu hoch</span>' : ''}</div></div>
     <span class="val">${root ? kw(Math.abs(D.state.gridW || 0)) : ''}</span>
     <span class="act">${D.readOnly || !D.local ? '' : '<button type="button" class="btn" data-section="grid">Bearbeiten</button>'}</span>
     <div class="extra">${loadHTML(root, g.fuseA)}</div></div>`;

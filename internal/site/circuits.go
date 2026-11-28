@@ -13,12 +13,14 @@ import (
 )
 
 // circuitNodes builds the installation tree from the configuration (nil if
-// neither a main fuse nor sub-distributions are configured).
+// there is nothing to watch: no main fuse, no sub-distributions and a
+// single-phase connection without unbalanced load).
 func circuitNodes(cfg *config.Config) []circuit.Node {
-	if cfg.Grid.FuseA <= 0 && len(cfg.Circuits) == 0 {
+	if cfg.Grid.FuseA <= 0 && len(cfg.Circuits) == 0 && cfg.Grid.ImbalanceA() <= 0 {
 		return nil
 	}
-	nodes := []circuit.Node{{ID: circuit.Root, Name: "Hausanschluss", MaxA: cfg.Grid.FuseA, Phases: cfg.Grid.Phases, Meter: true}}
+	nodes := []circuit.Node{{ID: circuit.Root, Name: "Hausanschluss", MaxA: cfg.Grid.FuseA, Phases: cfg.Grid.Phases, Meter: true,
+		ImbalanceA: cfg.Grid.ImbalanceA()}}
 	for _, c := range cfg.Circuits {
 		name := c.Name
 		if name == "" {

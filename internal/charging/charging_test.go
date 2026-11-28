@@ -790,3 +790,24 @@ func TestManagerTwoPhaseGuest(t *testing.T) {
 		t.Fatalf("4.6 kW surplus on 2 phases must be 10 A: %+v", lp.Target)
 	}
 }
+
+// Fast charging a 2-phase car: the unbalanced load at the house connection
+// caps the current on its two phases.
+func TestImbalanceLimitsTwoPhaseCar(t *testing.T) {
+	m, ch, _ := setup(t, config.Loadpoint{GuestMode: "fast"}, fakeProvider{})
+	ch.st = sdk.ChargerStatus{Connected: true, Charging: true, PowerW: 7360, Phases: 2}
+	// the house draws 6 A more on L1 than on L3
+	tree := func() *circuit.Tree {
+		return circuit.Compute([]circuit.Node{{ID: circuit.Root, Name: "Hausanschluss", Phases: 3, Meter: true, ImbalanceA: 20, Devices: []string{"wb"}}},
+			map[string]circuit.Reading{"wb": {Currents: circuit.Phases{16, 16, 0}, HasCurrents: true}}, map[string]circuit.Phases{circuit.Root: {24, 18, 2}})
+	}
+	var lp Loadpoint
+	for i := 0; i <= 4; i++ {
+		m.Update(context.Background(), SiteInput{Now: t0.Add(time.Duration(i) * 10 * time.Second), LoadW: 9000,
+			Chargers: map[string]sdk.ChargerStatus{"wb": ch.st}, Circuits: tree()})
+		lp = m.Loadpoints()[0]
+	}
+	if lp.CarPhases != 2 || lp.Target.CurrentA != 14 || lp.LimitBy != "Schieflast am Hausanschluss" || !strings.Contains(lp.Reason, "Schieflast") {
+		t.Fatalf("imbalance: %+v", lp)
+	}
+}
